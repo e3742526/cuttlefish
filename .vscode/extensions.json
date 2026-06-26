@@ -1,9 +1,0 @@
-{
-    "recommendations": [
-        "anthropic.claude-code",
-        "johnpapa.vscode-peacock"
-    ],
-    "unwantedRecommendations": [
-        "james-yu.latex-workshop"
-    ]
-}
