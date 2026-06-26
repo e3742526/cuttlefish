@@ -8,6 +8,9 @@ import type { Engine, CuttlefishConfig } from "../shared/types.js";
 import { loadConfig, normalizeClaudeEngineConfig } from "../shared/config.js";
 import { seedTrust, cleanupSessionSettings } from "../shared/claude-settings.js";
 import { configureLogger, logger } from "../shared/logger.js";
+import { buildKnowledgeReadProvider } from "../knowledge/read/index.js";
+import { buildKnowledgeSink } from "../knowledge/sinks/index.js";
+import { knowledgeRelayOptions, relayPendingKnowledgeOutbox } from "../knowledge/outbox-service.js";
 import { invalidateModelRegistry, refreshGrokModels, refreshHermesModels, refreshPiModels } from "../shared/models.js";
 import { CLAUDE_SETTINGS_DIR, GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, CUTTLEFISH_HOME, ORG_DIR } from "../shared/paths.js";
 import { CodexEngine } from "../engines/codex.js";
@@ -349,9 +352,20 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     backgroundActivity,
     gatewayAuthToken,
   };
+  let knowledgeSink = buildKnowledgeSink(currentConfig);
+  let knowledgeReadProvider = buildKnowledgeReadProvider(currentConfig);
+  const relayKnowledgeOutbox = async (): Promise<{ attempted: number; delivered: number; failed: number }> =>
+    relayPendingKnowledgeOutbox({
+      sink: knowledgeSink,
+      ...knowledgeRelayOptions(currentConfig),
+    });
+  apiContext.knowledgeSink = knowledgeSink;
+  apiContext.knowledgeReadProvider = knowledgeReadProvider;
+  apiContext.relayKnowledgeOutbox = relayKnowledgeOutbox;
   const notificationSink = createGatewayNotificationSink(apiContext);
   apiContext.notificationSink = notificationSink;
   sessionManager.setNotificationSink(notificationSink);
+  sessionManager.setKnowledgeSink(knowledgeSink);
   orchestrationRuntime = createGatewayOrchestrationRuntime(currentConfig, employeeRegistry);
   if (orchestrationRuntime) {
     bindOrchestrationRuntimeHandlers(orchestrationRuntime, apiContext);
@@ -363,6 +377,11 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
       currentConfig = loadConfig();
       apiContext.config = currentConfig;
       sessionManager.setConfig(currentConfig);
+      knowledgeSink = buildKnowledgeSink(currentConfig);
+      knowledgeReadProvider = buildKnowledgeReadProvider(currentConfig);
+      apiContext.knowledgeSink = knowledgeSink;
+      apiContext.knowledgeReadProvider = knowledgeReadProvider;
+      sessionManager.setKnowledgeSink(knowledgeSink);
       invalidateModelRegistry();
       refreshDynamicModels(currentConfig);
       orchestrationRuntime = swapOrchestrationRuntime(
@@ -381,6 +400,11 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     }
   };
   apiContext.reloadConfig = reloadConfig;
+  void relayKnowledgeOutbox();
+  const knowledgeRelayTimer = setInterval(() => {
+    void relayKnowledgeOutbox();
+  }, 15_000);
+  knowledgeRelayTimer.unref?.();
 
   const replayDeferredOrchestrationRuntimeRefresh = (): void => {
     if (!orchestrationRefreshState.pending) return;
@@ -514,6 +538,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     stopWatchers,
     stopWsHeartbeat: transports.stopWsHeartbeat,
     uploadCleanupTimer,
+    knowledgeRelayTimer,
     wsClients: transports.wsClients,
     wss: transports.wss,
   });

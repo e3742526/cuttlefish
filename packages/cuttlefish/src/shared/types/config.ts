@@ -41,6 +41,45 @@ export interface OrchestrationRuntimeConfig {
   empiricalRouting?: boolean;
 }
 
+export interface KnowledgeWebhookRetryConfig {
+  baseDelayMs?: number;
+  maxDelayMs?: number;
+}
+
+export interface KnowledgeWebhookSinkConfig {
+  url?: string;
+  token?: string;
+  batchSize?: number;
+  timeoutMs?: number;
+  retry?: KnowledgeWebhookRetryConfig;
+}
+
+export interface KnowledgeJsonlSinkConfig {
+  path?: string;
+}
+
+export interface KnowledgeSinkConfig {
+  type?: "noop" | "jsonl" | "webhook";
+  jsonl?: KnowledgeJsonlSinkConfig;
+  webhook?: KnowledgeWebhookSinkConfig;
+}
+
+export interface KnowledgeReadProviderWebhookConfig {
+  url?: string;
+  token?: string;
+  timeoutMs?: number;
+}
+
+export interface KnowledgeReadProviderConfig {
+  type?: "none" | "webhook";
+  webhook?: KnowledgeReadProviderWebhookConfig;
+}
+
+export interface KnowledgeConfig {
+  sink?: KnowledgeSinkConfig;
+  readProvider?: KnowledgeReadProviderConfig;
+}
+
 export interface CuttlefishConfig {
   cuttlefish?: { version?: string };
   workspaces?: {
@@ -156,5 +195,6 @@ export interface CuttlefishConfig {
       sidecarPort?: number;
     };
   };
+  knowledge?: KnowledgeConfig;
   remotes?: Record<string, { url: string; label?: string; token?: string }>;
 }

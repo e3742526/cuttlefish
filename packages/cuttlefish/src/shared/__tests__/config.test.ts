@@ -102,6 +102,16 @@ describe("validateConfigShape", () => {
         fetch: { enabled: true },
         gateway: { enabled: true },
       },
+      knowledge: {
+        sink: {
+          type: "webhook",
+          webhook: { url: "http://127.0.0.1:9999/events", batchSize: 10 },
+        },
+        readProvider: {
+          type: "webhook",
+          webhook: { url: "http://127.0.0.1:9999/search", timeoutMs: 1234 },
+        },
+      },
     })).toEqual([]);
   });
 
@@ -146,6 +156,26 @@ describe("validateConfigShape", () => {
       surprise: true,
     });
     expect(problems.some((p) => p.includes("unknown config keys: surprise"))).toBe(true);
+  });
+
+  it("validates provider-neutral knowledge config", () => {
+    expect(validateConfigShape({
+      engines: { claude: { bin: "claude", model: "opus" } },
+      knowledge: {
+        sink: { type: "jsonl", jsonl: { path: "/tmp/outbox.jsonl" } },
+        readProvider: { type: "none" },
+      },
+    })).toEqual([]);
+
+    const problems = validateConfigShape({
+      engines: { claude: { bin: "claude", model: "opus" } },
+      knowledge: {
+        sink: { type: "webhook" },
+        readProvider: { type: "webhook" },
+      },
+    });
+    expect(problems).toContain("knowledge.sink.webhook.url is required when knowledge.sink.type=webhook");
+    expect(problems).toContain("knowledge.readProvider.webhook.url is required when knowledge.readProvider.type=webhook");
   });
 
   it("rejects unknown gateway keys and invalid gateway arrays", () => {
@@ -362,6 +392,21 @@ describe("saveConfigAtomic", () => {
     expect(config.engines.default).toBe("claude");
     expect(config.connectors).toEqual({});
     expect(config.logging).toEqual({ file: true, stdout: true, level: "info" });
+    expect(config.knowledge).toMatchObject({
+      sink: {
+        type: "noop",
+        jsonl: { path: expect.stringContaining("knowledge/outbox.jsonl") },
+        webhook: {
+          batchSize: 25,
+          timeoutMs: 10000,
+          retry: { baseDelayMs: 1000, maxDelayMs: 60000 },
+        },
+      },
+      readProvider: {
+        type: "none",
+        webhook: { timeoutMs: 10000 },
+      },
+    });
   });
 
   // config.yaml holds plaintext connector secrets (Slack/Discord/Telegram

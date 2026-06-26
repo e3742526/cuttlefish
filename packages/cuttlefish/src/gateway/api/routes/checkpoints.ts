@@ -95,7 +95,7 @@ export async function handleCheckpointRoutes(
     }
     const actor = resolveUserHeader(req.headers, context.getConfig().gateway.userHeader) ?? null;
     try {
-      const resolved = applyCheckpointDecision(
+      const resolved = await applyCheckpointDecision(
         checkpoint.id,
         {
           decision,

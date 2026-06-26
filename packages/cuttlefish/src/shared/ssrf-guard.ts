@@ -20,6 +20,10 @@ export interface UrlCheckResult {
   reason?: string;
 }
 
+export interface UrlCheckOptions {
+  allowPrivateHosts?: boolean;
+}
+
 function ipv4IsPrivate(ip: string): boolean {
   const parts = ip.split(".").map(Number);
   if (parts.length !== 4 || parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
@@ -62,6 +66,10 @@ export function isPrivateAddress(ip: string): boolean {
  * gateway must refuse to fetch.
  */
 export async function checkPublicUrl(rawUrl: string): Promise<UrlCheckResult> {
+  return validateUrlForServerFetch(rawUrl, { allowPrivateHosts: false });
+}
+
+export async function validateUrlForServerFetch(rawUrl: string, options: UrlCheckOptions = {}): Promise<UrlCheckResult> {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -78,12 +86,14 @@ export async function checkPublicUrl(rawUrl: string): Promise<UrlCheckResult> {
 
   const lowerHost = host.toLowerCase();
   if (lowerHost === "localhost" || lowerHost.endsWith(".localhost")) {
-    return { ok: false, reason: "loopback host" };
+    return options.allowPrivateHosts
+      ? { ok: true }
+      : { ok: false, reason: "loopback host" };
   }
 
   // Literal IP in the URL — check directly, no DNS.
   if (net.isIP(host)) {
-    return isPrivateAddress(host)
+    return !options.allowPrivateHosts && isPrivateAddress(host)
       ? { ok: false, reason: "private/reserved IP" }
       : { ok: true };
   }
@@ -97,7 +107,7 @@ export async function checkPublicUrl(rawUrl: string): Promise<UrlCheckResult> {
   }
   if (addrs.length === 0) return { ok: false, reason: "no DNS records" };
   for (const a of addrs) {
-    if (isPrivateAddress(a.address)) {
+    if (!options.allowPrivateHosts && isPrivateAddress(a.address)) {
       return { ok: false, reason: "host resolves to private/reserved IP" };
     }
   }

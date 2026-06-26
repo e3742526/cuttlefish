@@ -29,6 +29,7 @@ This is your home. Every file here is yours to read, write, and manage.
 | `cron/` | Scheduled jobs: `jobs.json` + `runs/` for execution logs |
 | `docs/` | Architecture documentation for deeper self-awareness |
 | `knowledge/` | Persistent learnings and notes you accumulate over time |
+| `knowledge/outbox.jsonl` | Optional provider-neutral external knowledge export log when configured |
 | `connectors/` | Connector configurations (Slack, email, webhooks, etc.) |
 | `sessions/` | Session database (SQLite) - managed by the gateway |
 | `logs/` | Gateway runtime logs |
@@ -45,6 +46,10 @@ When you learn something new about the user, write it to the appropriate knowled
 
 When the user corrects you or gives persistent feedback (e.g. "always do X", "never do Y"), update this file.
 You should become more useful with every interaction.
+
+External knowledge export is optional and provider-neutral. Local session state
+and knowledge files remain authoritative even when an external knowledge sink or
+read provider is configured.
 
 ---
 

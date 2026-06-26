@@ -120,6 +120,35 @@ CREATE TABLE IF NOT EXISTS meta (
 )
 `;
 
+export const CREATE_EXTERNAL_OUTBOX_TABLE = `
+CREATE TABLE IF NOT EXISTS external_outbox (
+  id TEXT PRIMARY KEY,
+  topic TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  partition_key TEXT,
+  idempotency_key TEXT NOT NULL,
+  envelope_json TEXT NOT NULL,
+  sink_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at TEXT,
+  last_attempt_at TEXT,
+  delivered_at TEXT,
+  remote_id TEXT,
+  last_error TEXT,
+  created_at TEXT NOT NULL
+)`;
+
+export const CREATE_EXTERNAL_OUTBOX_IDEMPOTENCY_INDEX = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_outbox_sink_idempotency
+ON external_outbox (sink_name, idempotency_key)
+`;
+
+export const CREATE_EXTERNAL_OUTBOX_PENDING_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_external_outbox_pending
+ON external_outbox (status, next_attempt_at, created_at)
+`;
+
 export const CREATE_FTS = `
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='rowid', tokenize='unicode61');
 CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages WHEN new.role IN ('user','assistant') BEGIN
@@ -173,4 +202,7 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_APPROVALS_CREATED_INDEX);
   db.exec(CREATE_APPROVALS_SESSION_INDEX);
   db.exec(CREATE_APPROVALS_PENDING_FALLBACK_INDEX);
+  db.exec(CREATE_EXTERNAL_OUTBOX_TABLE);
+  db.exec(CREATE_EXTERNAL_OUTBOX_IDEMPOTENCY_INDEX);
+  db.exec(CREATE_EXTERNAL_OUTBOX_PENDING_INDEX);
 }

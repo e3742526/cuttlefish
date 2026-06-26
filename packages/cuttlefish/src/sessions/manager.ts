@@ -4,6 +4,7 @@ import type {
   Employee,
   Engine,
   IncomingMessage,
+  KnowledgeSink,
   CuttlefishConfig,
   Session,
   Target,
@@ -43,78 +44,15 @@ import {
   rateLimitTimeoutError,
   rateLimitWaitingNotice,
 } from "./rate-limit-handler.js";
+import { finalizeManagedSessionTurn, maybeRevertEngineOverride, mergeTransportMeta } from "./manager-helpers.js";
+export { mergeTransportMeta } from "./manager-helpers.js";
 
-export interface RouteOptions {
+export type RouteOptions = {
   employee?: Employee;
   engine?: string;
   model?: string;
   title?: string;
-}
-
-function maybeRevertEngineOverride(session: Session): Session {
-  const meta = (session.transportMeta || {}) as Record<string, unknown>;
-  const override = meta["engineOverride"] as Record<string, unknown> | undefined;
-  if (!override) return session;
-
-  const originalEngine = typeof override.originalEngine === "string" ? override.originalEngine : null;
-  const originalEngineSessionId = typeof override.originalEngineSessionId === "string"
-    ? override.originalEngineSessionId
-    : null;
-  const syncSince = typeof override.syncSince === "string" ? override.syncSince : null;
-  const untilIso = typeof override.until === "string" ? override.until : null;
-  if (!originalEngine || !untilIso) return session;
-
-  const until = new Date(untilIso);
-  if (Number.isNaN(until.getTime())) return session;
-  if (until.getTime() > Date.now()) return session;
-
-  const engineSessionsRaw = meta["engineSessions"];
-  const engineSessions = (engineSessionsRaw && typeof engineSessionsRaw === "object" && !Array.isArray(engineSessionsRaw))
-    ? { ...(engineSessionsRaw as Record<string, unknown>) }
-    : {};
-
-  // Preserve the current engine session ID under its engine key
-  if (session.engine && session.engineSessionId) {
-    engineSessions[String(session.engine)] = session.engineSessionId;
-  }
-
-  const restoredSessionId = originalEngineSessionId
-    ?? (typeof engineSessions[originalEngine] === "string" ? (engineSessions[originalEngine] as string) : null);
-
-  const nextMeta = { ...meta, engineSessions } as Record<string, unknown>;
-  if (originalEngine === "claude" && syncSince && session.engine !== "claude") {
-    nextMeta["claudeSyncSince"] = syncSince;
-  }
-  delete (nextMeta as Record<string, unknown>)["engineOverride"];
-  return updateSession(session.id, {
-    engine: originalEngine,
-    engineSessionId: restoredSessionId,
-    transportMeta: nextMeta as any,
-    lastError: null,
-  }) ?? session;
-}
-
-export function mergeTransportMeta(
-  existing: Session["transportMeta"],
-  incoming: IncomingMessage["transportMeta"],
-): Session["transportMeta"] {
-  const baseExisting = (existing && typeof existing === "object" && !Array.isArray(existing))
-    ? (existing as Record<string, unknown>)
-    : {};
-  const baseIncoming = (incoming && typeof incoming === "object" && !Array.isArray(incoming))
-    ? (incoming as Record<string, unknown>)
-    : {};
-
-  const merged: Record<string, unknown> = { ...baseExisting, ...baseIncoming };
-
-  // Preserve Cuttlefish internal keys from being overwritten by transport adapters.
-  for (const key of ["engineOverride", "engineSessions", "claudeSyncSince", "transcriptSyncedThrough"]) {
-    if (baseExisting[key] !== undefined) merged[key] = baseExisting[key];
-  }
-
-  return merged as any;
-}
-
+};
 export class SessionManager {
   private config: CuttlefishConfig;
   private engines: Map<string, Engine>;
@@ -122,6 +60,7 @@ export class SessionManager {
   private queue = new SessionQueue();
   private connectorProvider: () => Map<string, Connector> = () => new Map();
   private notificationSink: SessionNotificationSink | undefined;
+  private knowledgeSink: KnowledgeSink | undefined;
 
   constructor(
     config: CuttlefishConfig,
@@ -132,27 +71,24 @@ export class SessionManager {
     this.engines = engines;
     this.connectorNames = connectorNames;
   }
-
   setConnectorProvider(provider: () => Map<string, Connector>): void {
     this.connectorProvider = provider;
   }
-
   setConfig(config: CuttlefishConfig): void {
     this.config = config;
   }
-
   setNotificationSink(sink: SessionNotificationSink): void {
     this.notificationSink = sink;
   }
-
+  setKnowledgeSink(sink: KnowledgeSink | undefined): void {
+    this.knowledgeSink = sink;
+  }
   getEngine(name: string): Engine | undefined {
     return this.engines.get(name);
   }
-
   getEngines(): Map<string, Engine> {
     return this.engines;
   }
-
   getQueue(): SessionQueue {
     return this.queue;
   }
@@ -647,55 +583,23 @@ export class SessionManager {
         return;
       }
 
-      const responseText = result.result?.trim()
-        ? result.result
-        : result.error || "(No response from engine)";
-
-      if (!getSession(session.id)) {
-        logger.warn(`Dropping engine result for deleted session ${session.id}`);
-        return;
-      }
-
-      insertMessage(session.id, "assistant", responseText);
-      if (result.cost || result.numTurns) {
-        accumulateSessionCost(session.id, result.cost ?? 0, result.numTurns ?? 1);
-      }
-      if (decorateMessages && connector.setTypingStatus) {
-        await connector.setTypingStatus(target.channel, threadTs, "").catch(() => {});
-      }
-      if (!wasInterrupted) {
-        await connector.replyMessage(target, responseText);
-      }
-      if (decorateMessages && capabilities.reactions) {
-        await connector.removeReaction(target, "eyes").catch(() => {});
-      }
-      const updatedSession = updateSession(session.id, {
-        ...(result.sessionId?.trim() ? { engineSessionId: result.sessionId } : {}),
-        ...(typeof result.contextTokens === "number" ? { lastContextTokens: result.contextTokens } : {}),
-        status: wasInterrupted ? "idle" : (result.error ? "error" : "idle"),
-        replyContext: msg.replyContext,
-        messageId: msg.messageId ?? null,
-        transportMeta: (() => {
-          const merged = mergeTransportMeta(getSessionBySessionKey(msg.sessionKey)?.transportMeta ?? session.transportMeta, msg.transportMeta) as Record<string, unknown>;
-          if (syncRequested && !rateLimit.limited && !wasInterrupted) {
-            delete merged["claudeSyncSince"];
-          }
-          return merged as any;
-        })(),
-        lastActivity: new Date().toISOString(),
-        lastError: wasInterrupted ? null : (result.error ?? null),
+      await finalizeManagedSessionTurn({
+        session,
+        msg,
+        result,
+        connector,
+        target,
+        threadTs,
+        capabilities,
+        decorateMessages,
+        wasInterrupted: Boolean(wasInterrupted),
+        syncRequested,
+        rateLimitLimited: Boolean(rateLimit.limited),
+        employee,
+        notificationSink: this.notificationSink,
+        knowledgeSink: this.knowledgeSink,
+        config: this.config,
       });
-      if (!wasInterrupted && session.engine === "claude") {
-        markTranscriptSyncedThrough(session.id, result.sessionId);
-      }
-      if (updatedSession) {
-        notifyParentSession(updatedSession, { result: result.result, error: wasInterrupted ? null : (result.error ?? null), cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: employee?.alwaysNotify, sink: this.notificationSink });
-      }
-
-      logger.info(
-        `Session ${session.id} completed in ${result.durationMs ?? 0}ms` +
-        (result.cost ? ` ($${result.cost.toFixed(4)})` : ""),
-      );
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error(`Session ${session.id} error: ${errMsg}`);
@@ -756,7 +660,6 @@ export class SessionManager {
         await connector.replyMessage(target, "No active session for this conversation.");
         return true;
       }
-
       const queueDepth = this.queue.getPendingCount(session.sessionKey);
       const transportState = this.queue.getTransportState(session.sessionKey, session.status);
       const info = [

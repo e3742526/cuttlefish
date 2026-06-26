@@ -28,6 +28,8 @@ owning model reasoning.
 - Instance home: `~/.cuttlefish`; local Cuttlefish is intentionally single-instance.
 - Config/org/skills/templates: initialized and migrated from package templates.
 - Sessions/messages/files/artifacts/queue/archive/approval state: SQLite-backed registry modules.
+- Optional external knowledge export state: SQLite-backed `external_outbox`
+  rows plus optional JSONL append output under `~/.cuttlefish/knowledge/`.
 - Uploaded and attached artifacts: managed gateway storage with façade seam tests,
   SHA256 metadata, source/run annotations, validation helpers, and run-bundle
   manifest export.
@@ -37,6 +39,10 @@ owning model reasoning.
 - Human checkpoints: persisted in the approval/checkpoint registry, surfaced via
   dedicated checkpoint APIs, and able to pause or resume session execution with
   a durable human-decision trail.
+- Provider-neutral external knowledge seam: checkpoint decisions and completed
+  session summaries can be exported as durable, versioned envelopes through
+  `noop`, `jsonl`, or generic `webhook` sinks; a generic read provider is
+  optional and never authoritative for core Cuttlefish behavior.
 - Run bundles: generated on demand from session state, copied run-linked
   artifacts, filtered logs, and derived summaries into managed runtime export
   directories suitable for handoff and future replay/import work.
@@ -82,6 +88,9 @@ owning model reasoning.
 - Human checkpoint semantics live in the gateway service layer so route modules
   only translate inputs/outputs while the shared approval store keeps the
   durable decision history.
+- External knowledge sink/read-provider semantics also live in focused gateway
+  and knowledge service modules so route files stay thin and downstream mapping
+  remains outside Cuttlefish core.
 - Run bundle export also lives in the gateway service layer so copy/filter rules
   stay centralized and session routes remain thin action adapters.
 

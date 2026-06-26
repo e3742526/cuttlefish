@@ -28,6 +28,7 @@ interface GatewayCleanupDeps {
   stopWatchers: () => Promise<void>;
   stopWsHeartbeat: () => void;
   uploadCleanupTimer: NodeJS.Timeout;
+  knowledgeRelayTimer?: NodeJS.Timeout;
   wsClients: Set<WebSocket>;
   wss: WebSocketServer;
 }
@@ -50,6 +51,7 @@ export function createGatewayCleanup({
   stopWatchers,
   stopWsHeartbeat,
   uploadCleanupTimer,
+  knowledgeRelayTimer,
   wsClients,
   wss,
 }: GatewayCleanupDeps): GatewayCleanup {
@@ -59,6 +61,7 @@ export function createGatewayCleanup({
     stopStatusReconciler();
     stopBoardWorker();
     clearInterval(uploadCleanupTimer);
+    if (knowledgeRelayTimer) clearInterval(knowledgeRelayTimer);
 
     if (caffeinate && caffeinate.exitCode === null) {
       caffeinate.kill();

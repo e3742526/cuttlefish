@@ -66,6 +66,8 @@ function makeCtx(over: Record<string, unknown> = {}) {
   return {
     getConfig: () => ({ gateway: {}, engines: { default: "claude" }, portal: {} }),
     emit: vi.fn(),
+    connectors: new Map(),
+    startTime: Date.now(),
     sessionManager: {
       getEngine: () => undefined,
       getQueue: () => ({
@@ -184,5 +186,46 @@ describe("checkpoint routes", () => {
     }));
     expect(reg.getSession(session.id)?.status).toBe("running");
     expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("exports checkpoint decisions to the external outbox", async () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp4", prompt: "x" });
+    const checkpoint = store.createApproval({
+      sessionId: session.id,
+      type: "checkpoint",
+      payload: {
+        decisionNeeded: "Approve cleanup",
+        why: "Need operator sign-off",
+      },
+    });
+
+    const cap = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, {
+        decision: "deferred",
+        notes: "wait",
+      }),
+      cap.res,
+      makeCtx({
+        knowledgeSink: {
+          name: "noop",
+          emit: vi.fn(async () => ({
+            accepted: 1,
+            rejected: 0,
+            retryable: false,
+            results: [{ accepted: true, remoteId: "noop" }],
+          })),
+          health: vi.fn(async () => ({ ok: true })),
+        },
+      }),
+    );
+
+    expect(cap.status).toBe(200);
+    expect(reg.listExternalOutboxItems({ limit: 10 })).toEqual([
+      expect.objectContaining({
+        topic: "cuttlefish.checkpoint.decision.v1",
+        status: "delivered",
+      }),
+    ]);
   });
 });

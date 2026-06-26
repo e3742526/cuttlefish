@@ -2,7 +2,8 @@ import fs from "node:fs";
 import yaml from "js-yaml";
 import { CONFIG_PATH } from "./paths.js";
 import { safeWriteYaml } from "./safe-write.js";
-import type { BoardWorkerConfig, CuttlefishConfig } from "./types.js";
+import { KNOWLEDGE_OUTBOX_JSONL } from "./paths.js";
+import type { BoardWorkerConfig, CuttlefishConfig, KnowledgeConfig } from "./types.js";
 import { validateConfigShape } from "./config-schema.js";
 export { validateConfigShape } from "./config-schema.js";
 
@@ -59,6 +60,35 @@ export function normalizeBoardWorkerConfig(raw: BoardWorkerConfig | undefined): 
   };
 }
 
+export function normalizeKnowledgeConfig(raw: KnowledgeConfig | undefined): Required<KnowledgeConfig> {
+  return {
+    sink: {
+      type: raw?.sink?.type ?? "noop",
+      jsonl: {
+        path: raw?.sink?.jsonl?.path ?? KNOWLEDGE_OUTBOX_JSONL,
+      },
+      webhook: {
+        url: raw?.sink?.webhook?.url,
+        token: raw?.sink?.webhook?.token,
+        batchSize: raw?.sink?.webhook?.batchSize ?? 25,
+        timeoutMs: raw?.sink?.webhook?.timeoutMs ?? 10_000,
+        retry: {
+          baseDelayMs: raw?.sink?.webhook?.retry?.baseDelayMs ?? 1_000,
+          maxDelayMs: raw?.sink?.webhook?.retry?.maxDelayMs ?? 60_000,
+        },
+      },
+    },
+    readProvider: {
+      type: raw?.readProvider?.type ?? "none",
+      webhook: {
+        url: raw?.readProvider?.webhook?.url,
+        token: raw?.readProvider?.webhook?.token,
+        timeoutMs: raw?.readProvider?.webhook?.timeoutMs ?? 10_000,
+      },
+    },
+  };
+}
+
 export function loadConfig(): CuttlefishConfig {
   if (!fs.existsSync(CONFIG_PATH)) {
     throw new Error(
@@ -100,6 +130,7 @@ export function loadConfig(): CuttlefishConfig {
   };
   config.engines.claude = normalizeClaudeEngineConfig(config.engines.claude);
   config.boardWorker = normalizeBoardWorkerConfig(config.boardWorker);
+  config.knowledge = normalizeKnowledgeConfig(config.knowledge);
   return config;
 }
 

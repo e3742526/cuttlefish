@@ -16,6 +16,7 @@ import { handleCheckpointRoutes } from "./api/routes/checkpoints.js";
 import { handleConnectorRoutes } from "./api/routes/connectors.js";
 import { handleCronRoutes } from "./api/routes/cron.js";
 import { handleFsRoutes } from "./api/routes/fs.js";
+import { handleKnowledgeRoutes } from "./api/routes/knowledge.js";
 import { handleOrgRoutes } from "./api/routes/org.js";
 import { handleOrchestrationRoutes } from "./api/orchestration-routes.js";
 import { handleSessionWriteRoutes } from "./api/routes/session-write.js";
@@ -57,6 +58,7 @@ export async function handleApiRequest(
     if (await handleCheckpointRoutes(method, pathname, req, url, res, context)) return;
     if (await handleArtifactRoutes(method, pathname, req, url, res, context)) return;
     if (await handleFsRoutes(method, pathname, url, res, context)) return;
+    if (await handleKnowledgeRoutes(method, pathname, req, url, res, context)) return;
     if (await handleApprovalRoutes(method, pathname, req, url, res, context)) return;
     if (await handleCronRoutes(method, pathname, req, url, res, context)) return;
     if (await handleOrgRoutes(method, pathname, req, res, context)) return;

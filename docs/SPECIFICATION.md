@@ -39,6 +39,8 @@ operator dashboards.
 - `Run bundle`: a portable exported directory for one completed run containing
   session state, summary, copied artifacts, filtered logs, manifest, and error
   data.
+- `External knowledge envelope`: provider-neutral, versioned event record for
+  optional downstream export and lookup.
 
 ## Functional Requirements
 
@@ -52,6 +54,8 @@ operator dashboards.
 | REQ-ARTIFACTS-001 | Maintain a local artifact registry for files created, consumed, downloaded, or attached during Cuttlefish runs, including hash, source, run, tag, validation, and bundle-manifest metadata. | verified | `packages/cuttlefish/src/gateway/__tests__/artifact-registry.test.ts` |
 | REQ-ATTACH-001 | Provide a standard run-resource attachment contract for files, folders, URLs, and prior artifacts, including access mode, intended use, producing-run metadata, and run-scoped persistence. | verified | `packages/cuttlefish/src/gateway/__tests__/run-attachments.test.ts` |
 | REQ-CHECKPOINT-001 | Provide a generic human checkpoint/approval-gate primitive that can pause a run, record the decision trail, and resume or stop the run after human input. | verified | `packages/cuttlefish/src/gateway/__tests__/checkpoints.test.ts` |
+| REQ-KNOWLEDGE-001 | Provide a provider-neutral external knowledge seam with a durable local outbox and versioned exported events for checkpoint decisions and completed session summaries. | verified | `packages/cuttlefish/src/gateway/__tests__/checkpoints.test.ts`, `packages/cuttlefish/src/sessions/__tests__/external-outbox.test.ts` |
+| REQ-KNOWLEDGE-002 | Keep external knowledge export optional and non-authoritative: default installs must work with no downstream service, and sink/read-provider failures must not block primary user workflows. | verified | `packages/cuttlefish/src/knowledge/__tests__/outbox-service.test.ts`, `packages/cuttlefish/src/gateway/__tests__/knowledge-routes.test.ts` |
 | REQ-BUNDLE-001 | Export a completed run as a portable bundle containing run state, summary, copied artifacts, filtered logs, manifest, and error data without bundling unrelated workspace files. | verified | `packages/cuttlefish/src/gateway/__tests__/run-bundles.test.ts` |
 | REQ-ORCH-001 | Route `/api/orchestration/*` through the canonical API router and support status/control surfaces. | verified | `packages/cuttlefish/src/gateway/api.ts`, `api-orchestration-routing.test.ts` |
 | REQ-GOV-001 | Keep local generated governance/runtime artifacts out of the public tracked source tree. | verified | `.gitignore`, `docs/STRUCTURE_COMPLIANCE.md` |
@@ -68,7 +72,11 @@ operator dashboards.
 ## Persistence / Data Contract
 
 - Runtime user state lives under `~/.cuttlefish`; local Cuttlefish is intentionally single-instance.
-- Sessions, messages, queue items, files/artifacts, archives, approvals, and orchestration state use SQLite-backed registries and related managed file paths.
+- Sessions, messages, queue items, files/artifacts, archives, approvals,
+  optional external-knowledge outbox rows, and orchestration state use
+  SQLite-backed registries and related managed file paths.
+- Optional external knowledge export can also append generic JSONL envelopes to
+  `~/.cuttlefish/knowledge/outbox.jsonl`.
 - Generated web output is copied into `packages/cuttlefish/dist/web` during build but remains untracked.
 - Local audit/session/Giles/runtime artifacts are ignored unless explicitly published as curated summaries.
 
@@ -83,6 +91,7 @@ operator dashboards.
 - Run attachment API: `packages/cuttlefish/src/gateway/api/routes/session-write.ts`, `packages/cuttlefish/src/gateway/run-attachments.ts`.
 - Checkpoint API: `packages/cuttlefish/src/gateway/api/routes/checkpoints.ts`, `packages/cuttlefish/src/gateway/checkpoints.ts`.
 - Run bundle export API: `packages/cuttlefish/src/gateway/api/routes/session-write.ts`, `packages/cuttlefish/src/gateway/run-bundles.ts`.
+- External knowledge API: `packages/cuttlefish/src/gateway/api/routes/knowledge.ts`.
 
 ## Validation Requirements
 
@@ -112,3 +121,4 @@ operator dashboards.
 - 2026-06-26: Added run-resource attachment requirement and session API surface.
 - 2026-06-26: Added generic human checkpoint requirement and API surface.
 - 2026-06-26: Added exportable run-bundle requirement and session API surface.
+- 2026-06-26: Added provider-neutral external knowledge outbox, sink/read seam, and knowledge API surface.

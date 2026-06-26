@@ -63,6 +63,13 @@ Uses `chokidar` to watch `~/.cuttlefish/` for changes and trigger appropriate re
 ### SQLite Session Registry
 Stores session metadata (id, engine, employee, connector source, timestamps) in `sessions/registry.db`.
 
+### Optional External Knowledge Seam
+Provider-neutral knowledge export is optional. The local runtime remains
+authoritative, while durable exported envelopes can be written to the session
+registry outbox and relayed through `noop`, `jsonl`, or generic `webhook`
+sinks. A generic webhook-backed read provider may be configured later without
+making downstream services a hard dependency.
+
 ## Data Flow
 
 1. Connector receives an external message (e.g., Slack message)

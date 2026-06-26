@@ -1,4 +1,5 @@
 import type { EngineFailureReason } from "./types.js";
+import { validateKnowledge } from "./config-schema-knowledge.js";
 
 const TIME_OF_DAY_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const ENGINE_NAMES = new Set(["claude", "codex", "antigravity", "grok", "pi", "kiro", "hermes", "ollama", "kilo"]);
@@ -13,11 +14,9 @@ const ENGINE_FAILURE_REASONS = new Set<EngineFailureReason>([
   "context_overflow",
   "unknown",
 ]);
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 function pushUnknownKeys(
   problems: string[],
   value: Record<string, unknown>,
@@ -31,23 +30,19 @@ function pushUnknownKeys(
     problems.push(`${prefix}: ${unknown.join(", ")}`);
   }
 }
-
 function validateStringArray(problems: string[], path: string, value: unknown): void {
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
     problems.push(`${path} must be an array of strings`);
   }
 }
-
 function validateNumber(problems: string[], path: string, value: unknown): void {
   if (typeof value !== "number") problems.push(`${path} must be a number (got ${typeof value})`);
 }
-
 function validatePort(problems: string[], path: string, value: unknown): void {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 65535) {
     problems.push(`${path} must be an integer from 1 to 65535`);
   }
 }
-
 function validateString(problems: string[], path: string, value: unknown): void {
   if (typeof value !== "string") problems.push(`${path} must be a string (got ${typeof value})`);
 }
@@ -70,7 +65,6 @@ function validateWorkspaces(problems: string[], value: unknown): void {
   if (value.roots !== undefined) validateStringArray(problems, "workspaces.roots", value.roots);
   if (value.defaultCwd !== undefined) validateString(problems, "workspaces.defaultCwd", value.defaultCwd);
 }
-
 function validateGateway(problems: string[], value: unknown): void {
   if (!isPlainObject(value)) {
     problems.push("gateway must be a mapping");
@@ -199,7 +193,6 @@ function validateModels(
     }
   }
 }
-
 function validateSlackConnector(problems: string[], path: string, value: unknown): void {
   if (!isPlainObject(value)) {
     problems.push(`${path} must be a mapping`);
@@ -770,6 +763,7 @@ export function validateConfigShape(config: unknown): string[] {
     "context",
     "stt",
     "talk",
+    "knowledge",
     "remotes",
   ], "config");
 
@@ -798,6 +792,7 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.context !== undefined) validateContext(problems, c.context);
   if (c.stt !== undefined) validateStt(problems, c.stt);
   if (c.talk !== undefined) validateTalk(problems, c.talk);
+  if (c.knowledge !== undefined) validateKnowledge(problems, c.knowledge, { pushUnknownKeys, validateString, validateNumber });
   if (c.remotes !== undefined) validateRemotes(problems, c.remotes);
 
   return problems;

@@ -29,7 +29,7 @@ import { getMessages, type SessionMessage } from './registry/messages.js';
 import { getSession } from './registry/sessions.js';
 
 export { initDb } from './registry/core.js';
-export { migrateApprovalsSchema, migrateFilesSchema, migrateMessagesSchema, migrateSessionsSchema } from './registry/migrations.js';
+export { migrateApprovalsSchema, migrateExternalOutboxSchema, migrateFilesSchema, migrateMessagesSchema, migrateSessionsSchema } from './registry/migrations.js';
 export {
   backfillFtsSync,
   disableFtsForProcess,
@@ -37,6 +37,16 @@ export {
   searchMessages,
   type MessageSearchResult,
 } from './registry/search.js';
+export {
+  enqueueExternalOutboxItem,
+  getExternalOutboxItem,
+  listExternalOutboxItems,
+  listPendingExternalOutboxItems,
+  markExternalOutboxDelivered,
+  markExternalOutboxFailed,
+  type ExternalOutboxItem,
+  type ExternalOutboxStatus,
+} from "./registry/external-outbox.js";
 export {
   CRON_GROUP,
   DIRECT_GROUP,

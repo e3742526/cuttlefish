@@ -97,3 +97,29 @@ export function migrateApprovalsSchema(database: Database.Database): void {
     }
   }
 }
+
+export function migrateExternalOutboxSchema(database: Database.Database): void {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS external_outbox (
+      id TEXT PRIMARY KEY,
+      topic TEXT NOT NULL,
+      schema_version TEXT NOT NULL,
+      partition_key TEXT,
+      idempotency_key TEXT NOT NULL,
+      envelope_json TEXT NOT NULL,
+      sink_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT,
+      last_attempt_at TEXT,
+      delivered_at TEXT,
+      remote_id TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_external_outbox_sink_idempotency
+      ON external_outbox (sink_name, idempotency_key);
+    CREATE INDEX IF NOT EXISTS idx_external_outbox_pending
+      ON external_outbox (status, next_attempt_at, created_at);
+  `);
+}

@@ -5,7 +5,7 @@ import { SESSIONS_DB } from '../../shared/paths.js';
 import { logger } from '../../shared/logger.js';
 import type { JsonObject, ReplyContext, Session } from '../../shared/types.js';
 import { installBaseSchema, installPostMigrationSchema } from './schema.js';
-import { migrateApprovalsSchema, migrateFilesSchema, migrateMessagesSchema, migrateSessionsSchema } from './migrations.js';
+import { migrateApprovalsSchema, migrateExternalOutboxSchema, migrateFilesSchema, migrateMessagesSchema, migrateSessionsSchema } from './migrations.js';
 import { backfillFtsSync, disableFtsForProcess, migrateFtsSchema } from './search.js';
 
 let db: Database.Database;
@@ -83,5 +83,6 @@ export function initDb(): Database.Database {
   installPostMigrationSchema(db);
   migrateFilesSchema(db);
   migrateApprovalsSchema(db);
+  migrateExternalOutboxSchema(db);
   return db;
 }

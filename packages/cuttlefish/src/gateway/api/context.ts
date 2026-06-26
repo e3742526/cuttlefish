@@ -1,4 +1,4 @@
-import type { Engine, CuttlefishConfig } from "../../shared/types.js";
+import type { Engine, CuttlefishConfig, KnowledgeReadProvider, KnowledgeSink } from "../../shared/types.js";
 import type { OrchestrationConfig } from "../../orchestration/types.js";
 import type { OrchestrationRuntime } from "../../orchestration/runtime.js";
 import type { SessionNotificationSink } from "../../sessions/notification-sink.js";
@@ -12,6 +12,9 @@ export interface ApiContext {
   emit: (event: string, payload: unknown) => void;
   connectors: Map<string, import("../../shared/types.js").Connector>;
   notificationSink?: SessionNotificationSink;
+  knowledgeSink?: KnowledgeSink;
+  knowledgeReadProvider?: KnowledgeReadProvider;
+  relayKnowledgeOutbox?: () => Promise<{ attempted: number; delivered: number; failed: number }>;
   reloadConnectorInstances?: () => Promise<{ started: string[]; stopped: string[]; errors: string[] }>;
   /** Re-read config.yaml into memory immediately (same as the file-watcher does,
    *  but synchronous). Call after a handler writes config.yaml so getConfig()

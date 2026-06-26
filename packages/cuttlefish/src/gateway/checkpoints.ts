@@ -11,6 +11,8 @@ import { createApproval, getApproval, listApprovals, resolveApproval } from "./a
 import { getSession, insertMessage, patchSessionTransportMeta, updateSession } from "../sessions/registry.js";
 import type { ApiContext } from "./api/context.js";
 import { dispatchWebSessionRun } from "./api/session-dispatch.js";
+import { emitCheckpointDecisionBestEffort, knowledgeRelayOptions } from "../knowledge/outbox-service.js";
+import { logger } from "../shared/logger.js";
 
 const CHECKPOINT_META_KEY = "humanCheckpoint";
 
@@ -35,6 +37,24 @@ function updateSessionCheckpointMeta(sessionId: string, patch: JsonObject): void
   patchSessionTransportMeta(sessionId, {
     [CHECKPOINT_META_KEY]: patch,
   });
+}
+
+async function exportCheckpointDecision(
+  checkpoint: Approval,
+  session: Session | undefined,
+  context: ApiContext,
+): Promise<void> {
+  if (!context.knowledgeSink) return;
+  try {
+    await emitCheckpointDecisionBestEffort({
+      checkpoint,
+      session,
+      sink: context.knowledgeSink,
+      ...knowledgeRelayOptions(context.getConfig()),
+    });
+  } catch (err) {
+    logger.warn(`knowledge: failed to export checkpoint decision ${checkpoint.id}: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 export function listCheckpoints(filter?: { state?: Approval["state"] | "all"; sessionId?: string }): Approval[] {
@@ -122,7 +142,7 @@ function defaultResultingAction(
   return prompt ? "resume_session" : "record_only";
 }
 
-export function applyCheckpointDecision(
+export async function applyCheckpointDecision(
   checkpointId: string,
   input: {
     decision: ApprovalDecision;
@@ -132,7 +152,7 @@ export function applyCheckpointDecision(
     resumePrompt?: string | null;
   },
   context: ApiContext,
-): { checkpoint: Approval; session?: Session } {
+): Promise<{ checkpoint: Approval; session?: Session }> {
   const checkpoint = getCheckpoint(checkpointId);
   if (!checkpoint) throw new Error(`checkpoint ${checkpointId} not found`);
   if (checkpoint.state !== "pending") return { checkpoint, session: getSession(checkpoint.sessionId) };
@@ -158,6 +178,7 @@ export function applyCheckpointDecision(
 
   const session = getSession(resolved.sessionId);
   if (!session) {
+    await exportCheckpointDecision(resolved, undefined, context);
     context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: resolved.state });
     context.emit("checkpoint:resolved", { checkpointId: resolved.id, sessionId: resolved.sessionId, state: resolved.state, resultingAction });
     return { checkpoint: resolved };
@@ -184,6 +205,7 @@ export function applyCheckpointDecision(
         : "✅ Human checkpoint approved. Resuming session.",
     );
     dispatchWebSessionRun(rolled, prompt!, engine, context.getConfig(), context);
+    await exportCheckpointDecision(resolved, rolled, context);
     context.emit("session:updated", { sessionId: session.id });
     context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: resolved.state });
     context.emit("checkpoint:resolved", { checkpointId: resolved.id, sessionId: resolved.sessionId, state: resolved.state, resultingAction });
@@ -209,6 +231,7 @@ export function applyCheckpointDecision(
       updatedAt: new Date().toISOString(),
       resultingAction,
     });
+    await exportCheckpointDecision(resolved, paused, context);
     context.emit("session:updated", { sessionId: paused.id });
     context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: resolved.state });
     context.emit("checkpoint:resolved", { checkpointId: resolved.id, sessionId: resolved.sessionId, state: resolved.state, resultingAction });
@@ -228,6 +251,7 @@ export function applyCheckpointDecision(
       updatedAt: new Date().toISOString(),
       resultingAction,
     });
+    await exportCheckpointDecision(resolved, stopped, context);
     context.emit("session:updated", { sessionId: stopped.id });
     context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: resolved.state });
     context.emit("checkpoint:resolved", { checkpointId: resolved.id, sessionId: resolved.sessionId, state: resolved.state, resultingAction });
@@ -245,6 +269,7 @@ export function applyCheckpointDecision(
     updatedAt: new Date().toISOString(),
     resultingAction,
   });
+  await exportCheckpointDecision(resolved, recorded, context);
   context.emit("session:updated", { sessionId: recorded.id });
   context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: resolved.state });
   context.emit("checkpoint:resolved", { checkpointId: resolved.id, sessionId: resolved.sessionId, state: resolved.state, resultingAction });

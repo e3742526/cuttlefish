@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkPublicUrl, isPrivateAddress } from "../ssrf-guard.js";
+import { checkPublicUrl, isPrivateAddress, validateUrlForServerFetch } from "../ssrf-guard.js";
 
 describe("ssrf-guard: isPrivateAddress", () => {
   it("flags loopback, private, link-local and reserved IPv4", () => {
@@ -45,5 +45,10 @@ describe("ssrf-guard: checkPublicUrl (SEC-F-003)", () => {
 
   it("allows a public IP literal", async () => {
     expect((await checkPublicUrl("https://8.8.8.8/x")).ok).toBe(true);
+  });
+
+  it("can allow loopback/private targets for explicit local webhook use", async () => {
+    expect((await validateUrlForServerFetch("http://127.0.0.1:9999/x", { allowPrivateHosts: true })).ok).toBe(true);
+    expect((await validateUrlForServerFetch("http://localhost:9999/x", { allowPrivateHosts: true })).ok).toBe(true);
   });
 });

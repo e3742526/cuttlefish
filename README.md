@@ -251,6 +251,10 @@ connectors:
 - **Cron jobs** live in `~/.cuttlefish/cron/jobs.json` (hot-reloaded).
 - **Employees** live as YAML files in `~/.cuttlefish/org/` (registry rebuilds on change).
 - **Skills** live in `~/.cuttlefish/skills/<name>/SKILL.md`.
+- **External knowledge export** is optional and provider-neutral: default installs
+  stay local-only, while `knowledge.sink.type` can be `noop`, `jsonl`, or
+  `webhook`, and `knowledge.readProvider.type` can stay `none` or use a generic
+  `webhook` lookup provider.
 
 Everything is human-readable files you own - `cat` it, edit it, commit it.
 

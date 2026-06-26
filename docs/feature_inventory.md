@@ -190,6 +190,28 @@
   the underlying store now captures decision notes and resulting actions for the
   broader checkpoint model too.
 
+### External knowledge export and lookup
+- `packages/cuttlefish/src/knowledge/*`
+- `packages/cuttlefish/src/gateway/api/routes/knowledge.ts`
+- `packages/cuttlefish/src/sessions/registry/external-outbox.ts`
+- Cuttlefish now exposes a provider-neutral external knowledge seam that stays
+  fully optional for public installs.
+- Checkpoint decisions and completed session summaries are exported as durable,
+  versioned envelopes through a local SQLite `external_outbox` first.
+- Supported sinks are:
+  - `noop` for compatibility/default no-op delivery
+  - `jsonl` for local append-only envelope capture under `~/.cuttlefish/knowledge/outbox.jsonl`
+  - `webhook` for generic downstream POST batches
+- Supported read providers are:
+  - `none` for disabled/default empty responses
+  - `webhook` for generic provider-backed search/context lookups
+- `GET /api/knowledge/outbox` lists stored outbox items.
+- `POST /api/knowledge/outbox/flush` runs one best-effort relay pass.
+- `POST /api/knowledge/search` and `POST /api/knowledge/context` proxy
+  provider-neutral lookup requests when a read provider is configured.
+- Local SQLite/session state remains authoritative; no downstream service is
+  required for core Cuttlefish workflows.
+
 ### Exportable run bundles
 - `packages/cuttlefish/src/gateway/run-bundles.ts`
 - `packages/cuttlefish/src/gateway/api/routes/session-write.ts`
