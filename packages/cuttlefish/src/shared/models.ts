@@ -21,6 +21,7 @@ import {
   HERMES_EFFORT_LEVELS,
   type HermesModelDiscovery,
 } from "./hermes-models.js";
+import { discoverAiderModels, knownAiderModels, type AiderModelDiscovery } from "./aider-models.js";
 
 /**
  * Model + capability registry — the single source of truth for which engines and
@@ -131,6 +132,8 @@ let discoveredPiModels: ModelInfo[] | null = null;
 let discoveredGrokModels: GrokModelDiscovery | null = null;
 /** Snapshot of dynamically-discovered Hermes models (null until first discovery). */
 let discoveredHermesModels: HermesModelDiscovery | null = null;
+/** Snapshot of env-derived Aider models (null until first discovery). */
+let discoveredAiderModels: AiderModelDiscovery | null = null;
 
 /**
  * Discover Pi's local/custom models (`pi --list-models`) and refresh the registry.
@@ -201,6 +204,28 @@ export async function refreshHermesModels(config: CuttlefishConfig): Promise<voi
   }
 }
 
+/**
+ * Refresh the Aider model list from the gateway's provider API keys and refresh the
+ * registry. Env-driven (no subprocess) — `aider --list-models` only filters litellm's
+ * full catalog by substring, so it is unusable as a real "what can I run" probe.
+ */
+export async function refreshAiderModels(config: CuttlefishConfig): Promise<void> {
+  if (!engineAvailable(config, "aider")) {
+    discoveredAiderModels = null;
+    invalidateModelRegistry();
+    return;
+  }
+  try {
+    discoveredAiderModels = discoverAiderModels(process.env);
+    logger.info(`Aider model discovery: ${discoveredAiderModels.models.length} model(s) from provider env keys`);
+  } catch (err) {
+    logger.warn(`Aider model discovery failed: ${err instanceof Error ? err.message : err}`);
+    discoveredAiderModels = null;
+  } finally {
+    invalidateModelRegistry();
+  }
+}
+
 let cached: ModelRegistry | null = null;
 
 /** Clear the cached registry. Call on config reload / PUT /api/config. */
@@ -263,6 +288,10 @@ export function buildRegistry(config: CuttlefishConfig): ModelRegistry {
       registry[name] = buildHermesEntry(config, block?.hermes, synthesized[name], available);
       continue;
     }
+    if (name === "aider") {
+      registry[name] = buildAiderEntry(config, block?.aider, synthesized[name], available);
+      continue;
+    }
     const engineBlock = block?.[name];
     registry[name] = engineBlock
       ? fromEngineModelsConfig(name, engineBlock, available)
@@ -321,6 +350,46 @@ function buildHermesEntry(
   if (hermesBlock) return fromEngineModelsConfig("hermes", hermesBlock, available, pinned);
   const known = knownHermesModels(pinned);
   return { name: "hermes", available, defaultModel: known.defaultModel || synthEntry.defaultModel, effortMechanism: "none", models: known.models };
+}
+
+/** Aider registry entry: env-discovered models > config `models.aider` block > known catalog. */
+function buildAiderEntry(
+  config: CuttlefishConfig,
+  aiderBlock: EngineModelsConfig | undefined,
+  synthEntry: EngineRegistryEntry,
+  available: boolean,
+): EngineRegistryEntry {
+  const pinned = config.engines.aider?.model;
+  if (discoveredAiderModels && discoveredAiderModels.models.length > 0) {
+    const models = mergeDiscoveredAiderModels(discoveredAiderModels.models, aiderBlock, pinned);
+    const valid = (id?: string) => (id && models.some((m) => m.id === id) ? id : undefined);
+    const defaultModel = valid(pinned) ?? valid(aiderBlock?.default) ?? discoveredAiderModels.defaultModel ?? models[0].id;
+    return { name: "aider", available, defaultModel, effortMechanism: "none", models };
+  }
+  if (aiderBlock) return fromEngineModelsConfig("aider", aiderBlock, available, pinned);
+  const known = knownAiderModels(pinned);
+  return { name: "aider", available, defaultModel: known.defaultModel || synthEntry.defaultModel, effortMechanism: "none", models: known.models };
+}
+
+/** Union the discovered aider models with any `models.aider` block entries and a pinned id. */
+function mergeDiscoveredAiderModels(
+  discovered: ModelInfo[],
+  block: EngineModelsConfig | undefined,
+  pinned: string | undefined,
+): ModelInfo[] {
+  const seen = new Set(discovered.map((m) => m.id));
+  const models = [...discovered];
+  if (block) {
+    for (const m of block.models) {
+      if (seen.has(m.id)) continue;
+      seen.add(m.id);
+      models.push(modelInfoFromConfigEntry(m));
+    }
+  }
+  if (pinned && pinned !== "default" && !seen.has(pinned)) {
+    models.push({ id: pinned, label: pinned, supportsEffort: false, effortLevels: [] });
+  }
+  return models;
 }
 
 /** Pi registry entry: discovered models > config `models.pi` block > synthesized. */

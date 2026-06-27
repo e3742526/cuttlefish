@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import fs from "node:fs";
 import type { InterruptibleEngine, EngineRunOpts, EngineResult } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
 import { buildOllamaPrompt } from "./ollama.js";
+import { aiderHistoryPathFor, ensureAiderHistoryDir, extractAssistantText } from "./aider-protocol.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
@@ -66,11 +68,19 @@ export class AiderEngine implements InterruptibleEngine {
     const bin = resolveBin("aider", opts.bin);
     const history = opts.sessionId ? getMessages(opts.sessionId) : [];
     const prompt = buildOllamaPrompt(opts, history);
+    // Point aider at a per-session chat-history file and remember where it ends now,
+    // so after the turn we can read back just THIS turn's assistant prose (clean) — far
+    // better than aider's stdout chrome (banner, token/cost lines, edit summaries).
+    const historyPath = ensureAiderHistoryDir(trackingId);
+    let historyStartOffset = 0;
+    try { historyStartOffset = fs.statSync(historyPath).size; } catch { /* not created yet → 0 */ }
     const args = [
       "--yes-always",
       "--no-auto-commits",
       "--no-pretty",
       "--no-check-update",
+      "--chat-history-file",
+      historyPath,
       ...aiderModelFlag(opts.model),
       ...(opts.attachments ?? []).flatMap((file) => ["--file", file]),
       ...(opts.cliFlags ?? []),
@@ -121,9 +131,10 @@ export class AiderEngine implements InterruptibleEngine {
       proc.stdout.on("data", (chunk: Buffer | string) => {
         const text = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
         if (!text) return;
+        // Keep the stall watchdog alive, but DON'T stream aider's stdout chrome as chat
+        // text — the clean per-turn result comes from the chat-history file on close.
         opts.onActivity?.();
         stdout += text;
-        if (opts.onStream) opts.onStream({ type: "text", content: text });
       });
 
       proc.stderr.on("data", (chunk: Buffer | string) => {
@@ -142,12 +153,14 @@ export class AiderEngine implements InterruptibleEngine {
       proc.on("close", (code) => {
         const live = this.liveProcesses.get(trackingId);
         const terminationReason = live?.terminationReason;
-        const result = stdout.trim();
         if (terminationReason) {
           finish({ sessionId: trackingId, result: "", error: terminationReason });
           return;
         }
         if (code === 0) {
+          // Prefer the clean assistant prose aider wrote to the chat-history file;
+          // fall back to raw stdout if that read turns up empty.
+          const result = this.readTurnResult(historyPath, historyStartOffset) || stdout.trim();
           finish({
             sessionId: trackingId,
             result,
@@ -157,11 +170,31 @@ export class AiderEngine implements InterruptibleEngine {
         }
         finish({
           sessionId: trackingId,
-          result,
+          result: stdout.trim(),
           error: stderr.trim() || `Aider exited with code ${code ?? "unknown"}`,
         });
       });
     });
+  }
+
+  /** Read the assistant prose appended to the chat-history file during this turn
+   *  (the byte range [startOffset, EOF)). Returns "" on any read failure. */
+  private readTurnResult(historyPath: string, startOffset: number): string {
+    try {
+      const fd = fs.openSync(historyPath, "r");
+      try {
+        const size = fs.fstatSync(fd).size;
+        if (size <= startOffset) return "";
+        const len = size - startOffset;
+        const buf = Buffer.alloc(len);
+        fs.readSync(fd, buf, 0, len, startOffset);
+        return extractAssistantText(buf.toString("utf-8"));
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch {
+      return "";
+    }
   }
 
   private buildCleanEnv(): Record<string, string> {

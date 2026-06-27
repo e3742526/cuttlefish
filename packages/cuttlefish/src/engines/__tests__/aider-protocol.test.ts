@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aiderHistoryPathFor, parseAiderHistoryLine } from "../aider-protocol.js";
+import { aiderHistoryPathFor, extractAssistantText, parseAiderHistoryLine } from "../aider-protocol.js";
 
 describe("aiderHistoryPathFor", () => {
   it("derives a per-session path under the aider-history dir", () => {
@@ -42,5 +42,28 @@ describe("parseAiderHistoryLine", () => {
     const parsed = parseAiderHistoryLine("> Tokens: 1.2k sent, 345 received. Cost: $0.01");
     expect(parsed.tokensLine).toBe(true);
     expect(parsed.deltas[0]?.type).toBe("status");
+  });
+});
+
+describe("extractAssistantText", () => {
+  it("pulls only the assistant prose out of a history slice", () => {
+    const slice = [
+      "# aider chat started at 2026-06-27",
+      "",
+      "#### refactor the parser",
+      "Here is the refactor:",
+      "",
+      "```python",
+      "def parse(): ...",
+      "```",
+      "> Tokens: 1.2k sent, 345 received. Cost: $0.01",
+      "> Applied edit to parser.py",
+    ].join("\n");
+    expect(extractAssistantText(slice)).toBe("Here is the refactor:\n```python\ndef parse(): ...\n```");
+  });
+
+  it("returns empty string when the slice has no assistant prose", () => {
+    expect(extractAssistantText("#### just a prompt\n> Tokens: 1 sent")).toBe("");
+    expect(extractAssistantText("")).toBe("");
   });
 });

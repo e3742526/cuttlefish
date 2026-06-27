@@ -74,3 +74,33 @@ export function parseAiderHistoryLine(line: string): AiderParsedLine {
 
   return { deltas: [{ type: "text", content: `${trimmed}\n` }], assistantText: `${trimmed}\n` };
 }
+
+/**
+ * Extract just the assistant prose from a slice of aider's chat-history markdown
+ * (drops the `#### ` user echo, `# ` headers, and `> ` status blockquotes). Used by
+ * the headless engine to turn a turn's history append into a clean result, instead of
+ * capturing aider's noisy stdout chrome.
+ */
+export function extractAssistantText(appended: string): string {
+  const out: string[] = [];
+  let inFence = false;
+  for (const raw of appended.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    const isFence = line.trimStart().startsWith("```");
+    if (inFence) {
+      // Inside a code block, keep every line verbatim (indentation, `#` comments, and
+      // `>` redirects must survive) until the closing fence.
+      out.push(`${line}\n`);
+      if (isFence) inFence = false;
+      continue;
+    }
+    if (isFence) {
+      out.push(`${line}\n`);
+      inFence = true;
+      continue;
+    }
+    const parsed = parseAiderHistoryLine(line);
+    if (parsed.assistantText) out.push(parsed.assistantText);
+  }
+  return out.join("").trim();
+}

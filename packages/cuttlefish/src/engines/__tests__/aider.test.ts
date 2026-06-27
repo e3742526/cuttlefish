@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { PassThrough } from "node:stream";
+import fs from "node:fs";
+import { aiderHistoryPathFor, ensureAiderHistoryDir } from "../aider-protocol.js";
 
 interface FakeProc {
   stdout: PassThrough;
@@ -133,6 +135,50 @@ describe("AiderEngine", () => {
     spawnCalls[0]?.proc.emitStdout("answer");
     spawnCalls[0]?.proc.close(0);
     await expect(promise).resolves.toMatchObject({ sessionId: "sess-1", result: "answer" });
+  });
+
+  it("returns the clean assistant prose from the chat-history file, not stdout chrome", async () => {
+    const sessionId = "sess-aider-clean-test";
+    const historyPath = aiderHistoryPathFor(sessionId);
+    try { fs.rmSync(historyPath, { force: true }); } catch { /* ignore */ }
+
+    const engine = new AiderEngine();
+    const promise = engine.run({ prompt: "do it", cwd: "/tmp/project", sessionId });
+    await flush();
+
+    // Simulate aider appending the exchange to its chat-history file during the turn.
+    ensureAiderHistoryDir(sessionId);
+    fs.writeFileSync(
+      historyPath,
+      [
+        "# aider chat started at 2026-06-27",
+        "#### do it",
+        "All done — updated the parser.",
+        "> Tokens: 1.0k sent, 200 received. Cost: $0.01",
+        "> Applied edit to parser.py",
+        "",
+      ].join("\n"),
+    );
+
+    // stdout carries aider's noisy chrome, which must NOT become the result.
+    spawnCalls[0]?.proc.emitStdout("Aider v0.86.2\nModel: sonnet\nTokens: 1.0k\n");
+    spawnCalls[0]?.proc.close(0);
+    await expect(promise).resolves.toMatchObject({ result: "All done — updated the parser." });
+
+    try { fs.rmSync(historyPath, { force: true }); } catch { /* ignore */ }
+  });
+
+  it("passes --chat-history-file so the turn's output can be read back cleanly", async () => {
+    const engine = new AiderEngine();
+    const promise = engine.run({ prompt: "hi", cwd: "/tmp/project", sessionId: "sess-hist-flag" });
+    await flush();
+    const args = spawnCalls[0]?.args ?? [];
+    const idx = args.indexOf("--chat-history-file");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe(aiderHistoryPathFor("sess-hist-flag"));
+    spawnCalls[0]?.proc.emitStdout("ok");
+    spawnCalls[0]?.proc.close(0);
+    await promise;
   });
 
   it("surfaces stderr as the error on a non-zero exit", async () => {
