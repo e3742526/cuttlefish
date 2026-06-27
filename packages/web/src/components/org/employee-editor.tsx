@@ -49,10 +49,12 @@ export function EmployeeEditor({
   employee,
   onCancel,
   onSaved,
+  onDeleted,
 }: {
   employee: Employee
   onCancel: () => void
   onSaved: (emp: Employee) => void
+  onDeleted?: (emp: Employee) => void
 }) {
   const [displayName, setDisplayName] = useState(employee.displayName || employee.name)
   const [department, setDepartment] = useState(employee.department || "")
@@ -73,6 +75,8 @@ export function EmployeeEditor({
   const [employeeNames, setEmployeeNames] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     api.getOrg().then((o) => {
@@ -117,6 +121,20 @@ export function EmployeeEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save")
       setSaving(false)
+    }
+  }
+
+  async function remove() {
+    if (deleting) return
+    setDeleting(true)
+    setError(null)
+    try {
+      await api.deleteEmployee(employee.name)
+      onDeleted?.(employee)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete")
+      setDeleting(false)
+      setConfirmingDelete(false)
     }
   }
 
@@ -244,11 +262,43 @@ export function EmployeeEditor({
         </div>
       )}
 
-      <div className="flex items-center justify-end gap-[var(--space-2)] sticky bottom-0 pt-[var(--space-2)] bg-[var(--material-regular)]">
-        <Button variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
-        <Button onClick={() => void save()} disabled={!canSave || !dirty}>
-          {saving ? "Saving…" : "Save"}
-        </Button>
+      <div className="flex items-center justify-between gap-[var(--space-2)] sticky bottom-0 pt-[var(--space-2)] bg-[var(--material-regular)]">
+        <div className="flex items-center gap-[var(--space-2)]">
+          {onDeleted && !confirmingDelete && (
+            <Button
+              variant="ghost"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={saving || deleting}
+              className="text-[var(--system-red)] hover:text-[var(--system-red)]"
+            >
+              Delete
+            </Button>
+          )}
+          {onDeleted && confirmingDelete && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleting}
+              >
+                Undo
+              </Button>
+              <Button
+                onClick={() => void remove()}
+                disabled={deleting}
+                className="bg-[var(--system-red)] text-white hover:bg-[var(--system-red)]"
+              >
+                {deleting ? "Deleting…" : "Confirm Deletion"}
+              </Button>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-[var(--space-2)]">
+          <Button variant="ghost" onClick={onCancel} disabled={saving || deleting}>Cancel</Button>
+          <Button onClick={() => void save()} disabled={!canSave || !dirty || deleting}>
+            {saving ? "Saving…" : "Save"}
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -26,7 +26,7 @@ vi.mock("../../shared/logger.js", () => ({
   },
 }));
 
-import { createEmployeeYaml, updateEmployeeYaml, validateEmployeeCreate, validateEmployeeUpdate, scanOrg } from "../org.js";
+import { createEmployeeYaml, deleteEmployeeYaml, updateEmployeeYaml, validateEmployeeCreate, validateEmployeeUpdate, scanOrg } from "../org.js";
 import { invalidateModelRegistry } from "../../shared/models.js";
 
 function writeYaml(subdir: string, filename: string, content: string) {
@@ -282,6 +282,33 @@ describe("createEmployeeYaml", () => {
     expect(data.name).toBe("platform-lead");
     expect(data.displayName).toBe("Platform Lead");
     expect(data.modelPolicy.fallback_chain).toEqual([{ engine: "claude", model: "opus" }]);
+  });
+});
+
+describe("deleteEmployeeYaml", () => {
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-delete-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("removes the YAML file for an existing employee", () => {
+    writeYaml("platform", "dev.yaml", `
+name: dev
+persona: A developer
+rank: senior
+`);
+    const filePath = path.join(tmpDir, "platform", "dev.yaml");
+    expect(fs.existsSync(filePath)).toBe(true);
+
+    expect(deleteEmployeeYaml("dev")).toBe(true);
+    expect(fs.existsSync(filePath)).toBe(false);
+  });
+
+  it("returns false for a non-existent employee", () => {
+    expect(deleteEmployeeYaml("ghost")).toBe(false);
   });
 });
 

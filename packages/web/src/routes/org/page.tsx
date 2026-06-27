@@ -74,8 +74,8 @@ export default function OrgPage() {
       .getOrg()
       .then((data: OrgData) => {
         const coo: Employee = {
-          name: (settings.portalName ?? "Cuttlefish").toLowerCase(),
-          displayName: settings.portalName ?? "Cuttlefish",
+          name: (settings.portalName ?? "Jinn").toLowerCase(),
+          displayName: settings.portalName ?? "Jinn",
           department: "",
           rank: "executive",
           engine: "claude",
@@ -133,6 +133,13 @@ export default function OrgPage() {
     },
     [loadData],
   );
+
+  // After a delete: reload the org and close the detail panel.
+  const handleEmployeeDeleted = useCallback(() => {
+    loadData();
+    setSelected(null);
+    setCreating(false);
+  }, [loadData]);
 
   const visibleOrg = useMemo(
     () => buildVisibleOrgView(employees, hierarchy, activeDepartment),
@@ -270,6 +277,7 @@ export default function OrgPage() {
                     name={selected.name}
                     prefetched={selected.rank === "executive" ? selected : undefined}
                     onUpdated={handleEmployeeUpdated}
+                    onDeleted={handleEmployeeDeleted}
                   />
                 ) : null}
               </div>

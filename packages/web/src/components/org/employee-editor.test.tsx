@@ -9,10 +9,12 @@ vi.mock("@/components/chat/model-selector-row", () => ({
 }))
 
 const updateEmployee = vi.fn()
+const deleteEmployee = vi.fn()
 const getOrg = vi.fn()
 vi.mock("@/lib/api", () => ({
   api: {
     updateEmployee: (...a: unknown[]) => updateEmployee(...a),
+    deleteEmployee: (...a: unknown[]) => deleteEmployee(...a),
     getOrg: (...a: unknown[]) => getOrg(...a),
   },
 }))
@@ -33,6 +35,7 @@ const saveBtn = () => screen.getByRole("button", { name: /^(Save|Saving)/ }) as 
 
 beforeEach(() => {
   updateEmployee.mockReset()
+  deleteEmployee.mockReset()
   getOrg.mockReset()
   getOrg.mockResolvedValue({
     departments: ["content"],
@@ -108,5 +111,50 @@ describe("EmployeeEditor", () => {
     render(<EmployeeEditor employee={EMP} onCancel={onCancel} onSaved={() => {}} />)
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  it("hides the Delete button when onDeleted is not provided", () => {
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull()
+  })
+
+  it("requires a two-step confirmation and can be undone before deleting", () => {
+    const onDeleted = vi.fn()
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} onDeleted={onDeleted} />)
+
+    // Step 1: reveal confirmation; no API call yet.
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+    expect(screen.getByRole("button", { name: "Confirm Deletion" })).toBeTruthy()
+    expect(deleteEmployee).not.toHaveBeenCalled()
+
+    // Undo returns to the initial state.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }))
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy()
+    expect(deleteEmployee).not.toHaveBeenCalled()
+  })
+
+  it("deletes and calls onDeleted after confirmation", async () => {
+    const onDeleted = vi.fn()
+    deleteEmployee.mockResolvedValue({ status: "ok" })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} onDeleted={onDeleted} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Deletion" }))
+
+    await waitFor(() => expect(deleteEmployee).toHaveBeenCalledWith("content-writer"))
+    await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(EMP))
+  })
+
+  it("surfaces the error and stays open on a failed delete", async () => {
+    const onDeleted = vi.fn()
+    deleteEmployee.mockRejectedValue(new Error("cannot delete a manager with reports"))
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} onDeleted={onDeleted} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }))
+    fireEvent.click(screen.getByRole("button", { name: "Confirm Deletion" }))
+
+    await waitFor(() => expect(screen.getByText("cannot delete a manager with reports")).toBeTruthy())
+    expect(onDeleted).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy() // back to step 1
   })
 })

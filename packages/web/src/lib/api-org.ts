@@ -1,4 +1,4 @@
-import { get, patch, post } from "./api-core"
+import { del, get, patch, post } from "./api-core"
 
 export interface Employee {
   name: string
@@ -79,4 +79,6 @@ export const orgApi = {
     patch<{ status: string; employee: Employee | null }>(`/api/org/employees/${name}`, data),
   createEmployee: (data: EmployeeCreate) =>
     post<{ status: string; employee: Employee | null }>("/api/org/employees", data),
+  deleteEmployee: (name: string) =>
+    del<{ status: string }>(`/api/org/employees/${name}`),
 }

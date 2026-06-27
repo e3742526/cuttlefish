@@ -536,6 +536,22 @@ export function createEmployeeYaml(employee: EmployeeCreate): boolean {
   }
 }
 
+/**
+ * Delete the YAML file backing an employee. Returns false when no matching
+ * file is found (treated as 404 by the API).
+ */
+export function deleteEmployeeYaml(name: string): boolean {
+  const filePath = findEmployeeYamlPath(name);
+  if (!filePath) return false;
+  try {
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (err) {
+    logger.warn(`Failed to delete employee YAML for ${name}: ${err}`);
+    return false;
+  }
+}
+
 export function findEmployee(
   name: string,
   registry: Map<string, Employee>,

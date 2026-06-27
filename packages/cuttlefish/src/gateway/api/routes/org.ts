@@ -176,6 +176,39 @@ export async function handleOrgRoutes(
     return true;
   }
 
+  if (method === "DELETE" && params) {
+    const { deleteEmployeeYaml } = await import("../../org.js");
+    const { getAllParents } = await import("../../org-hierarchy.js");
+    const name = params.name;
+    const registry = scanOrg();
+    const current = registry.get(name);
+    if (!current) {
+      notFound(res);
+      return true;
+    }
+    // Refuse to orphan reports: block deletion while anyone still reports to
+    // this employee (primary or secondary matrix links).
+    const reports = [...registry.values()]
+      .filter((emp) => getAllParents(emp.reportsTo).includes(name))
+      .map((emp) => emp.name);
+    if (reports.length > 0) {
+      json(res, {
+        error: `Cannot delete "${name}" while ${reports.length} employee${reports.length === 1 ? "" : "s"} still report${reports.length === 1 ? "s" : ""} to them. Reassign or remove them first.`,
+        reports,
+      }, 409);
+      return true;
+    }
+    const deleted = deleteEmployeeYaml(name);
+    if (!deleted) {
+      notFound(res);
+      return true;
+    }
+    context.reloadOrg?.();
+    context.emit("org:updated", { employee: name, action: "deleted" });
+    json(res, { status: "ok" });
+    return true;
+  }
+
   params = matchRoute("/api/org/departments/:name/board", pathname);
   if (method === "GET" && params) {
     const deptDir = path.join(ORG_DIR, params.name);

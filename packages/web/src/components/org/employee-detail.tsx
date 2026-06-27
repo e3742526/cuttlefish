@@ -51,10 +51,12 @@ export function EmployeeDetail({
   name,
   prefetched,
   onUpdated,
+  onDeleted,
 }: {
   name: string;
   prefetched?: Employee;
   onUpdated?: (emp: Employee) => void;
+  onDeleted?: (emp: Employee) => void;
 }) {
   const [employee, setEmployee] = useState<Employee | null>(prefetched ?? null);
   const [sessions, setSessions] = useState<SessionData[]>([]);
@@ -122,6 +124,10 @@ export function EmployeeDetail({
           setEmployee(emp);
           setEditing(false);
           onUpdated?.(emp);
+        }}
+        onDeleted={(emp) => {
+          setEditing(false);
+          onDeleted?.(emp);
         }}
       />
     );
