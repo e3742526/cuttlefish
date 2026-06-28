@@ -3,11 +3,11 @@ import path from "node:path";
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import { ORG_DIR } from "../../../shared/paths.js";
 import { logger } from "../../../shared/logger.js";
-import { listSessions } from "../../../sessions/registry.js";
+import { getSession, listSessions } from "../../../sessions/registry.js";
 import { readJsonBody } from "../../http-helpers.js";
 import { authorizeManagerScope } from "../../manager-auth.js";
 import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoard } from "../../board-service.js";
-import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled } from "../../ticket-session-resolver.js";
+import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
 import { scanOrg } from "../../org.js";
 import { resolveUserHeader } from "../../connector-reply.js";
@@ -31,6 +31,18 @@ const MANAGER_MUTABLE_EMPLOYEE_FIELDS = new Set([
 type ParsedChangeInput =
   | { ok: true; value: { changeType: OrgChangeType; employeeName: string; proposed: Record<string, unknown> } }
   | { ok: false; error: string };
+
+async function reconcileDepartmentBoardView(department: string, context: ApiContext): Promise<void> {
+  const { reconcileDepartmentOrphanedTickets } = await import("../../orphaned-ticket-reconciler.js");
+  reconcileDepartmentOrphanedTickets(department, {
+    engines: context.sessionManager.getEngines(),
+    orgDir: ORG_DIR,
+    getSession,
+    listSessions,
+    emit: context.emit,
+    cause: "periodic",
+  });
+}
 
 /** Validate the shared {changeType, employeeName, proposed} shape used by the
  *  /api/org/validate and /api/org/change-requests routes. */
@@ -450,6 +462,7 @@ export async function handleOrgRoutes(
       return true;
     }
     try {
+      await reconcileDepartmentBoardView(params.name, context);
       const board = readBoardState(ORG_DIR, params.name) ?? defaultBoardState();
       json(res, board);
     } catch (err) {
@@ -464,6 +477,7 @@ export async function handleOrgRoutes(
     const routeParams = params;
     let board: import("../../board-service.js").BoardTicket[] | null;
     try {
+      await reconcileDepartmentBoardView(routeParams.name, context);
       board = readBoardArray(ORG_DIR, routeParams.name);
     } catch (err) {
       logger.warn(`GET /api/org/departments/${routeParams.name}/tickets/${routeParams.id}/session: corrupt board.json — ${err instanceof Error ? err.message : String(err)}`);
@@ -477,6 +491,10 @@ export async function handleOrgRoutes(
     }
     const session = resolveBestSessionForTicket(ticket, listSessions());
     if (!session) {
+      json(res, { found: false });
+      return true;
+    }
+    if (!shouldExposeSessionForTicket(ticket, session)) {
       json(res, { found: false });
       return true;
     }

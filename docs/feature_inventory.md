@@ -21,6 +21,8 @@
 
 ### Kanban ticket live session inspector
 - `packages/web/src/components/kanban/ticket-detail-panel.tsx`
+- `packages/cuttlefish/src/gateway/api/routes/org.ts`
+- `packages/cuttlefish/src/gateway/orphaned-ticket-reconciler.ts`
 - In-progress tickets can show a live session summary in the detail panel:
   - session status
   - engine and model
@@ -29,6 +31,12 @@
   - latest transcript tail (capped to 8 messages)
   - link to open the full live chat view
 - This is session-level liveness only. It reflects the gateway session state and transcript, not process-level CPU/PID health.
+- The gateway now performs a deterministic orphaned-ticket reconciliation when a
+  department board is read, so stale `in_progress` tickets are demoted to
+  `blocked` immediately instead of waiting for the periodic sweep.
+- Completed tickets no longer surface old `idle` sessions as if they were still
+  live; only active or failure-relevant session state remains inspectable from
+  the board.
 
 ### Kanban recycle bin
 - `packages/cuttlefish/src/gateway/board-service.ts`

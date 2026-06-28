@@ -94,6 +94,56 @@ export function sweepOrphanedBoardTickets(
   return changed;
 }
 
+function reconcileDepartmentTickets(
+  departmentName: string,
+  deps: OrphanedTicketReconcilerDeps,
+  sessions: Session[],
+  now: number,
+  staleMs: number,
+  cause: OrphanSweepCause,
+): OrphanedTicketReconcileResult {
+  const boardPath = path.join(deps.orgDir, departmentName, "board.json");
+  if (!fs.existsSync(boardPath)) return { boardsUpdated: 0, ticketsUpdated: 0 };
+
+  let tickets: BoardTicket[] | null;
+  try {
+    tickets = readBoardArray(deps.orgDir, departmentName);
+  } catch (err) {
+    logger.warn(
+      `[orphaned-ticket-reconciler] ${departmentName}/board.json invalid — skipping: ` +
+      `${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { boardsUpdated: 0, ticketsUpdated: 0 };
+  }
+  if (!tickets) return { boardsUpdated: 0, ticketsUpdated: 0 };
+
+  const updated = sweepOrphanedBoardTickets(tickets, sessions, deps, now, staleMs, cause);
+  if (updated <= 0) return { boardsUpdated: 0, ticketsUpdated: 0 };
+
+  try {
+    writeBoardTickets(deps.orgDir, departmentName, tickets);
+  } catch (err) {
+    logger.warn(
+      `[orphaned-ticket-reconciler] failed to write ${departmentName}/board.json: ` +
+      `${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { boardsUpdated: 0, ticketsUpdated: 0 };
+  }
+
+  deps.emit?.("board:updated", { department: departmentName });
+  return { boardsUpdated: 1, ticketsUpdated: updated };
+}
+
+export function reconcileDepartmentOrphanedTickets(
+  departmentName: string,
+  deps: OrphanedTicketReconcilerDeps,
+): OrphanedTicketReconcileResult {
+  const now = deps.now?.() ?? Date.now();
+  const staleMs = deps.staleMs ?? DEFAULT_STALE_MS;
+  const sessions = deps.listSessions();
+  return reconcileDepartmentTickets(departmentName, deps, sessions, now, staleMs, deps.cause ?? "periodic");
+}
+
 export function reconcileOrphanedTickets(deps: OrphanedTicketReconcilerDeps): OrphanedTicketReconcileResult {
   const now = deps.now?.() ?? Date.now();
   const staleMs = deps.staleMs ?? DEFAULT_STALE_MS;
@@ -111,39 +161,9 @@ export function reconcileOrphanedTickets(deps: OrphanedTicketReconcilerDeps): Or
 
   for (const department of departments) {
     if (!department.isDirectory()) continue;
-    const boardPath = path.join(deps.orgDir, department.name, "board.json");
-    if (!fs.existsSync(boardPath)) continue;
-
-    let tickets: BoardTicket[] | null;
-    try {
-      tickets = readBoardArray(deps.orgDir, department.name);
-    } catch (err) {
-      logger.warn(
-        `[orphaned-ticket-reconciler] ${department.name}/board.json invalid — skipping: ` +
-        `${err instanceof Error ? err.message : String(err)}`,
-      );
-      continue;
-    }
-    if (!tickets) continue;
-
-    let changed = false;
-    const updated = sweepOrphanedBoardTickets(tickets, sessions, deps, now, staleMs, deps.cause ?? "periodic");
-    changed = updated > 0;
-    ticketsUpdated += updated;
-
-    if (!changed) continue;
-
-    try {
-      writeBoardTickets(deps.orgDir, department.name, tickets);
-    } catch (err) {
-      logger.warn(
-        `[orphaned-ticket-reconciler] failed to write ${department.name}/board.json: ` +
-        `${err instanceof Error ? err.message : String(err)}`,
-      );
-      continue;
-    }
-    boardsUpdated++;
-    deps.emit?.("board:updated", { department: department.name });
+    const result = reconcileDepartmentTickets(department.name, deps, sessions, now, staleMs, deps.cause ?? "periodic");
+    boardsUpdated += result.boardsUpdated;
+    ticketsUpdated += result.ticketsUpdated;
   }
 
   return { boardsUpdated, ticketsUpdated };

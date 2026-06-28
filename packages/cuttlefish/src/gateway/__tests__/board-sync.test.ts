@@ -3,7 +3,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import { syncBoardForEvent, type BoardSyncDeps } from "../board-sync.js";
-import { resolveBestSessionForTicket } from "../ticket-session-resolver.js";
+import { resolveBestSessionForTicket, shouldExposeSessionForTicket } from "../ticket-session-resolver.js";
 import type { Session } from "../../shared/types.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-boardsync-"));
@@ -230,5 +230,28 @@ describe("resolveBestSessionForTicket", () => {
   it("returns undefined when nothing matches", () => {
     const ticket = { id: "ticket-miss", sessionId: undefined } as any;
     expect(resolveBestSessionForTicket(ticket, [makeSession({ id: "s-other" })])).toBeUndefined();
+  });
+});
+
+describe("shouldExposeSessionForTicket", () => {
+  it("hides idle history for completed tickets", () => {
+    expect(shouldExposeSessionForTicket(
+      { status: "done" } as any,
+      makeSession({ status: "idle", lastError: null, transportMeta: null }),
+    )).toBe(false);
+  });
+
+  it("keeps blocked failure sessions inspectable", () => {
+    expect(shouldExposeSessionForTicket(
+      { status: "blocked" } as any,
+      makeSession({ status: "interrupted", lastError: "Stalled: watchdog timeout", transportMeta: null }),
+    )).toBe(true);
+  });
+
+  it("keeps active in-progress sessions visible", () => {
+    expect(shouldExposeSessionForTicket(
+      { status: "in_progress" } as any,
+      makeSession({ status: "running", lastError: null, transportMeta: null }),
+    )).toBe(true);
   });
 });

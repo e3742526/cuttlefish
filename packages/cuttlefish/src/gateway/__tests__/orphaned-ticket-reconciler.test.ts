@@ -3,7 +3,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 import type { Session } from "../../shared/types.js";
-import { classifyOrphanedBoardTicket, reconcileOrphanedTickets, sweepOrphanedBoardTickets } from "../orphaned-ticket-reconciler.js";
+import { classifyOrphanedBoardTicket, reconcileDepartmentOrphanedTickets, reconcileOrphanedTickets, sweepOrphanedBoardTickets } from "../orphaned-ticket-reconciler.js";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-board-orphans-"));
 const orgDir = path.join(tmp, "org");
@@ -172,5 +172,31 @@ describe("orphaned ticket reconciler", () => {
       description: "running",
       blockedReason: "interrupted - worker died",
     });
+  });
+
+  it("can deterministically reconcile one department on board read", () => {
+    writeBoard("software-delivery", [
+      { id: "orphan", status: "in_progress", title: "orphan", description: "running", sessionId: "s-1", priority: "medium", assignee: "code-implementer", createdAt: iso(20_000), updatedAt: iso(20_000) },
+    ]);
+    writeBoard("research", [
+      { id: "keep", status: "in_progress", title: "keep", description: "running", sessionId: "other", priority: "medium", assignee: "researcher", createdAt: iso(20_000), updatedAt: iso(20_000) },
+    ]);
+
+    const result = reconcileDepartmentOrphanedTickets("software-delivery", {
+      engines: new Map(),
+      orgDir,
+      getSession: () => undefined,
+      listSessions: () => [session({ status: "idle", lastActivity: iso(120_000) })],
+      emit: () => {},
+      now: () => NOW,
+      cause: "periodic",
+    });
+
+    expect(result).toEqual({ boardsUpdated: 1, ticketsUpdated: 1 });
+    expect(readBoard("software-delivery")[0]).toMatchObject({
+      status: "blocked",
+      blockedReason: "interrupted - worker died",
+    });
+    expect(readBoard("research")[0].status).toBe("in_progress");
   });
 });

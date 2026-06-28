@@ -71,6 +71,14 @@ function isTerminalLiveStatus(status: TicketSessionResponse['status'] | undefine
   return status === 'idle' || status === 'error' || status === 'interrupted'
 }
 
+function shouldShowTicketLiveSection(ticketStatus: TicketStatus, liveSession: TicketSessionResponse | null): boolean {
+  if (ticketStatus === 'in-progress') return true
+  if (!liveSession?.found) return false
+  if (liveSession.status === 'running' || liveSession.status === 'waiting') return true
+  if (ticketStatus !== 'blocked') return false
+  return liveSession.status === 'error' || liveSession.status === 'interrupted' || liveSession.stalled === true
+}
+
 function formatRelativeMs(ms: number | null | undefined): string {
   if (ms == null || !Number.isFinite(ms)) return 'activity unknown'
   if (ms < 1000) return 'active just now'
@@ -259,7 +267,7 @@ export function TicketDetailPanel({
         ? 'Manual-only ticket. It will never be launched by the board worker.'
         : 'Run immediately, bypassing idle and schedule gates.'))
   const transcriptMessages = useMemo(() => mapTailMessages(liveSession), [liveSession])
-  const showLiveSection = ticket.status === 'in-progress' || liveSession?.found === true
+  const showLiveSection = shouldShowTicketLiveSection(ticket.status, liveSession)
   const showTranscript = transcriptMessages.length > 0 || liveSession?.status === 'running'
   const staleHint = liveSession?.status === 'running' && (liveSession.lastActivityAgoMs ?? 0) >= LIVE_STALE_HINT_MS
   const stalledLabel = liveSession?.stalled

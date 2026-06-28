@@ -97,6 +97,21 @@ export function resolveBestSessionForTicket<T extends Pick<BoardTicket, "id" | "
     .sort((a, b) => Date.parse(b.lastActivity || "") - Date.parse(a.lastActivity || ""))[0];
 }
 
+export function shouldExposeSessionForTicket(
+  ticket: Pick<BoardTicket, "status">,
+  session: Pick<Session, "status" | "transportMeta" | "lastError">,
+): boolean {
+  if (session.status === "running" || session.status === "waiting") return true;
+  if (ticket.status === "in_progress") return true;
+  if (ticket.status !== "blocked") return false;
+  return (
+    session.status === "error" ||
+    session.status === "interrupted" ||
+    resolveTicketSessionStalled(session) ||
+    resolveTicketSessionFailureReason(session) !== null
+  );
+}
+
 export function findBoardTicketForSession(
   tickets: BoardTicket[],
   session: Session,

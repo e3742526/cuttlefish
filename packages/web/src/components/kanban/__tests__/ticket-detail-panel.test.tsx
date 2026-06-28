@@ -231,6 +231,25 @@ describe('TicketDetailPanel', () => {
     expect(screen.queryByText(/No active session for this ticket/i)).toBeNull()
   })
 
+  it('hides stale idle session history for completed tickets', async () => {
+    getTicketSession.mockResolvedValue({
+      found: true,
+      sessionId: 's-old',
+      status: 'idle',
+      engine: 'claude',
+      model: 'opus',
+      lastActivityIso: '2026-06-22T10:00:00.000Z',
+      lastActivityAgoMs: 4000,
+      messages: [],
+    })
+
+    renderPanel({ ...baseTicket, status: 'done' })
+
+    await waitFor(() => expect(getTicketSession).toHaveBeenCalled())
+    expect(screen.queryByText('Live session')).toBeNull()
+    expect(screen.queryByRole('link', { name: /open live session/i })).toBeNull()
+  })
+
   it('unsubscribes and clears the polling interval on unmount', async () => {
     const unsubscribe = vi.fn()
     subscribeMock.mockReturnValue(unsubscribe)
