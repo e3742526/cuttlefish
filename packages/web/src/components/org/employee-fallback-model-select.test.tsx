@@ -39,6 +39,7 @@ describe("EmployeeFallbackModelSelect", () => {
         engine="claude"
         primaryModel="claude-opus-4-8"
         value=""
+        onEngineChange={() => {}}
         onChange={() => {}}
       />,
     )
@@ -56,6 +57,7 @@ describe("EmployeeFallbackModelSelect", () => {
         engine="claude"
         primaryModel="claude-opus-4-8"
         value="legacy-model"
+        onEngineChange={() => {}}
         onChange={() => {}}
       />,
     )
@@ -70,6 +72,7 @@ describe("EmployeeFallbackModelSelect", () => {
         engine="claude"
         primaryModel="claude-opus-4-8"
         value="claude-sonnet-4-6"
+        onEngineChange={() => {}}
         onChange={onChange}
       />,
     )

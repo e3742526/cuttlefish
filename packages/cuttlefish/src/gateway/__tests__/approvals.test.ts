@@ -103,6 +103,15 @@ describe("approvals endpoints", () => {
     expect((cap.body as Array<{ type: string }>)[0]?.type).toBe("fallback");
   });
 
+  it("GET /api/approvals can filter by sessionId", async () => {
+    const a = store.createApproval({ sessionId: "s-hr", type: "org-change", payload: { changeRequestId: "cr-1" } });
+    store.createApproval({ sessionId: "s-other", type: "fallback", payload: {} });
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/approvals?sessionId=s-hr"), cap.res, makeCtx());
+    expect(cap.status).toBe(200);
+    expect(cap.body).toEqual([expect.objectContaining({ id: a.id, sessionId: "s-hr" })]);
+  });
+
   it("approve on a missing approval → 404", async () => {
     const cap = makeRes();
     await api.handleApiRequest(makeReq("POST", "/api/approvals/nope/approve"), cap.res, makeCtx());

@@ -12,6 +12,7 @@ import {
   enqueueQueueItem,
   getQueueItems,
   getSession,
+  getSessionBySessionKey,
   insertMessage,
   type UpdateSessionFields,
   updateSession,
@@ -45,6 +46,7 @@ import {
   maybeRevertEngineOverride,
   redispatchPendingWebQueueItemsForSessionKey,
 } from "../session-dispatch.js";
+import { HR_EMPLOYEE_NAME, HR_SESSION_KEY } from "../../org-policy.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -99,6 +101,10 @@ function describeSessionResources(session: import("../../../shared/types.js").Se
     promptBlock: resolved.promptBlock,
     engineAttachments: resolved.engineAttachments,
   };
+}
+
+function singletonEmployeeSessionKey(employeeName: string | null | undefined): string | null {
+  return employeeName === HR_EMPLOYEE_NAME ? HR_SESSION_KEY : null;
 }
 
 export async function handleSessionWriteRoutes(
@@ -447,34 +453,40 @@ export async function handleSessionWriteRoutes(
       cwd = validatedCwd.cwd;
     }
     const engineName = selection.engine || config.engines.default;
-    const sessionKey = `web:${Date.now()}`;
+    const singletonSessionKey = singletonEmployeeSessionKey(employeeName);
+    const sessionKey = singletonSessionKey ?? `web:${Date.now()}`;
     const userId = resolveUserHeader(req.headers, config.gateway.userHeader);
-    let session = createSession({
-      engine: engineName,
-      source: "web",
-      sourceRef: sessionKey,
-      connector: "web",
-      sessionKey,
-      replyContext: { source: "web" },
-      userId,
-      employee: employeeName,
-      parentSessionId: body.parentSessionId,
-      effortLevel: selection.effortLevel,
-      model: selection.model,
-      prompt,
-      promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : undefined,
-      cwd,
-      portalName: config.portal?.portalName,
-    });
-    logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
-    if (session.parentSessionId) {
-      const talkParent = getSession(session.parentSessionId);
-      if (talkParent?.source === "talk") {
-        const label = String(body.employee || prompt || "task").replace(/\s+/g, " ").trim().slice(0, 48);
-        context.emit("talk:focus", { cooId: session.id, label, parentId: talkParent.id });
+    const existingSingletonSession = singletonSessionKey ? getSessionBySessionKey(singletonSessionKey) : undefined;
+    let session = existingSingletonSession
+      ? maybeRevertEngineOverride(existingSingletonSession)
+      : createSession({
+          engine: engineName,
+          source: "web",
+          sourceRef: sessionKey,
+          connector: "web",
+          sessionKey,
+          replyContext: { source: "web" },
+          userId,
+          employee: employeeName,
+          parentSessionId: body.parentSessionId,
+          effortLevel: selection.effortLevel,
+          model: selection.model,
+          prompt,
+          promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : undefined,
+          cwd,
+          portalName: config.portal?.portalName,
+        });
+    if (!existingSingletonSession) {
+      logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
+      if (session.parentSessionId) {
+        const talkParent = getSession(session.parentSessionId);
+        if (talkParent?.source === "talk") {
+          const label = String(body.employee || prompt || "task").replace(/\s+/g, " ").trim().slice(0, 48);
+          context.emit("talk:focus", { cooId: session.id, label, parentId: talkParent.id });
+        }
       }
+      maybeEmitTalkGraph(session.id, "added", { getSession, emit: context.emit });
     }
-    maybeEmitTalkGraph(session.id, "added", { getSession, emit: context.emit });
     const newSessionMedia = fileIdsToMedia(body.attachments);
     let attached;
     try {
@@ -486,26 +498,33 @@ export async function handleSessionWriteRoutes(
     session = attached.session;
     insertMessage(session.id, "user", prompt, newSessionMedia.length > 0 ? newSessionMedia : undefined);
 
-    const ptyEngine = body.mode === "interactive" ? context.ptyViewEngines?.[engineName] : undefined;
-    const engine = ptyEngine ?? context.sessionManager.getEngine(engineName);
+    const dispatchEngineName = session.engine || engineName;
+    const ptyEngine = body.mode === "interactive" ? context.ptyViewEngines?.[dispatchEngineName] : undefined;
+    const engine = ptyEngine ?? context.sessionManager.getEngine(dispatchEngineName);
     if (!engine) {
       updateSession(session.id, {
         status: "error",
-        lastError: `Engine "${engineName}" not available`,
+        lastError: `Engine "${dispatchEngineName}" not available`,
       });
-      json(res, { ...serializeSession({ ...session, status: "error", lastError: `Engine "${engineName}" not available` }, context) }, 201);
+      json(res, { ...serializeSession({ ...session, status: "error", lastError: `Engine "${dispatchEngineName}" not available` }, context) }, 201);
       return true;
     }
 
-    updateSession(session.id, {
-      status: "running",
-      lastActivity: new Date().toISOString(),
-    });
-    session.status = "running";
+    const singletonWasRunning = Boolean(existingSingletonSession && session.status === "running");
+    if (session.status === "interrupted" || session.status === "idle") {
+      session = updateSession(session.id, {
+        status: "running",
+        lastActivity: new Date().toISOString(),
+        lastError: null,
+      }) ?? { ...session, status: "running", lastError: null };
+    }
 
     const queueSessionKey = session.sessionKey || session.sourceRef || session.id;
     const queueItemId = enqueueQueueItem(session.id, queueSessionKey, prompt);
     context.emit("queue:updated", { sessionId: session.id, sessionKey: queueSessionKey });
+    if (singletonWasRunning) {
+      context.emit("session:queued", { sessionId: session.id, message: prompt });
+    }
     dispatchWebSessionRun(session, prompt, engine, config, context, {
       queueItemId,
       attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,

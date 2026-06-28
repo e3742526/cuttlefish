@@ -5,9 +5,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { Readable } from "node:stream";
 
-const scheduleOnLoadTailSync = vi.fn();
-const scheduleTranscriptBackfill = vi.fn();
-const loadRawTranscript = vi.fn();
+const hoisted = vi.hoisted(() => ({
+  scheduleOnLoadTailSync: vi.fn(),
+  scheduleTranscriptBackfill: vi.fn(),
+  loadRawTranscript: vi.fn(),
+  dispatchWebSessionRun: vi.fn(async () => {}),
+}));
+const scheduleOnLoadTailSync = hoisted.scheduleOnLoadTailSync;
+const scheduleTranscriptBackfill = hoisted.scheduleTranscriptBackfill;
+const loadRawTranscript = hoisted.loadRawTranscript;
+const dispatchWebSessionRun = hoisted.dispatchWebSessionRun;
 
 vi.mock("../external-turns.js", () => ({
   scheduleOnLoadTailSync,
@@ -16,6 +23,13 @@ vi.mock("../external-turns.js", () => ({
 vi.mock("../transcript-backfill.js", () => ({
   loadRawTranscript,
   scheduleTranscriptBackfill,
+}));
+
+vi.mock("../api/session-dispatch.js", () => ({
+  dispatchWebSessionRun,
+  killSessionEngines: vi.fn(),
+  maybeRevertEngineOverride: <T>(session: T) => session,
+  redispatchPendingWebQueueItemsForSessionKey: vi.fn(() => 0),
 }));
 
 function makeRes() {
@@ -99,6 +113,7 @@ beforeEach(() => {
   scheduleOnLoadTailSync.mockReset();
   scheduleTranscriptBackfill.mockReset();
   loadRawTranscript.mockReset();
+  dispatchWebSessionRun.mockReset();
   vi.resetModules();
 });
 
@@ -160,6 +175,55 @@ describe("session query routes", () => {
     expect(cap.status).toBe(201);
     expect(cap.body).toEqual(expect.objectContaining({ cwd }));
     expect(reg.getSession(cap.body.id)?.cwd).toBe(cwd);
+  });
+
+  it("reuses the singleton hr-manager session for new HR chat requests", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    const config = {
+      gateway: {},
+      engines: {
+        default: "claude",
+        claude: { bin: "claude", model: "sonnet" },
+      },
+      portal: {},
+      models: {
+        claude: {
+          default: "sonnet",
+          models: [{ id: "sonnet", supportsEffort: true, effortLevels: ["low", "medium", "high"] }],
+        },
+      },
+    };
+    ctx.getConfig = () => config as any;
+    ctx.sessionManager = {
+      ...ctx.sessionManager,
+      getEngine: () => ({ isAlive: () => false }),
+    } as any;
+
+    const first = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", { prompt: "first", employee: "hr-manager" }),
+      first.res,
+      ctx,
+    );
+
+    const second = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", { prompt: "second", employee: "hr-manager" }),
+      second.res,
+      ctx,
+    );
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.id).toBe(first.body.id);
+    expect(reg.listSessions().filter((session) => session.employee === "hr-manager")).toHaveLength(1);
+    expect(reg.getSessionBySessionKey("employee:hr-manager")?.id).toBe(first.body.id);
+    expect(reg.getMessages(first.body.id).filter((message) => message.role === "user").map((message) => message.content)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(dispatchWebSessionRun).toHaveBeenCalledTimes(2);
   });
 
   it("preserves q/group/offset/limit list behavior for GET /api/sessions", async () => {

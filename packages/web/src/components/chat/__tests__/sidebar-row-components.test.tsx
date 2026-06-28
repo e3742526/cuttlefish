@@ -60,7 +60,8 @@ describe("sidebar row components", () => {
     expect(onContact).toHaveBeenCalledWith("cuttlefish")
   })
 
-  it("uses the live session action contract without archive actions", () => {
+  it("uses the live session action contract with archive actions", () => {
+    const setArchiveTarget = vi.fn()
     const session: Session = {
       id: "s-1",
       employee: "cuttlefish",
@@ -85,6 +86,7 @@ describe("sidebar row components", () => {
         onEmployeeSessionsAvailable={vi.fn()}
         togglePin={vi.fn()}
         handleDuplicate={vi.fn()}
+        setArchiveTarget={setArchiveTarget}
         setDeleteTarget={vi.fn()}
         setRenamingSessionId={vi.fn()}
         updateSessionTitle={vi.fn()}
@@ -93,8 +95,14 @@ describe("sidebar row components", () => {
 
     expect(screen.getAllByText("Rename").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Duplicate...").length).toBeGreaterThan(0)
+    expect(screen.getAllByText("Archive...").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Delete session").length).toBeGreaterThan(0)
-    expect(screen.queryByText("Archive...")).toBeNull()
+    fireEvent.click(screen.getAllByText("Archive...")[0])
+    expect(setArchiveTarget).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "chat",
+      title: "Cuttlefish - Status",
+      sessionIds: ["s-1"],
+    }))
     const actionsButton = screen.getByLabelText("Session actions")
     const buttons = screen.getAllByRole("button")
     const rowButton = buttons.find((button) => button !== actionsButton && button.textContent?.includes("Cuttlefish - Status"))

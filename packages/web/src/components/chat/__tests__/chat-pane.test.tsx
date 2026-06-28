@@ -75,6 +75,16 @@ vi.mock('@/components/chat/background-activity-pill', () => ({
   BackgroundActivityPill: () => null,
 }))
 
+vi.mock('@/components/chat/session-human-review', () => ({
+  SessionHumanReview: ({ sessionId }: { sessionId: string | null }) => (
+    <div data-testid="session-human-review">{sessionId}</div>
+  ),
+}))
+
+vi.mock('@/components/chat/archive-dialog', () => ({
+  ArchiveDialog: () => null,
+}))
+
 vi.mock('@/components/chat/cli-keybar', () => ({
   CliKeybar: () => null,
 }))
@@ -113,5 +123,11 @@ describe('ChatPane', () => {
 
     expect(screen.getByRole('status', { name: /loading chat/i })).toBeTruthy()
     expect(screen.queryByTestId('employee-picker')).toBeNull()
+  })
+
+  it('renders the session-scoped human review strip for the active chat', () => {
+    renderPane({ sessionId: 'hr-session-1' })
+
+    expect(screen.getByTestId('session-human-review').textContent).toBe('hr-session-1')
   })
 })

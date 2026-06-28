@@ -2,10 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ApprovalState, type CheckpointDecisionInput } from '@/lib/api'
 import { queryKeys } from '@/lib/query-keys'
 
-export function useCheckpoints(state: ApprovalState | 'all' = 'pending') {
+export function useCheckpoints(state: ApprovalState | 'all' = 'pending', sessionId?: string | null) {
   return useQuery({
-    queryKey: [...queryKeys.checkpoints.all, state],
-    queryFn: () => api.getCheckpoints(state),
+    queryKey: queryKeys.checkpoints.list(state, sessionId),
+    queryFn: () => api.getCheckpoints(state, sessionId),
   })
 }
 

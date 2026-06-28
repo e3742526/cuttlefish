@@ -8,6 +8,7 @@ import { CliKeybar } from '@/components/chat/cli-keybar'
 import { ChatEmployeePicker } from '@/components/chat/chat-employee-picker'
 import { QueuePanel } from '@/components/chat/queue-panel'
 import { BackgroundActivityPill } from '@/components/chat/background-activity-pill'
+import { SessionHumanReview } from '@/components/chat/session-human-review'
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
 import { FolderPicker } from '@/components/chat/folder-picker'
 import { useLiveSession } from '@/hooks/use-live-session'
@@ -551,6 +552,8 @@ export function ChatPane({
       {!(viewMode === 'cli' && sessionId) && !loading && (
         <BackgroundActivityPill activity={backgroundActivity} />
       )}
+
+      <SessionHumanReview sessionId={sessionId} />
 
       {interruptError && (
         <div className="mx-[var(--space-4)] mb-[var(--space-2)] rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--system-red)_35%,transparent)] bg-[color-mix(in_srgb,var(--system-red)_10%,transparent)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--system-red)] flex items-center justify-between gap-[var(--space-3)]">

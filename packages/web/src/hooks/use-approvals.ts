@@ -3,10 +3,10 @@ import { queryKeys } from '@/lib/query-keys'
 import { api, type ApprovalState } from '@/lib/api'
 
 /** Feature 1: the pending human-approval queue (model-fallback gates). */
-export function useApprovals(state: ApprovalState | 'all' = 'pending') {
+export function useApprovals(state: ApprovalState | 'all' = 'pending', sessionId?: string | null) {
   return useQuery({
-    queryKey: [...queryKeys.approvals.all, state],
-    queryFn: () => api.getApprovals(state),
+    queryKey: queryKeys.approvals.list(state, sessionId),
+    queryFn: () => api.getApprovals(state, sessionId),
   })
 }
 

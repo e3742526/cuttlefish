@@ -25,6 +25,8 @@ import type {
 /** The reserved identity of the HR / Org Steward employee. It may not be edited
  *  by the steward flow itself. */
 export const HR_EMPLOYEE_NAME = "hr-manager";
+/** HR runs as a singleton lane so critiques and direct chats share one queue. */
+export const HR_SESSION_KEY = `employee:${HR_EMPLOYEE_NAME}`;
 
 export interface PolicyTier {
   riskLevel: OrgChangeRiskLevel;

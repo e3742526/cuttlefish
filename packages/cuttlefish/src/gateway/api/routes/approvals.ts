@@ -23,7 +23,8 @@ export async function handleApprovalRoutes(
   if (method === "GET" && pathname === "/api/approvals") {
     const stateParam = (url.searchParams.get("state") ?? "pending") as
       | "pending" | "approved" | "rejected" | "all";
-    json(res, listApprovals({ state: stateParam }).filter((approval) => approval.type !== "checkpoint"));
+    const sessionId = url.searchParams.get("sessionId") ?? undefined;
+    json(res, listApprovals({ state: stateParam, sessionId }).filter((approval) => approval.type !== "checkpoint"));
     return true;
   }
 

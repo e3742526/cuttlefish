@@ -35,7 +35,8 @@ interface SidebarListSurfaceProps {
   toggleCronCollapsed: () => void
   cronTotal: number
   cronSessionsLength: number
-  contactableEmployees: Employee[]
+  managerEmployees: Employee[]
+  teamEmployees: Employee[]
   onContactEmployee?: (name: string) => void
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   handleListScroll: (event: React.UIEvent<HTMLDivElement>) => void
@@ -65,7 +66,8 @@ export function SidebarListSurface({
   toggleCronCollapsed,
   cronTotal,
   cronSessionsLength,
-  contactableEmployees,
+  managerEmployees,
+  teamEmployees,
   onContactEmployee,
   scrollContainerRef,
   handleListScroll,
@@ -237,10 +239,19 @@ export function SidebarListSurface({
           </>
         )}
 
-        {!loading && onContactEmployee && contactableEmployees.length > 0 ? (
+        {!loading && onContactEmployee && managerEmployees.length > 0 ? (
           <div className="mt-3 pt-1">
-            <SectionLabel label="Team" count={contactableEmployees.length} />
-            {contactableEmployees.map((employee) => (
+            <SectionLabel label="Managers" count={managerEmployees.length} />
+            {managerEmployees.map((employee) => (
+              <ContactRow key={employee.name} emp={employee} onContact={onContactEmployee} />
+            ))}
+          </div>
+        ) : null}
+
+        {!loading && onContactEmployee && teamEmployees.length > 0 ? (
+          <div className="pt-1">
+            <SectionLabel label="Team" count={teamEmployees.length} />
+            {teamEmployees.map((employee) => (
               <ContactRow key={employee.name} emp={employee} onContact={onContactEmployee} />
             ))}
           </div>

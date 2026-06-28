@@ -30,6 +30,7 @@ function makeSharedRowProps(): SidebarSharedRowProps {
     onEmployeeSessionsAvailable: vi.fn(),
     togglePin: vi.fn(),
     handleDuplicate: vi.fn(),
+    setArchiveTarget: vi.fn(),
     setDeleteTarget: vi.fn(),
     setRenamingSessionId: vi.fn(),
     updateSessionTitle: vi.fn(),
@@ -55,13 +56,14 @@ function renderSurface(props?: Partial<React.ComponentProps<typeof SidebarListSu
       olderLineLabel="Older · 0 chats"
       toggleOlderExpanded={vi.fn()}
       cronCollapsed={false}
-      toggleCronCollapsed={vi.fn()}
-      cronTotal={0}
-      cronSessionsLength={0}
-      contactableEmployees={[]}
-      scrollContainerRef={{ current: null }}
-      handleListScroll={vi.fn()}
-      shouldVirtualize={false}
+    toggleCronCollapsed={vi.fn()}
+    cronTotal={0}
+    cronSessionsLength={0}
+    managerEmployees={[]}
+    teamEmployees={[]}
+    scrollContainerRef={{ current: null }}
+    handleListScroll={vi.fn()}
+    shouldVirtualize={false}
       totalSize={0}
       virtualRows={[]}
       measureElement={vi.fn()}
@@ -131,11 +133,22 @@ describe("SidebarListSurface", () => {
     expect(screen.getByText("session:cron-1")).toBeTruthy()
   })
 
-  it("renders team contact rows when provided", () => {
+  it("renders manager and team contact rows when provided", () => {
     const onContactEmployee = vi.fn()
     renderSurface({
       onContactEmployee,
-      contactableEmployees: [
+      managerEmployees: [
+        {
+          name: "boss",
+          displayName: "Boss",
+          department: "leadership",
+          rank: "manager",
+          engine: "claude",
+          model: "opus",
+          persona: "",
+        },
+      ],
+      teamEmployees: [
         {
           name: "alice",
           displayName: "Alice",
@@ -148,7 +161,11 @@ describe("SidebarListSurface", () => {
       ],
     })
 
+    expect(screen.getByText(/Managers:1/)).toBeTruthy()
+    expect(screen.getByText(/Team:1/)).toBeTruthy()
+    fireEvent.click(screen.getByText("contact:Boss"))
     fireEvent.click(screen.getByText("contact:Alice"))
+    expect(onContactEmployee).toHaveBeenCalledWith("boss")
     expect(onContactEmployee).toHaveBeenCalledWith("alice")
   })
 })

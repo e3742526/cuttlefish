@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { SidebarListSurface } from "./sidebar-list-surface"
+import { ArchiveDialog, type ArchiveDialogTarget } from "./archive-dialog"
 import type { SidebarDeleteTarget, SidebarSharedRowProps } from "./sidebar-row-components"
 import {
   getPinnedSessions,
@@ -41,6 +42,7 @@ import {
 import type { FlatItem, Session, SidebarOrder, ViewMode } from "./sidebar-types"
 import {
   buildContactableEmployees,
+  buildManagerEmployees,
   buildSidebarCollections,
   buildSidebarOrder,
   buildVirtualItems,
@@ -125,6 +127,7 @@ export function ChatSidebar({
   const [focusMode, setFocusMode] = useState<FocusMode>("all")
   const [loadingMore, setLoadingMore] = useState<Set<string>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<SidebarDeleteTarget | null>(null)
+  const [archiveTarget, setArchiveTarget] = useState<ArchiveDialogTarget | null>(null)
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [listScrolled, setListScrolled] = useState(false)
@@ -308,6 +311,23 @@ export function ChatSidebar({
     portalSlug,
   }), [search, pinnedFlat, unpinnedFlat, orgEmployees, employeeData, portalSlug])
 
+  const managerEmployees = useMemo(
+    () => buildManagerEmployees({
+      search,
+      orgEmployees: contactableEmployees,
+      portalSlug,
+    }),
+    [search, contactableEmployees, portalSlug],
+  )
+  const managerEmployeeNames = useMemo(
+    () => new Set(managerEmployees.map((employee) => employee.name)),
+    [managerEmployees],
+  )
+  const teamEmployees = useMemo(
+    () => contactableEmployees.filter((employee) => !managerEmployeeNames.has(employee.name)),
+    [contactableEmployees, managerEmployeeNames],
+  )
+
   const allFlatIds = useMemo(() => buildSidebarOrder({
     searching,
     searchRows,
@@ -401,6 +421,7 @@ export function ChatSidebar({
     onEmployeeSessionsAvailable,
     togglePin,
     handleDuplicate,
+    setArchiveTarget,
     setDeleteTarget,
     setRenamingSessionId,
     updateSessionTitle,
@@ -635,7 +656,8 @@ export function ChatSidebar({
         toggleCronCollapsed={toggleCronCollapsed}
         cronTotal={cronTotal}
         cronSessionsLength={cronSessions.length}
-        contactableEmployees={contactableEmployees}
+        managerEmployees={managerEmployees}
+        teamEmployees={teamEmployees}
         onContactEmployee={onContactEmployee}
         scrollContainerRef={scrollContainerRef}
         handleListScroll={handleListScroll}
@@ -686,6 +708,17 @@ export function ChatSidebar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ArchiveDialog
+        target={archiveTarget}
+        onOpenChange={(open) => {
+          if (!open) setArchiveTarget(null)
+        }}
+        onArchived={(sessionIds) => {
+          if (selectedId && sessionIds.includes(selectedId)) onDelete?.(selectedId)
+          setArchiveTarget(null)
+        }}
+      />
 
       <style>{`
         @keyframes sidebar-pulse {

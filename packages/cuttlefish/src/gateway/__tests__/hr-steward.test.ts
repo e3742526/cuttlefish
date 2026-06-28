@@ -29,19 +29,59 @@ vi.mock("../../shared/logger.js", () => ({
   logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
 
-// Approval store hits SQLite — stub it so the pipeline test stays in-memory.
-const createApprovalMock = vi.fn((input: unknown) => ({ id: "approval-1", ...(input as object) }));
+const hoisted = vi.hoisted(() => {
+  const sessionsByKey = new Map<string, any>();
+  const sessionsById = new Map<string, any>();
+  let nextSessionId = 1;
+  return {
+    sessionsByKey,
+    sessionsById,
+    getNextSessionId: () => nextSessionId++,
+    resetSessionIds: () => {
+      nextSessionId = 1;
+    },
+    createApprovalMock: vi.fn((input: unknown) => ({ id: "approval-1", ...(input as object) })),
+    dispatchWebSessionRunMock: vi.fn(async () => {}),
+    createSessionMock: vi.fn((opts: any) => {
+      const id = `s${nextSessionId++}`;
+      const session = { id, status: "idle", ...opts, sessionKey: opts.sessionKey ?? opts.sourceRef };
+      sessionsByKey.set(session.sessionKey, session);
+      sessionsById.set(id, session);
+      return session;
+    }),
+    getSessionBySessionKeyMock: vi.fn((sessionKey: string) => sessionsByKey.get(sessionKey)),
+    getMessagesMock: vi.fn(() => []),
+    insertMessageMock: vi.fn(),
+    updateSessionMock: vi.fn((id: string, updates: Record<string, unknown>) => {
+      const current = sessionsById.get(id);
+      if (!current) return undefined;
+      const updated = { ...current, ...updates };
+      sessionsById.set(id, updated);
+      sessionsByKey.set(updated.sessionKey, updated);
+      return updated;
+    }),
+  };
+});
+
 vi.mock("../approvals.js", () => ({
-  createApproval: (input: unknown) => createApprovalMock(input),
+  createApproval: (input: unknown) => hoisted.createApprovalMock(input),
 }));
 
-// Cut the heavy session-spawn graph; we inject runCritique in every test anyway.
-vi.mock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun: vi.fn(async () => {}) }));
+vi.mock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun: hoisted.dispatchWebSessionRunMock }));
+const createApprovalMock = hoisted.createApprovalMock;
+const dispatchWebSessionRunMock = hoisted.dispatchWebSessionRunMock;
+const createSessionMock = hoisted.createSessionMock;
+const getSessionBySessionKeyMock = hoisted.getSessionBySessionKeyMock;
+const getMessagesMock = hoisted.getMessagesMock;
+const insertMessageMock = hoisted.insertMessageMock;
+const updateSessionMock = hoisted.updateSessionMock;
+
 vi.mock("../../sessions/registry.js", () => ({
-  createSession: vi.fn(() => ({ id: "s1" })),
-  getMessages: vi.fn(() => []),
-  insertMessage: vi.fn(),
-  updateSession: vi.fn(),
+  createSession: hoisted.createSessionMock,
+  getSessionBySessionKey: hoisted.getSessionBySessionKeyMock,
+  getMessages: hoisted.getMessagesMock,
+  insertMessage: hoisted.insertMessageMock,
+  updateSession: hoisted.updateSessionMock,
 }));
 
 import { submitOrgChange, applyOrgChange } from "../hr-steward.js";
@@ -103,6 +143,15 @@ beforeEach(() => {
   fs.mkdirSync(orgDir, { recursive: true });
   invalidateModelRegistry();
   createApprovalMock.mockClear();
+  dispatchWebSessionRunMock.mockClear();
+  createSessionMock.mockClear();
+  getSessionBySessionKeyMock.mockClear();
+  getMessagesMock.mockClear();
+  insertMessageMock.mockClear();
+  updateSessionMock.mockClear();
+  hoisted.sessionsByKey.clear();
+  hoisted.sessionsById.clear();
+  hoisted.resetSessionIds();
 });
 
 afterEach(() => {
@@ -124,6 +173,41 @@ describe("submitOrgChange — guards", () => {
 });
 
 describe("submitOrgChange — critique pipeline", () => {
+  it("reuses a single hr-manager session for successive critiques", async () => {
+    writeEmployee("general", "hr-manager", "name: hr-manager\ndisplayName: HR Manager\ndepartment: general\nrank: manager\nengine: claude\nmodel: sonnet\npersona: Review org changes.\n");
+    const ctx = {
+      ...(fakeContext() as Record<string, unknown>),
+      sessionManager: { getEngine: () => ({}) },
+    } as never;
+
+    const first = await submitOrgChange(
+      { changeType: "create_agent", employeeName: "ui-test-reviewer", proposed: VALID_HIRE, proposedBy: "user" },
+      ctx,
+    );
+    const second = await submitOrgChange(
+      { changeType: "change_model", employeeName: "ui-test-reviewer", proposed: { model: "opus" }, proposedBy: "user" },
+      ctx,
+    );
+
+    await waitForStatus(first.request.id, "pending_approval");
+    await waitForStatus(second.request.id, "pending_approval");
+
+    expect(createSessionMock).toHaveBeenCalledTimes(1);
+    expect(getSessionBySessionKeyMock).toHaveBeenCalled();
+    expect(dispatchWebSessionRunMock).toHaveBeenCalledTimes(2);
+    expect(insertMessageMock).toHaveBeenCalledTimes(2);
+    expect(getChangeRequest(first.request.id)?.approvalId).toBe("approval-1");
+    expect(getChangeRequest(second.request.id)?.approvalId).toBe("approval-1");
+    expect(createApprovalMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ sessionId: "s1" }),
+    );
+    expect(createApprovalMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ sessionId: "s1" }),
+    );
+  });
+
   it("attaches the critique and opens an approval gate for a high-risk hire", async () => {
     const ctx = fakeContext();
     const result = await submitOrgChange(

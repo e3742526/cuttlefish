@@ -30,9 +30,11 @@ export const queryKeys = {
   },
   approvals: {
     all: ['approvals'] as const,
+    list: (state?: string, sessionId?: string | null) => ['approvals', state ?? 'pending', sessionId ?? 'all'] as const,
   },
   checkpoints: {
     all: ['checkpoints'] as const,
+    list: (state?: string, sessionId?: string | null) => ['checkpoints', state ?? 'pending', sessionId ?? 'all'] as const,
   },
   archives: {
     all: ['archives'] as const,

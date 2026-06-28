@@ -2,7 +2,7 @@ import { get, post } from "./api-core"
 
 export type ApprovalDecision = "approved" | "rejected" | "deferred" | "revised"
 export type ApprovalState = "pending" | ApprovalDecision
-export type ApprovalType = "fallback" | "tool" | "custom" | "checkpoint"
+export type ApprovalType = "fallback" | "tool" | "custom" | "checkpoint" | "org-change"
 
 export interface CheckpointPayload extends Record<string, unknown> {
   decisionNeeded: string
@@ -41,14 +41,14 @@ export interface CheckpointDecisionInput {
 }
 
 export const approvalApi = {
-  getApprovals: (state: ApprovalState | "all" = "pending") =>
-    get<Approval[]>(`/api/approvals?state=${state}`),
+  getApprovals: (state: ApprovalState | "all" = "pending", sessionId?: string | null) =>
+    get<Approval[]>(`/api/approvals?state=${state}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""}`),
   approveApproval: (id: string) =>
     post<{ approval: Approval; session?: Record<string, unknown> }>(`/api/approvals/${id}/approve`, {}),
   rejectApproval: (id: string) =>
     post<{ approval: Approval }>(`/api/approvals/${id}/reject`, {}),
-  getCheckpoints: (state: ApprovalState | "all" = "pending") =>
-    get<Checkpoint[]>(`/api/checkpoints?state=${state}`),
+  getCheckpoints: (state: ApprovalState | "all" = "pending", sessionId?: string | null) =>
+    get<Checkpoint[]>(`/api/checkpoints?state=${state}${sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : ""}`),
   decideCheckpoint: (id: string, body: CheckpointDecisionInput) =>
     post<{ checkpoint: Checkpoint; session?: Record<string, unknown> }>(`/api/checkpoints/${id}/decision`, body),
 }

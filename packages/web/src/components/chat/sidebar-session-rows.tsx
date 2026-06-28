@@ -42,6 +42,13 @@ export interface SidebarSharedRowProps {
   onEmployeeSessionsAvailable?: (sessions: Session[]) => void
   togglePin: (pinKey: string) => void
   handleDuplicate: (sessionId: string) => void
+  setArchiveTarget: (target: {
+    kind: "chat" | "room" | "scheduled"
+    title: string
+    sessionIds: string[]
+    sourceRef?: string
+    sessions: Pick<Session, "id" | "status" | "transportState">[]
+  } | null) => void
   setDeleteTarget: (target: SidebarDeleteTarget | null) => void
   setRenamingSessionId: (id: string | null) => void
   updateSessionTitle: (id: string, title: string) => void
@@ -78,6 +85,7 @@ function SessionActionsMenu({
   onRename,
   onTogglePin,
   onDuplicate,
+  onArchive,
   onDelete,
   label,
 }: {
@@ -85,6 +93,7 @@ function SessionActionsMenu({
   onRename: () => void
   onTogglePin: () => void
   onDuplicate: () => void
+  onArchive: () => void
   onDelete: () => void
   label: string
 }) {
@@ -104,6 +113,7 @@ function SessionActionsMenu({
           <DropdownMenuItem onClick={onRename}>Rename</DropdownMenuItem>
           <DropdownMenuItem onClick={onTogglePin}>{pinned ? "Unpin" : "Pin"}</DropdownMenuItem>
           <DropdownMenuItem onClick={onDuplicate}>Duplicate...</DropdownMenuItem>
+          <DropdownMenuItem onClick={onArchive}>Archive...</DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onClick={onDelete}>
             Delete session
@@ -119,6 +129,7 @@ function SessionContextMenu({
   onRename,
   onTogglePin,
   onDuplicate,
+  onArchive,
   onDelete,
   children,
 }: {
@@ -126,6 +137,7 @@ function SessionContextMenu({
   onRename: () => void
   onTogglePin: () => void
   onDuplicate: () => void
+  onArchive: () => void
   onDelete: () => void
   children: React.ReactNode
 }) {
@@ -136,6 +148,7 @@ function SessionContextMenu({
         <ContextMenuItem onClick={onRename}>Rename</ContextMenuItem>
         <ContextMenuItem onClick={onTogglePin}>{pinned ? "Unpin" : "Pin"}</ContextMenuItem>
         <ContextMenuItem onClick={onDuplicate}>Duplicate...</ContextMenuItem>
+        <ContextMenuItem onClick={onArchive}>Archive...</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onClick={onDelete}>
           <span className="flex-1">Delete session</span>
@@ -164,6 +177,7 @@ export const SessionRow = React.memo(function SessionRow({
   onEmployeeSessionsAvailable,
   togglePin,
   handleDuplicate,
+  setArchiveTarget,
   setDeleteTarget,
   setRenamingSessionId,
   updateSessionTitle,
@@ -183,6 +197,20 @@ export const SessionRow = React.memo(function SessionRow({
     },
     onTogglePin: () => togglePin(session.id),
     onDuplicate: () => handleDuplicate(session.id),
+    onArchive: () =>
+      setArchiveTarget({
+        kind: "chat",
+        title: cleanPreview(sessionTitle) || "Untitled",
+        sessionIds: [session.id],
+        sourceRef: session.sourceRef,
+        sessions: [
+          {
+            id: session.id,
+            status: session.status,
+            transportState: session.transportState,
+          },
+        ],
+      }),
     onDelete: () => setDeleteTarget({ type: "session", id: session.id, label: cleanPreview(sessionTitle) || "Untitled" }),
   }
 
@@ -294,6 +322,7 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
   onEmployeeSessionsAvailable,
   togglePin,
   handleDuplicate,
+  setArchiveTarget,
   setDeleteTarget,
   setRenamingSessionId,
   updateSessionTitle,
@@ -315,6 +344,20 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
     },
     onTogglePin: () => togglePin(session.id),
     onDuplicate: () => handleDuplicate(session.id),
+    onArchive: () =>
+      setArchiveTarget({
+        kind: "chat",
+        title: displayTitle,
+        sessionIds: [session.id],
+        sourceRef: session.sourceRef,
+        sessions: [
+          {
+            id: session.id,
+            status: session.status,
+            transportState: session.transportState,
+          },
+        ],
+      }),
     onDelete: () => setDeleteTarget({ type: "session", id: session.id, label: displayTitle }),
   }
 

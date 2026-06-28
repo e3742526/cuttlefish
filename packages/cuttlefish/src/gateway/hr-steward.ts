@@ -37,11 +37,13 @@ import {
   assertAcyclic,
   OrgChangeBlockedError,
   HR_EMPLOYEE_NAME,
+  HR_SESSION_KEY,
 } from "./org-policy.js";
 import { createApproval } from "./approvals.js";
 import { logger } from "../shared/logger.js";
 import {
   createSession,
+  getSessionBySessionKey,
   getMessages,
   insertMessage,
   updateSession,
@@ -270,22 +272,31 @@ async function defaultRunCritique(request: OrgChangeRequest, context: ApiContext
   }
 
   const prompt = buildCritiquePrompt(request, registry);
-  const sessionKey = `hr-critique:${request.id}`;
-  const session = createSession({
-    engine: engineName,
-    source: "web",
-    sourceRef: sessionKey,
-    connector: "web",
-    sessionKey,
-    replyContext: { source: "web" },
-    employee: HR_EMPLOYEE_NAME,
-    model: hr.model,
-    effortLevel: hr.effortLevel,
-    prompt,
-    portalName: config.portal?.portalName,
-  });
+  const now = new Date().toISOString();
+  const existing = getSessionBySessionKey(HR_SESSION_KEY);
+  const session = existing
+    ? (updateSession(existing.id, {
+        engine: engineName,
+        model: hr.model ?? null,
+        effortLevel: hr.effortLevel ?? null,
+        status: "running",
+        lastActivity: now,
+        lastError: null,
+      }) ?? existing)
+    : createSession({
+        engine: engineName,
+        source: "web",
+        sourceRef: HR_SESSION_KEY,
+        connector: "web",
+        sessionKey: HR_SESSION_KEY,
+        replyContext: { source: "web" },
+        employee: HR_EMPLOYEE_NAME,
+        model: hr.model,
+        effortLevel: hr.effortLevel,
+        prompt,
+        portalName: config.portal?.portalName,
+      });
   insertMessage(session.id, "user", prompt);
-  updateSession(session.id, { status: "running", lastActivity: new Date().toISOString() });
   await dispatchWebSessionRun(session, prompt, engine, config, context);
   return { critique: readLastAssistantMessage(session.id), sessionId: session.id };
 }
