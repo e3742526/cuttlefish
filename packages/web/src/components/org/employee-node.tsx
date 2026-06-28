@@ -22,7 +22,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
 
   return (
     <div
-      className="group hover-lift relative w-[200px] h-[76px] flex items-center gap-[10px] px-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--material-regular)] backdrop-blur-[20px] backdrop-saturate-[180%] [-webkit-backdrop-filter:blur(20px)_saturate(180%)] cursor-pointer overflow-hidden"
+      className="group hover-lift relative flex h-[78px] w-[240px] items-center gap-[10px] overflow-hidden rounded-[var(--radius-md)] bg-[var(--material-regular)] px-[var(--space-3)] backdrop-blur-[20px] backdrop-saturate-[180%] [-webkit-backdrop-filter:blur(20px)_saturate(180%)] cursor-pointer"
       style={{
         border: `1px solid ${selected ? "var(--accent)" : isExec ? "color-mix(in srgb, var(--accent) 45%, var(--separator))" : "var(--separator)"}`,
         boxShadow: selected
@@ -35,7 +35,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
       <Link
         to={chatTarget}
         aria-label={`Chat with ${employeeLabel}`}
-        className="nodrag nopan absolute right-[8px] top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--separator)] bg-[color-mix(in_srgb,var(--material-regular)_92%,transparent)] text-[var(--text-tertiary)] transition-colors duration-150 hover:text-[var(--accent)] hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--separator))] hover:bg-[var(--fill-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+        className="nodrag nopan order-3 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--separator)] bg-[color-mix(in_srgb,var(--material-regular)_92%,transparent)] text-[var(--text-tertiary)] transition-colors duration-150 hover:text-[var(--accent)] hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--separator))] hover:bg-[var(--fill-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
         onPointerDown={(event) => {
           event.stopPropagation()
         }}
@@ -56,7 +56,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
 
       <EmployeeAvatar name={employee.name} avatar={employee.avatar as string | undefined} emoji={employee.emoji as string | undefined} size={isExec ? 28 : 22} />
 
-      <div className="min-w-0 flex-1 pr-12">
+      <div className="min-w-0 flex-1">
         <div
           title={employeeLabel}
           className={`${isExec ? "text-[length:var(--text-subheadline)] font-[var(--weight-bold)] tracking-[var(--tracking-tight)]" : "text-[13px] font-[var(--weight-semibold)]"} text-[var(--text-primary)] whitespace-nowrap overflow-hidden text-ellipsis leading-[1.15]`}
@@ -69,20 +69,19 @@ export function EmployeeNode({ data, selected }: NodeProps) {
         >
           {roleText}
         </div>
-      </div>
-
-      <div className="absolute right-[40px] top-[8px] flex max-w-[84px] flex-col items-end gap-[3px] shrink-0">
-        <span className="text-[length:var(--text-caption2)] font-[var(--weight-semibold)] text-[var(--accent)] bg-[var(--accent-fill)] py-px px-[7px] rounded-[10px]">
-          {employee.engine}
-        </span>
-        {employee.model && (
-          <span
-            title={modelTitle}
-            className="max-w-full truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)] bg-[var(--fill-quaternary)] py-px px-[7px] rounded-[10px]"
-          >
-            {employee.model}
+        <div className="mt-[5px] flex min-w-0 items-center gap-[5px]">
+          <span className="shrink-0 rounded-[10px] bg-[var(--accent-fill)] px-[7px] py-px text-[length:var(--text-caption2)] font-[var(--weight-semibold)] leading-[1.2] text-[var(--accent)]">
+            {employee.engine}
           </span>
-        )}
+          {employee.model && (
+            <span
+              title={modelTitle}
+              className="min-w-0 truncate rounded-[10px] bg-[var(--fill-quaternary)] px-[7px] py-px text-[length:var(--text-caption2)] leading-[1.2] text-[var(--text-tertiary)]"
+            >
+              {employee.model}
+            </span>
+          )}
+        </div>
       </div>
 
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />

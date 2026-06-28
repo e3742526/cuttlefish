@@ -351,6 +351,16 @@ maxCostUsd: "lots"
     const registry = scanOrg();
     expect(registry.get("free")?.maxCostUsd).toBeUndefined();
   });
+
+  it("preserves an explicit blank department instead of falling back to the folder", () => {
+    writeYaml("general", "security.yaml", `
+name: security
+persona: Watches the gates
+department: ""
+`);
+    const registry = scanOrg();
+    expect(registry.get("security")?.department).toBe("");
+  });
 });
 
 describe("createEmployeeYaml", () => {
@@ -601,6 +611,17 @@ describe("validateEmployeeUpdate", () => {
     expect(r.error).toMatch(/displayName/i);
   });
 
+  it("allows clearing department to an explicit blank string", () => {
+    const result = validateEmployeeUpdate(testConfig, emp(), { department: "  " });
+    expect(result.ok).toBe(true);
+    expect(result.updates?.department).toBe("");
+  });
+
+  it("rejects unsafe department path values", () => {
+    expect(validateEmployeeUpdate(testConfig, emp(), { department: "../security" }).ok).toBe(false);
+    expect(validateEmployeeUpdate(testConfig, emp(), { department: "/tmp/security" }).ok).toBe(false);
+  });
+
   it("rejects wrong-typed cliFlags / alwaysNotify / reportsTo", () => {
     expect(validateEmployeeUpdate(testConfig, emp(), { cliFlags: "nope" as any }).ok).toBe(false);
     expect(validateEmployeeUpdate(testConfig, emp(), { alwaysNotify: "yes" as any }).ok).toBe(false);
@@ -612,10 +633,24 @@ describe("validateEmployeeUpdate", () => {
     expect(validateEmployeeUpdate(testConfig, emp(), { reportsTo: ["a", "b"] }).ok).toBe(true);
   });
 
+  it("rejects reportsTo values that do not exist in the known org roster", () => {
+    const result = validateEmployeeUpdate(testConfig, emp(), { reportsTo: "cuttlefish" }, ["parliamentarian", "hr-manager"]);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/unknown employee/i);
+  });
+
+  it("rejects reportsTo values that point at the employee itself", () => {
+    const result = validateEmployeeUpdate(testConfig, emp({ name: "senior-security-officer" } as any), {
+      reportsTo: "senior-security-officer",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/itself/i);
+  });
+
   it("accepts reportsTo null to clear the supervisor chain", () => {
     const result = validateEmployeeUpdate(testConfig, emp(), { reportsTo: null });
     expect(result.ok).toBe(true);
-    expect(result.updates?.reportsTo).toBeNull();
+    expect(result.updates?.reportsTo).toEqual([]);
   });
 
   it("accepts machine-readable security gate fields", () => {

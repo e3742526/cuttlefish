@@ -9,7 +9,7 @@ import { authorizeManagerScope } from "../../manager-auth.js";
 import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoard } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
-import { scanOrg } from "../../org.js";
+import { RESERVED_ORG_DIRS, scanOrg } from "../../org.js";
 import { resolveUserHeader } from "../../connector-reply.js";
 import type { ApiContext } from "../context.js";
 import { matchRoute } from "../match-route.js";
@@ -103,7 +103,9 @@ export async function handleOrgRoutes(
       return true;
     }
     const entries = fs.readdirSync(ORG_DIR, { withFileTypes: true });
-    const departments = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+    const departments = entries
+      .filter((entry) => entry.isDirectory() && !RESERVED_ORG_DIRS.has(entry.name))
+      .map((entry) => entry.name);
     const { resolveOrgHierarchy } = await import("../../org-hierarchy.js");
     const orgRegistry = scanOrg();
     const hierarchy = resolveOrgHierarchy(orgRegistry);
@@ -218,7 +220,7 @@ export async function handleOrgRoutes(
     const employeeUpdate = { ...body };
     delete employeeUpdate.managerName;
 
-    const result = validateEmployeeUpdate(context.getConfig(), current, employeeUpdate);
+    const result = validateEmployeeUpdate(context.getConfig(), current, employeeUpdate, registry.keys());
     if (!result.ok) {
       badRequest(res, result.error || "invalid update");
       return true;

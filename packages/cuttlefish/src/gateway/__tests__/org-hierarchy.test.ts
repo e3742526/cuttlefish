@@ -219,6 +219,16 @@ describe("resolveOrgHierarchy", () => {
     expect(h.nodes["sr-b"].parentName).toBeNull();
   });
 
+  it("treats an explicit empty reportsTo array as intentionally top-level", () => {
+    const h = resolveOrgHierarchy(
+      registry(
+        emp("mgr", { rank: "manager", department: "general" }),
+        emp("security", { rank: "senior", department: "general", reportsTo: [] }),
+      ),
+    );
+    expect(h.nodes["security"].parentName).toBeNull();
+  });
+
   it("mixed explicit and smart defaults → correct tree", () => {
     const h = resolveOrgHierarchy(
       registry(

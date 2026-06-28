@@ -12,6 +12,7 @@ const COL_GAP = 24
 const GROUP_PAD_X = 16
 const GROUP_PAD_TOP = 34
 const GROUP_PAD_BOTTOM = 18
+const UNASSIGNED_DEPARTMENT_LABEL = "Unassigned"
 
 function dagreLayout(
   nodeIds: string[],
@@ -72,7 +73,12 @@ export function buildHierarchyLayout(
   }
   if (executive) {
     for (const name of hierarchy.sorted) {
-      if (!hasParent.has(name) && name !== executive.name) {
+      const emp = employees.find((employee) => employee.name === name)
+      if (
+        !hasParent.has(name) &&
+        name !== executive.name &&
+        emp?.parentName === executive.name
+      ) {
         edgePairs.push([executive.name, name])
       }
     }
@@ -83,10 +89,11 @@ export function buildHierarchyLayout(
   const deptNodes = new Map<string, string[]>()
   for (const name of nodeIds) {
     const emp = employees.find((e) => e.name === name)
-    if (!emp?.department) continue
-    const list = deptNodes.get(emp.department) ?? []
+    if (!emp || emp.rank === "executive") continue
+    const dept = emp.department || UNASSIGNED_DEPARTMENT_LABEL
+    const list = deptNodes.get(dept) ?? []
     list.push(name)
-    deptNodes.set(emp.department, list)
+    deptNodes.set(dept, list)
   }
 
   const computeDeptBounds = () => {

@@ -117,6 +117,30 @@ describe("EmployeeEditor", () => {
     }))
   })
 
+  it("sends an empty department when the department field is cleared", async () => {
+    updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, department: "" } })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    fireEvent.change(screen.getByDisplayValue("content"), { target: { value: "" } })
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      department: "",
+    }))
+  })
+
+  it("allows typing a new department name from the editor", async () => {
+    updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, department: "security" } })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    fireEvent.change(screen.getByDisplayValue("content"), { target: { value: "security" } })
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      department: "security",
+    }))
+  })
+
   it("sends fallbackEngine together with a cross-provider fallback model", async () => {
     updateEmployee.mockResolvedValue({
       status: "ok",
@@ -196,7 +220,7 @@ describe("EmployeeEditor", () => {
     )
   })
 
-  it("sends reportsTo null when the last supervisor is removed", async () => {
+  it("sends an explicit empty reportsTo array when the last supervisor is removed", async () => {
     const employee: Employee = {
       ...EMP,
       reportsTo: "content-lead",
@@ -212,7 +236,7 @@ describe("EmployeeEditor", () => {
     fireEvent.click(saveBtn())
 
     await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
-      reportsTo: null,
+      reportsTo: [],
     }))
   })
 

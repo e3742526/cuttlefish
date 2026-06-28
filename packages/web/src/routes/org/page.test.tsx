@@ -166,6 +166,39 @@ describe("OrgPage department tabs", () => {
     expect(screen.getByRole("tab", { name: "Marketing" })).toBeDefined();
   });
 
+  it("renders and filters an Unassigned tab for employees with no department", async () => {
+    getOrg.mockResolvedValueOnce({
+      ...orgData,
+      employees: [
+        ...orgData.employees,
+        employee({
+          name: "security",
+          displayName: "Security",
+          department: "",
+          rank: "senior",
+          reportsTo: [],
+          chain: ["security"],
+        }),
+      ],
+      hierarchy: {
+        ...orgData.hierarchy,
+        sorted: [...orgData.hierarchy.sorted, "security"],
+      },
+    });
+
+    render(<OrgPage />);
+
+    expect(await screen.findByRole("tab", { name: "Unassigned" })).toBeDefined();
+    selectTab("Unassigned");
+
+    await waitFor(() =>
+      expect(orgMapState.employees.map((employee) => employee.name)).toEqual([
+        "security",
+      ]),
+    );
+    expect(orgMapState.hierarchy?.sorted).toEqual(["security"]);
+  });
+
   it("switches from All to a department tab and passes only visible employees to the map", async () => {
     render(<OrgPage />);
 

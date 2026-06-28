@@ -18,6 +18,7 @@ const BLOCK_GAP = 32 // horizontal gap between department blocks in a row
 const ROW_GAP = 40 // vertical gap between rows of blocks
 const COO_ROW_GAP = 56 // gap below the COO node before the department rows
 const MIN_TARGET_W = 2200 // target row width the packer wraps at
+const UNASSIGNED_DEPARTMENT_LABEL = "Unassigned"
 
 export interface LayoutResult {
   nodes: Node[]
@@ -126,10 +127,11 @@ export function buildTreeLayout(
   const deptMembers = new Map<string, Employee[]>()
   for (const name of nodeIds) {
     const emp = empByName.get(name)
-    if (!emp || emp.rank === "executive" || !emp.department) continue
-    const list = deptMembers.get(emp.department) ?? []
+    if (!emp || emp.rank === "executive") continue
+    const dept = emp.department || UNASSIGNED_DEPARTMENT_LABEL
+    const list = deptMembers.get(dept) ?? []
     list.push(emp)
-    deptMembers.set(emp.department, list)
+    deptMembers.set(dept, list)
   }
   const blocks = [...deptMembers.entries()]
     .map(([dept, members]) => buildDeptBlock(dept, members))
@@ -241,8 +243,13 @@ export function buildTreeLayout(
     for (const m of members) {
       if (m.parentName && set.has(m.parentName)) pushEdge(m.parentName, m.name)
     }
-    // COO -> each department root
-    if (executive) for (const r of b.rootNames) pushEdge(executive.name, r)
+    // Only render real COO relationships. The synthetic COO root is still used
+    // for layout validation, but root-level employees should not look assigned.
+    if (executive) {
+      for (const r of b.rootNames) {
+        if (empByName.get(r)?.parentName === executive.name) pushEdge(executive.name, r)
+      }
+    }
   }
 
   return { nodes: rfNodes, edges: rfEdges }

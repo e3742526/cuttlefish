@@ -2,18 +2,11 @@ import { describe, expect, it } from "vitest"
 import { buildSupervisorOptions, portalSupervisorName } from "./supervisor-options"
 
 describe("supervisor options", () => {
-  it("prepends the COO option when /api/org does not include it", () => {
+  it("only returns real org employees as supervisor options", () => {
     expect(buildSupervisorOptions(
       [{ name: "parliamentarian" }, { name: "worker" }] as Array<{ name: string }>,
       { portalName: "Cuttlefish" },
-    )).toEqual(["cuttlefish", "parliamentarian", "worker"])
-  })
-
-  it("does not duplicate the COO when it is already present", () => {
-    expect(buildSupervisorOptions(
-      [{ name: "cuttlefish" }, { name: "parliamentarian" }] as Array<{ name: string }>,
-      { portalName: "Cuttlefish" },
-    )).toEqual(["cuttlefish", "parliamentarian"])
+    )).toEqual(["parliamentarian", "worker"])
   })
 
   it("excludes the employee currently being edited from the list", () => {

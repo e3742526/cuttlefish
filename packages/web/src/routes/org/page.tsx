@@ -21,6 +21,7 @@ const OrgMapFallback = (
 );
 
 const ALL_DEPARTMENTS_TAB = "all";
+const UNASSIGNED_DEPARTMENT_TAB = "__unassigned__";
 
 function buildVisibleOrgView(
   employees: Employee[],
@@ -31,9 +32,12 @@ function buildVisibleOrgView(
     return { employees, hierarchy };
   }
 
-  const visibleEmployees = employees.filter(
-    (employee) => employee.department === activeDepartment,
-  );
+  const visibleEmployees = employees.filter((employee) => {
+    if (activeDepartment === UNASSIGNED_DEPARTMENT_TAB) {
+      return employee.rank !== "executive" && !employee.department;
+    }
+    return employee.department === activeDepartment;
+  });
   const visibleNames = new Set(visibleEmployees.map((employee) => employee.name));
 
   if (!hierarchy) {
@@ -96,7 +100,11 @@ export default function OrgPage() {
   }, [loadData]);
 
   useEffect(() => {
-    if (activeDepartment && !departments.includes(activeDepartment)) {
+    if (
+      activeDepartment &&
+      activeDepartment !== UNASSIGNED_DEPARTMENT_TAB &&
+      !departments.includes(activeDepartment)
+    ) {
       setActiveDepartment(null);
     }
   }, [activeDepartment, departments]);
@@ -145,6 +153,10 @@ export default function OrgPage() {
   const visibleOrg = useMemo(
     () => buildVisibleOrgView(employees, hierarchy, activeDepartment),
     [activeDepartment, employees, hierarchy],
+  );
+  const hasUnassignedEmployees = useMemo(
+    () => employees.some((employee) => employee.rank !== "executive" && !employee.department),
+    [employees],
   );
   const visibleEmployeeNames = useMemo(
     () => new Set(visibleOrg.employees.map((employee) => employee.name)),
@@ -199,6 +211,11 @@ export default function OrgPage() {
                     {department}
                   </TabsTrigger>
                 ))}
+                {hasUnassignedEmployees && (
+                  <TabsTrigger value={UNASSIGNED_DEPARTMENT_TAB}>
+                    Unassigned
+                  </TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
             <button

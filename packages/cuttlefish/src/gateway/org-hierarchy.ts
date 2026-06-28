@@ -52,6 +52,10 @@ export function resolveOrgHierarchy(
 
   // Step 2: Resolve explicit reportsTo
   for (const [name, emp] of registry) {
+    if (Array.isArray(emp.reportsTo) && emp.reportsTo.length === 0) {
+      parentMap.set(name, null);
+      continue;
+    }
     const primary = getPrimaryParent(emp.reportsTo);
     if (primary === undefined) continue;
     if (primary === name) {

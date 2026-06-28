@@ -13,14 +13,7 @@ export function buildSupervisorOptions(
   },
 ): string[] {
   const exclude = opts.excludeName ?? null
-  const names = employees
+  return employees
     .map((employee) => employee.name)
     .filter((name) => name && name !== exclude)
-
-  const cooName = portalSupervisorName(opts.portalName)
-  if (cooName && cooName !== exclude && !names.includes(cooName)) {
-    names.unshift(cooName)
-  }
-
-  return names
 }

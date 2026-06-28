@@ -25,8 +25,6 @@ const LEVEL_OPTIONS = [
   { value: "senior", label: "Senior" },
   { value: "employee", label: "Junior" },
 ] as const
-const NONE = "__none__"
-
 function fallbackModelOf(employee: Employee): string {
   return employee.modelPolicy?.fallback_chain?.[0]?.model ?? ""
 }
@@ -115,7 +113,7 @@ export function EmployeeEditor({
     if (rank !== employee.rank) p.rank = rank
     const origReports = normalizeReportsTo(employee.reportsTo)
     if (reportsTo.join("\n") !== origReports.join("\n")) {
-      p.reportsTo = reportsTo.length === 0 ? null : serializeReportsTo(reportsTo)
+      p.reportsTo = reportsTo.length === 0 ? [] : serializeReportsTo(reportsTo)
     }
     if (persona !== employee.persona) p.persona = persona
     if (alwaysNotify !== (employee.alwaysNotify ?? true)) p.alwaysNotify = alwaysNotify
@@ -236,20 +234,21 @@ export function EmployeeEditor({
         </Field>
 
         <Field label="Department">
-          <Select value={department || NONE} onValueChange={(v) => setDepartment(v === NONE ? "" : v)}>
-            <SelectTrigger>
-              <SelectValue placeholder="None" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>None</SelectItem>
-              {departments.map((d) => (
-                <SelectItem key={d} value={d}>{d}</SelectItem>
-              ))}
-              {department && !departments.includes(department) && (
-                <SelectItem value={department}>{department}</SelectItem>
-              )}
-            </SelectContent>
-          </Select>
+          <input
+            className={inputCls}
+            value={department}
+            onChange={(event) => setDepartment(event.target.value)}
+            placeholder="None"
+            list="employee-editor-departments"
+          />
+          <datalist id="employee-editor-departments">
+            {departments.map((d) => (
+              <option key={d} value={d} />
+            ))}
+          </datalist>
+          <span className="text-[length:var(--text-caption2)] text-[var(--text-quaternary)]">
+            Leave blank for Unassigned, or type a new department name.
+          </span>
         </Field>
       </div>
 

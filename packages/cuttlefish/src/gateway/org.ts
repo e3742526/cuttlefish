@@ -55,10 +55,14 @@ function walkEmployeeYamls<T>(
  *  retired-employee listing. `fullPath` supplies the department fallback. */
 function parseEmployeeData(data: any, fullPath: string): Employee | undefined {
   if (!data || !data.name || !data.persona) return undefined;
+  const explicitDepartment = Object.prototype.hasOwnProperty.call(data, "department");
+  const department = explicitDepartment
+    ? String(data.department ?? "").trim()
+    : path.basename(path.dirname(fullPath));
   return {
     name: data.name,
     displayName: data.displayName || data.name,
-    department: data.department || path.basename(path.dirname(fullPath)),
+    department,
     rank: data.rank || "employee",
     engine: data.engine || "claude",
     model: data.model || "sonnet",
@@ -295,6 +299,7 @@ export function validateEmployeeUpdate(
   config: CuttlefishConfig,
   current: Employee,
   body: Record<string, unknown>,
+  knownEmployeeNames?: Iterable<string>,
 ): EmployeeUpdateResult {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return { ok: false, error: "update body must be a JSON object" };
@@ -314,7 +319,7 @@ export function validateEmployeeUpdate(
   const updates: EmployeeUpdate = {};
 
   // --- non-empty string fields ---
-  for (const key of ["displayName", "department", "persona"] as const) {
+  for (const key of ["displayName", "persona"] as const) {
     if (body[key] !== undefined) {
       const v = body[key];
       if (typeof v !== "string" || !v.trim()) {
@@ -322,6 +327,18 @@ export function validateEmployeeUpdate(
       }
       updates[key] = v;
     }
+  }
+
+  // --- department: empty string explicitly clears the department assignment ---
+  if (body.department !== undefined) {
+    const v = body.department;
+    if (typeof v !== "string") {
+      return { ok: false, error: "department must be a string" };
+    }
+    const department = v.trim();
+    if (path.isAbsolute(department)) return { ok: false, error: "department must not be an absolute path" };
+    if (department.includes("..")) return { ok: false, error: "department must not contain '..' traversal" };
+    updates.department = department;
   }
 
   // --- rank enum ---
@@ -382,14 +399,26 @@ export function validateEmployeeUpdate(
   if (body.reportsTo !== undefined) {
     const v = body.reportsTo;
     if (v === null) {
-      updates.reportsTo = null;
+      updates.reportsTo = [];
     } else {
       const isString = typeof v === "string" && v.trim().length > 0;
       const isStringArray = Array.isArray(v) && v.every((x) => typeof x === "string" && x.trim().length > 0);
       if (!isString && !isStringArray) {
         return { ok: false, error: "reportsTo must be null, a non-empty string, or array of non-empty strings" };
       }
-      updates.reportsTo = v as string | string[];
+      const reportsTo = v as string | string[];
+      const parentNames = Array.isArray(reportsTo) ? reportsTo : [reportsTo];
+      if (parentNames.some((name) => name === current.name)) {
+        return { ok: false, error: "reportsTo cannot reference the employee itself" };
+      }
+      if (knownEmployeeNames) {
+        const known = new Set(knownEmployeeNames);
+        const missing = parentNames.filter((name) => !known.has(name));
+        if (missing.length > 0) {
+          return { ok: false, error: `reportsTo references unknown employee(s): ${missing.join(", ")}` };
+        }
+      }
+      updates.reportsTo = reportsTo;
     }
   }
 
@@ -625,7 +654,7 @@ export function validateEmployeeCreate(
     fallbackModel: body.fallbackModel,
     avatar: body.avatar,
     emoji: body.emoji,
-  });
+  }, existingNames);
   if (!updates.ok || !updates.updates) {
     return { ok: false, error: updates.error || "invalid employee body" };
   }

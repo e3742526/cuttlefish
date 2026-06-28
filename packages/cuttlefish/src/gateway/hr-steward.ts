@@ -275,7 +275,7 @@ export async function applyOrgChange(request: OrgChangeRequest, context: ApiCont
         ok = false;
         break;
       }
-      const upd = validateEmployeeUpdate(config, current, request.proposed);
+      const upd = validateEmployeeUpdate(config, current, request.proposed, registry.keys());
       ok = upd.ok && !!upd.updates && updateEmployeeYaml(request.employeeName, upd.updates);
     }
   }

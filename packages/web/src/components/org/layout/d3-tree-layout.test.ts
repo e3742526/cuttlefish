@@ -43,10 +43,28 @@ describe("buildTreeLayout", () => {
     const groupNodes = nodes.filter((n) => n.type === "departmentGroup")
     expect(empNodes).toHaveLength(7) // coo + 6
     expect(groupNodes.map((g) => g.id).sort()).toEqual(["group-alpha", "group-beta"])
-    // 6 parent->child edges (coo->m1, coo->m2, m1->a1/a2, m2->b1/b2)
-    expect(edges).toHaveLength(6)
-    expect(edges.some((e) => e.source === "coo" && e.target === "m1")).toBe(true)
+    // 4 real parent->child edges (m1->a1/a2, m2->b1/b2). Root-level managers
+    // are positioned under the COO but not falsely wired to it.
+    expect(edges).toHaveLength(4)
+    expect(edges.some((e) => e.source === "coo" && e.target === "m1")).toBe(false)
     expect(edges.some((e) => e.source === "m1" && e.target === "a1")).toBe(true)
+  })
+
+  it("places employees with no department in an Unassigned group", () => {
+    const employees: Employee[] = [
+      emp({ name: "coo", rank: "executive" }),
+      emp({ name: "security", rank: "senior", department: "", parentName: undefined, chain: ["security"] }),
+    ]
+    const hierarchy: OrgHierarchy = {
+      root: "coo",
+      sorted: ["security"],
+      warnings: [],
+    }
+    const { nodes, edges } = buildTreeLayout(employees, hierarchy, null)
+
+    expect(nodes.some((node) => node.id === "security")).toBe(true)
+    expect(nodes.some((node) => node.id === "group-Unassigned")).toBe(true)
+    expect(edges.some((edge) => edge.source === "coo" && edge.target === "security")).toBe(false)
   })
 
   it("is deterministic (no Math.random / Date)", () => {

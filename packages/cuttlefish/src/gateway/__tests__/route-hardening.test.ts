@@ -154,6 +154,28 @@ describe("GET /api/cron/:id/runs — corrupt-line tolerance", () => {
   });
 });
 
+describe("GET /api/org — department list", () => {
+  it("excludes reserved org artifact directories from departments", async () => {
+    fs.mkdirSync(path.join(orgDir, "_changes"), { recursive: true });
+    fs.mkdirSync(path.join(orgDir, "general"), { recursive: true });
+    fs.writeFileSync(path.join(orgDir, "general", "parliamentarian.yaml"), `
+name: parliamentarian
+displayName: Parliamentarian
+department: general
+rank: manager
+engine: claude
+model: sonnet
+persona: Keeps order.
+`);
+
+    const cap = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/org"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect((cap.body as { departments: string[] }).departments).toEqual(["general"]);
+  });
+});
+
 describe("GET /api/org/departments/:name/board — corrupt board.json", () => {
   it("returns 500 when board.json is not valid JSON", async () => {
     const deptDir = path.join(orgDir, "platform");
