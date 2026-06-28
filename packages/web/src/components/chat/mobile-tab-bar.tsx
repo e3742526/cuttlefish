@@ -1,7 +1,12 @@
 import { Link, useLocation } from "react-router-dom"
 import { isNavItemActive } from "@/components/pill-nav"
-import { MOBILE_TAB_ITEMS } from "@/lib/nav"
+import { MOBILE_TAB_ITEMS, applyNavOrder } from "@/lib/nav"
+import { useSettings } from "@/routes/settings-provider"
 import { cn } from "@/lib/utils"
+
+// The curated set of tab hrefs (which 5 are tabs is fixed — iOS caps at 5); only
+// their ORDER follows the user's nav-rail preference.
+const CURATED_TAB_HREFS = new Set(MOBILE_TAB_ITEMS.map((item) => item.href))
 
 // ---------------------------------------------------------------------------
 // MobileTabBar — the iOS-style bottom tab bar for the curated 5 (MOBILE_TAB_ITEMS).
@@ -17,6 +22,9 @@ import { cn } from "@/lib/utils"
 
 export function MobileTabBar() {
   const pathname = useLocation().pathname
+  const { settings } = useSettings()
+  // Curated 5, re-sorted to match the custom nav order (default order when unset).
+  const tabs = applyNavOrder(settings.navOrder).filter((item) => CURATED_TAB_HREFS.has(item.href))
 
   return (
     <nav
@@ -29,7 +37,7 @@ export function MobileTabBar() {
         "py-1.5 pb-[max(var(--safe-bottom),6px)]",
       )}
     >
-      {MOBILE_TAB_ITEMS.map((item) => {
+      {tabs.map((item) => {
         const isActive = isNavItemActive(item.href, pathname)
         const Icon = item.icon
         return (

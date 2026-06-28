@@ -14,6 +14,8 @@ export interface CuttlefishSettings {
   operatorName: string | null
   language: string
   employeeOverrides: Record<string, EmployeeOverride>
+  /** Custom order of the left nav rail, as a list of item hrefs. [] = default order. */
+  navOrder: string[]
 }
 
 export const DEFAULT_PORTAL_ICON = "/brand/cuttlefish_icon_app.svg"
@@ -29,6 +31,7 @@ export const DEFAULTS: CuttlefishSettings = {
   operatorName: null,
   language: "English",
   employeeOverrides: {},
+  navOrder: [],
 }
 
 const STORAGE_KEY = 'cuttlefish-settings'

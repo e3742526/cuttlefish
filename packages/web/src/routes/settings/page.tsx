@@ -46,6 +46,7 @@ export default function SettingsPage() {
     setOperatorName,
     setPortalEmoji,
     setLanguage,
+    setNavOrder,
     resetAll,
   } = useSettings()
   const { theme, setTheme } = useTheme()
@@ -308,7 +309,11 @@ export default function SettingsPage() {
             </>
           )}
 
-          <ResetSection resetAll={resetAll} />
+          <ResetSection
+            resetAll={resetAll}
+            navOrderCustomized={settings.navOrder.length > 0}
+            resetNavOrder={() => setNavOrder([])}
+          />
         </div>
       </div>
     </PageLayout>

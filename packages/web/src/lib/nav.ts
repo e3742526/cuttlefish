@@ -43,3 +43,24 @@ const MOBILE_TAB_HREFS = ["/", "/talk", "/org", "/cron", "/settings"] as const
 export const MOBILE_TAB_ITEMS: NavItem[] = MOBILE_TAB_HREFS.map(
   (href) => NAV_ITEMS.find((item) => item.href === href)!,
 )
+
+/**
+ * Apply a user's custom nav ordering (a list of hrefs) to `items`.
+ *
+ * - Items are sorted by their href's position in `order`.
+ * - Any item NOT named in `order` keeps its default relative position and is
+ *   appended after the ordered ones — so a newly added route never disappears.
+ * - Hrefs in `order` that no longer exist in `items` are ignored — so a removed
+ *   route can't corrupt the result.
+ *
+ * `order: []` (the default) returns `items` unchanged. Pure; never mutates inputs.
+ */
+export function applyNavOrder(order: string[], items: NavItem[] = NAV_ITEMS): NavItem[] {
+  if (!order.length) return items
+  const known = new Set(items.map((item) => item.href))
+  const ranked = order.filter((href) => known.has(href))
+  const rank = new Map(ranked.map((href, index) => [href, index]))
+  const ordered = ranked.map((href) => items.find((item) => item.href === href)!)
+  const rest = items.filter((item) => !rank.has(item.href))
+  return [...ordered, ...rest]
+}

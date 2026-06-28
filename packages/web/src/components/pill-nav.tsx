@@ -1,11 +1,11 @@
-import { useEffect, useState, type ComponentType, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
+import { Fragment, useEffect, useState, type ComponentType, type DragEvent as ReactDragEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { Menu, Sun, Moon, Palette, ArrowLeftRight, PanelLeft } from "lucide-react"
 import { useTheme } from "@/routes/providers"
 import { useSettings } from "@/routes/settings-provider"
 import { DEFAULT_PORTAL_ICON } from "@/lib/settings"
 import { THEMES, type ThemeId } from "@/lib/themes"
-import { NAV_ITEMS } from "@/lib/nav"
+import { NAV_ITEMS, applyNavOrder } from "@/lib/nav"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { cn } from "@/lib/utils"
 
@@ -80,9 +80,10 @@ export function NavList({
   pathname: string
   onNavigate?: () => void
 }) {
+  const { settings } = useSettings()
   return (
     <div className="flex flex-col gap-0.5 p-1.5">
-      {NAV_ITEMS.map((item) => {
+      {applyNavOrder(settings.navOrder).map((item) => {
         const isActive = isNavItemActive(item.href, pathname)
         const Icon = item.icon
         return (
@@ -216,12 +217,27 @@ const RIBBON_LABEL_PILL =
 /** One ribbon entry — a fixed 44px icon square. It never resizes; the label is a
  *  floating pill that escapes to the right on hover/focus (the piano reveal), and
  *  the icon lifts/scales a touch like a pressed Dock key. */
+interface RibbonDragProps {
+  draggable?: boolean
+  dragging?: boolean
+  onDragStart?: (e: ReactDragEvent) => void
+  onDragOver?: (e: ReactDragEvent) => void
+  onDrop?: (e: ReactDragEvent) => void
+  onDragEnd?: (e: ReactDragEvent) => void
+}
+
 function RibbonRow({
   Icon,
   label,
   isActive,
   href,
   onClick,
+  draggable,
+  dragging,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   Icon: ComponentType<{ size?: number | string; className?: string }>
   label: string
@@ -230,21 +246,25 @@ function RibbonRow({
   // Receives the click event so a link row can preventDefault a no-op
   // same-route navigation (used by the Chat icon to reveal the list instead).
   onClick?: (e: ReactMouseEvent) => void
-}) {
+} & RibbonDragProps) {
   const cls = cn(
     "group/row relative flex size-11 shrink-0 items-center justify-center rounded-[12px] transition-colors duration-150 [transition-timing-function:var(--ease-smooth)]",
     isActive
       ? "bg-[var(--fill-secondary)] text-[var(--text-primary)]"
       : "text-[var(--text-secondary)] hover:bg-[var(--fill-secondary)] hover:text-[var(--text-primary)]",
+    dragging && "opacity-40",
   )
+  // While ANY icon is being dragged (the nav carries data-dragging), freeze the
+  // per-icon lift/scale and hide the piano-reveal label so they don't fight the drag.
+  const dragHandlers: RibbonDragProps = { draggable, onDragStart, onDragOver, onDrop, onDragEnd }
   const inner = (
     <>
-      <span className="flex items-center justify-center transition-transform duration-150 [transition-timing-function:var(--ease-snappy)] motion-safe:group-hover/row:-translate-y-px motion-safe:group-hover/row:scale-110 motion-safe:group-active/row:scale-95 motion-reduce:transform-none">
+      <span className="flex items-center justify-center transition-transform duration-150 [transition-timing-function:var(--ease-snappy)] motion-safe:group-hover/row:-translate-y-px motion-safe:group-hover/row:scale-110 motion-safe:group-active/row:scale-95 motion-reduce:transform-none group-data-[dragging=true]/ribbon:!transform-none">
         <Icon size={20} className="shrink-0" />
       </span>
       {/* Piano reveal — floats past the rail edge; flex-centers vertically so the
           inner pill is free to animate on the X axis. */}
-      <span aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-50 ml-2 flex items-center">
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 left-full z-50 ml-2 flex items-center group-data-[dragging=true]/ribbon:hidden">
         <span className={RIBBON_LABEL_PILL}>{label}</span>
       </span>
     </>
@@ -257,13 +277,14 @@ function RibbonRow({
         aria-label={label}
         aria-current={isActive ? "page" : undefined}
         className={cls}
+        {...dragHandlers}
       >
         {inner}
       </Link>
     )
   }
   return (
-    <button type="button" onClick={onClick} aria-label={label} className={cls}>
+    <button type="button" onClick={onClick} aria-label={label} className={cls} {...dragHandlers}>
       {inner}
     </button>
   )
@@ -282,13 +303,53 @@ export function NavRibbon({
 }) {
   const pathname = useLocation().pathname
   const { theme, setTheme } = useTheme()
-  const { settings } = useSettings()
+  const { settings, setNavOrder } = useSettings()
   const portalName = settings.portalName ?? "Cuttlefish"
   const brandIcon = settings.portalIcon ?? DEFAULT_PORTAL_ICON
   const emoji = settings.portalEmoji
   const cycleTheme = () => {
     const ids = THEMES.map((t) => t.id)
     setTheme(ids[(ids.indexOf(theme) + 1) % ids.length])
+  }
+
+  // ── Drag-to-reorder (native HTML5 DnD; the rail is desktop-only). Only the
+  // primary icons reorder — Talk and the theme toggle stay docked. The commit is
+  // derived entirely from the drop event (dragged href from `dataTransfer`, target
+  // from the dropped-on row + pointer Y) so it never depends on React state having
+  // re-rendered between the dragstart/dragover/drop events. `draggingHref`/`dropIndex`
+  // drive only the visual dim + drop-line indicator.
+  const [draggingHref, setDraggingHref] = useState<string | null>(null)
+  const [dropIndex, setDropIndex] = useState<number | null>(null)
+  const resetDrag = () => {
+    setDraggingHref(null)
+    setDropIndex(null)
+  }
+  const insertsAfter = (e: ReactDragEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    return e.clientY > rect.top + rect.height / 2
+  }
+  const handleRowDragStart = (href: string) => (e: ReactDragEvent) => {
+    e.dataTransfer.setData("text/plain", href)
+    e.dataTransfer.effectAllowed = "move"
+    setDraggingHref(href)
+  }
+  const handleRowDragOver = (index: number) => (e: ReactDragEvent) => {
+    e.preventDefault() // unconditional — required for `drop` to fire in real browsers
+    e.dataTransfer.dropEffect = "move"
+    setDropIndex(insertsAfter(e) ? index + 1 : index)
+  }
+  const handleRowDrop = (index: number) => (e: ReactDragEvent) => {
+    e.preventDefault()
+    const draggedHref = e.dataTransfer.getData("text/plain")
+    const from = primaryHrefs.indexOf(draggedHref)
+    if (from === -1) return resetDrag() // not one of our icons — ignore
+    const without = primaryHrefs.filter((href) => href !== draggedHref)
+    let slot = insertsAfter(e) ? index + 1 : index
+    if (from < slot) slot -= 1 // the dragged item left a hole before the slot
+    slot = Math.max(0, Math.min(slot, without.length))
+    without.splice(slot, 0, draggedHref)
+    setNavOrder(without)
+    resetDrag()
   }
   // The Chat icon is OPEN-ONLY. While already on the chat route ("/") with the
   // list collapsed, a plain click reveals the list instead of firing a dead
@@ -303,7 +364,9 @@ export function NavRibbon({
       onToggleList()
     }
   }
-  const primaryNavItems = NAV_ITEMS.filter((item) => item.href !== "/talk")
+  const orderedNavItems = applyNavOrder(settings.navOrder)
+  const primaryNavItems = orderedNavItems.filter((item) => item.href !== "/talk")
+  const primaryHrefs = primaryNavItems.map((item) => item.href)
   const talkNavItem = NAV_ITEMS.find((item) => item.href === "/talk")
   return (
     // The placeholder reserves the rail width (w-14 = 56px) in the flex row; the
@@ -312,7 +375,8 @@ export function NavRibbon({
     <div className="relative hidden h-full w-14 shrink-0 lg:block">
       <nav
         aria-label="Primary"
-        className="absolute inset-y-0 left-0 z-30 flex w-14 flex-col items-center gap-0.5 bg-[var(--ribbon-bg)] px-1.5 pb-2.5 pt-3.5"
+        data-dragging={draggingHref ? "true" : undefined}
+        className="group/ribbon absolute inset-y-0 left-0 z-30 flex w-14 flex-col items-center gap-0.5 bg-[var(--ribbon-bg)] px-1.5 pb-2.5 pt-3.5"
       >
         {/* Top slot — a plain, button-sized Cuttlefish brand mark that fills the rail
             top (no frosted-pill chrome). It morphs to the sidebar.left toggle
@@ -371,17 +435,31 @@ export function NavRibbon({
           )}
         </div>
 
-        {/* Nav icons — per-icon piano reveal. */}
-        {primaryNavItems.map((item) => (
-          <RibbonRow
-            key={item.href}
-            Icon={item.icon}
-            label={item.label}
-            href={item.href}
-            isActive={isNavItemActive(item.href, pathname)}
-            onClick={item.href === "/" ? onChatIconClick : undefined}
-          />
+        {/* Nav icons — drag to reorder (per-icon piano reveal). A thin accent line
+            marks the drop slot while dragging. */}
+        {primaryNavItems.map((item, index) => (
+          <Fragment key={item.href}>
+            {draggingHref && dropIndex === index && (
+              <div aria-hidden className="h-0.5 w-7 shrink-0 rounded-full bg-[var(--accent)]" />
+            )}
+            <RibbonRow
+              Icon={item.icon}
+              label={item.label}
+              href={item.href}
+              isActive={isNavItemActive(item.href, pathname)}
+              onClick={item.href === "/" ? onChatIconClick : undefined}
+              draggable
+              dragging={draggingHref === item.href}
+              onDragStart={handleRowDragStart(item.href)}
+              onDragOver={handleRowDragOver(index)}
+              onDrop={handleRowDrop(index)}
+              onDragEnd={resetDrag}
+            />
+          </Fragment>
         ))}
+        {draggingHref && dropIndex === primaryNavItems.length && (
+          <div aria-hidden className="h-0.5 w-7 shrink-0 rounded-full bg-[var(--accent)]" />
+        )}
 
         {/* Footer utilities — Talk stays docked just above the theme control. */}
         <div className="mt-auto flex flex-col gap-0.5 pt-1">

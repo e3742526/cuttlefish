@@ -22,11 +22,12 @@ interface SettingsContextValue {
   setEmojiOnly: (emojiOnly: boolean) => void
   setOperatorName: (name: string | null) => void
   setLanguage: (language: string) => void
+  setNavOrder: (order: string[]) => void
   resetAll: () => void
 }
 
 const SettingsContext = createContext<SettingsContextValue>({
-  settings: { accentColor: null, portalName: null, portalSubtitle: null, portalEmoji: null, portalIcon: DEFAULT_PORTAL_ICON, iconBgHidden: false, emojiOnly: false, operatorName: null, language: "English", employeeOverrides: {} },
+  settings: { ...DEFAULTS },
   setAccentColor: () => {},
   setPortalName: () => {},
   setPortalSubtitle: () => {},
@@ -36,6 +37,7 @@ const SettingsContext = createContext<SettingsContextValue>({
   setEmojiOnly: () => {},
   setOperatorName: () => {},
   setLanguage: () => {},
+  setNavOrder: () => {},
   resetAll: () => {},
 })
 
@@ -153,6 +155,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [update],
   )
 
+  const setNavOrder = useCallback(
+    (order: string[]) => {
+      update((prev) => ({ ...prev, navOrder: order }))
+    },
+    [update],
+  )
+
   const resetAll = useCallback(() => {
     update(() => ({
       accentColor: null,
@@ -165,6 +174,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       operatorName: null,
       language: "English",
       employeeOverrides: {},
+      navOrder: [],
     }))
   }, [update])
 
@@ -181,6 +191,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         setEmojiOnly,
         setOperatorName,
         setLanguage,
+        setNavOrder,
         resetAll,
       }}
     >

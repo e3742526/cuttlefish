@@ -352,12 +352,23 @@ export function PairingSection(props: PairingSectionProps) {
 
 interface ResetSectionProps {
   resetAll: () => void
+  navOrderCustomized?: boolean
+  resetNavOrder?: () => void
 }
 
-export function ResetSection({ resetAll }: ResetSectionProps) {
+export function ResetSection({ resetAll, navOrderCustomized, resetNavOrder }: ResetSectionProps) {
   return (
     <Section title="Reset">
       <div className="flex items-center justify-center gap-[var(--space-3)] flex-wrap">
+        {navOrderCustomized && resetNavOrder && (
+          <button
+            onClick={resetNavOrder}
+            className="px-[var(--space-5)] py-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--bg-secondary)] text-[var(--text-primary)] border border-[var(--separator)] cursor-pointer text-[length:var(--text-footnote)] font-[var(--weight-semibold)] transition-all duration-150 ease-[var(--ease-spring)] inline-flex items-center gap-[var(--space-2)]"
+          >
+            <RotateCcw size={14} />
+            Reset Nav Order
+          </button>
+        )}
         <button
           onClick={() => {
             localStorage.removeItem("cuttlefish-onboarded")
