@@ -11,7 +11,6 @@ import {
   Settings,
   ShieldCheck,
   Network,
-  UserCog,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -25,7 +24,6 @@ export const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Chat", icon: MessageSquare },
   { href: "/talk", label: "Talk", icon: AudioLines },
   { href: "/org", label: "Organization", icon: Users },
-  { href: "/hr", label: "HR Steward", icon: UserCog },
   { href: "/kanban", label: "Kanban", icon: LayoutGrid },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck },
   { href: "/archive", label: "Archive", icon: Archive },

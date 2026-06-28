@@ -233,4 +233,12 @@ describe("OrgPage department tabs", () => {
     expect(await screen.findByTestId("employee-create-form")).toBeDefined();
     expect(screen.queryByTestId("employee-detail")).toBeNull();
   });
+
+  it("renders the HR steward entry under the org actions", async () => {
+    render(<OrgPage />);
+
+    await screen.findByTestId("org-map");
+    const link = screen.getByRole("link", { name: "HR / Org Steward" });
+    expect(link.getAttribute("href")).toBe("/hr");
+  });
 });

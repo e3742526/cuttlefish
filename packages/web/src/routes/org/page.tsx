@@ -210,6 +210,12 @@ export default function OrgPage() {
             >
               Add agent
             </button>
+            <a
+              href="/hr"
+              className="h-8 px-[var(--space-3)] inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-regular)]/95 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)] no-underline"
+            >
+              HR / Org Steward
+            </a>
           </div>
           {loading ? (
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-[length:var(--text-caption1)]">
