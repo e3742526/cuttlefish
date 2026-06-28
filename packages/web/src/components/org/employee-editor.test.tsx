@@ -7,6 +7,19 @@ import type { Employee } from "@/lib/api"
 vi.mock("@/components/chat/model-selector-row", () => ({
   ModelSelectorRow: () => null,
 }))
+vi.mock("@/components/org/employee-fallback-model-select", () => ({
+  EmployeeFallbackModelSelect: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
+    <select
+      aria-label="Fallback model"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">None</option>
+      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+      <option value="claude-opus-4-8">Opus 4.8</option>
+    </select>
+  ),
+}))
 
 const updateEmployee = vi.fn()
 const deleteEmployee = vi.fn()
@@ -66,6 +79,21 @@ describe("EmployeeEditor", () => {
     await waitFor(() => expect(updateEmployee).toHaveBeenCalledTimes(1))
     expect(updateEmployee).toHaveBeenCalledWith("content-writer", { persona: "New persona." })
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ ...EMP, persona: "New persona." }))
+  })
+
+  it("sends fallbackModel when the fallback selection changes", async () => {
+    const onSaved = vi.fn()
+    updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, modelPolicy: { fallback_chain: [{ engine: "claude", model: "claude-sonnet-4-6" }] } } })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={onSaved} />)
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Fallback model" }), {
+      target: { value: "claude-sonnet-4-6" },
+    })
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      fallbackModel: "claude-sonnet-4-6",
+    }))
   })
 
   it("keeps the form open and shows the error on a failed save", async () => {

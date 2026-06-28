@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ModelSelectorRow, type SelectorValue } from "@/components/chat/model-selector-row"
+import { EmployeeFallbackModelSelect } from "@/components/org/employee-fallback-model-select"
 import { ReportsToField, normalizeReportsTo, serializeReportsTo } from "@/components/org/reports-to-field"
 
 const LEVEL_OPTIONS = [
@@ -221,11 +222,11 @@ export function EmployeeEditor({
       </Field>
 
       <Field label="Fallback model" hint="Optional same-engine backup model for model fallback.">
-        <input
-          className={inputCls}
+        <EmployeeFallbackModelSelect
+          engine={selector.engine}
+          primaryModel={selector.model}
           value={fallbackModel}
-          onChange={(e) => setFallbackModel(e.target.value)}
-          placeholder="Leave blank to disable"
+          onChange={setFallbackModel}
         />
       </Field>
 
