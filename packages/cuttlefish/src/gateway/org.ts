@@ -175,7 +175,7 @@ export interface EmployeeUpdate {
   model?: string;
   effortLevel?: string;
   persona?: string;
-  reportsTo?: string | string[];
+  reportsTo?: string | string[] | null;
   cliFlags?: string[];
   alwaysNotify?: boolean;
   lifecycle?: EmployeeLifecycle;
@@ -378,15 +378,19 @@ export function validateEmployeeUpdate(
     updates.effortLevel = level;
   }
 
-  // --- reportsTo (string | string[]) ---
+  // --- reportsTo (string | string[] | null) ---
   if (body.reportsTo !== undefined) {
     const v = body.reportsTo;
-    const isString = typeof v === "string" && v.trim().length > 0;
-    const isStringArray = Array.isArray(v) && v.every((x) => typeof x === "string" && x.trim().length > 0);
-    if (!isString && !isStringArray) {
-      return { ok: false, error: "reportsTo must be a non-empty string or array of strings" };
+    if (v === null) {
+      updates.reportsTo = null;
+    } else {
+      const isString = typeof v === "string" && v.trim().length > 0;
+      const isStringArray = Array.isArray(v) && v.every((x) => typeof x === "string" && x.trim().length > 0);
+      if (!isString && !isStringArray) {
+        return { ok: false, error: "reportsTo must be null, a non-empty string, or array of non-empty strings" };
+      }
+      updates.reportsTo = v as string | string[];
     }
-    updates.reportsTo = v as string | string[];
   }
 
   // --- cliFlags (string[]) ---
@@ -637,7 +641,7 @@ export function validateEmployeeCreate(
       model: updates.updates.model ?? placeholderCurrent.model,
       effortLevel: updates.updates.effortLevel,
       persona,
-      reportsTo: updates.updates.reportsTo,
+      reportsTo: updates.updates.reportsTo ?? undefined,
       cliFlags: updates.updates.cliFlags,
       alwaysNotify: updates.updates.alwaysNotify,
       lifecycle: updates.updates.lifecycle,
@@ -697,6 +701,9 @@ export function mergeEmployeeUpdateData(
     if (value !== undefined) {
       next[key] = value;
     }
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "reportsTo") && updates.reportsTo === null) {
+    delete next.reportsTo;
   }
   // Canonical icon: exactly one of avatar/emoji persists. An explicit "" clears
   // that key; setting one to a non-empty value clears the sibling so legacy YAML

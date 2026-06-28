@@ -196,6 +196,26 @@ describe("EmployeeEditor", () => {
     )
   })
 
+  it("sends reportsTo null when the last supervisor is removed", async () => {
+    const employee: Employee = {
+      ...EMP,
+      reportsTo: "content-lead",
+    }
+    updateEmployee.mockResolvedValue({
+      status: "ok",
+      employee: { ...EMP, reportsTo: undefined },
+    })
+
+    render(<EmployeeEditor employee={employee} onCancel={() => {}} onSaved={() => {}} />)
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove content-lead" }))
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      reportsTo: null,
+    }))
+  })
+
   it("Cancel calls onCancel", () => {
     const onCancel = vi.fn()
     render(<EmployeeEditor employee={EMP} onCancel={onCancel} onSaved={() => {}} />)

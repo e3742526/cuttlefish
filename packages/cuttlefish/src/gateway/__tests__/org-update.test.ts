@@ -612,6 +612,12 @@ describe("validateEmployeeUpdate", () => {
     expect(validateEmployeeUpdate(testConfig, emp(), { reportsTo: ["a", "b"] }).ok).toBe(true);
   });
 
+  it("accepts reportsTo null to clear the supervisor chain", () => {
+    const result = validateEmployeeUpdate(testConfig, emp(), { reportsTo: null });
+    expect(result.ok).toBe(true);
+    expect(result.updates?.reportsTo).toBeNull();
+  });
+
   it("accepts machine-readable security gate fields", () => {
     const result = validateEmployeeUpdate(testConfig, emp(), {
       approvalPolicy: "checkpoint",

@@ -40,7 +40,7 @@ export interface EmployeeUpdate {
   model?: string
   effortLevel?: string
   persona?: string
-  reportsTo?: string | string[]
+  reportsTo?: string | string[] | null
   cliFlags?: string[]
   alwaysNotify?: boolean
   fallbackEngine?: string | null

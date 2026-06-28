@@ -114,7 +114,9 @@ export function EmployeeEditor({
     if (department !== (employee.department || "")) p.department = department
     if (rank !== employee.rank) p.rank = rank
     const origReports = normalizeReportsTo(employee.reportsTo)
-    if (reportsTo.join("\n") !== origReports.join("\n")) p.reportsTo = serializeReportsTo(reportsTo)
+    if (reportsTo.join("\n") !== origReports.join("\n")) {
+      p.reportsTo = reportsTo.length === 0 ? null : serializeReportsTo(reportsTo)
+    }
     if (persona !== employee.persona) p.persona = persona
     if (alwaysNotify !== (employee.alwaysNotify ?? true)) p.alwaysNotify = alwaysNotify
     const flags = cliFlags.split(/\s+/).filter(Boolean)

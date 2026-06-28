@@ -113,4 +113,18 @@ describe("EmployeeNode quick chat affordance", () => {
     expect(screen.getByTitle("Parliamentarian and Strategic Governance Lead")).toBeTruthy()
     expect(screen.getByTitle("Manager")).toBeTruthy()
   })
+
+  it("shows the selected model without requiring hover", () => {
+    renderNode({
+      name: "assistant",
+      displayName: "Assistant",
+      department: "General",
+      rank: "senior",
+      engine: "claude",
+      model: "claude-sonnet-4-6",
+      persona: "Keeps things moving",
+    })
+
+    expect(screen.getByText("claude-sonnet-4-6")).toBeTruthy()
+  })
 })

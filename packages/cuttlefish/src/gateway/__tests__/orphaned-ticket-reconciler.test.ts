@@ -199,4 +199,37 @@ describe("orphaned ticket reconciler", () => {
     });
     expect(readBoard("research")[0].status).toBe("in_progress");
   });
+
+  it("heals a stale fallback-approved auto ticket to done when the backing session is gone", () => {
+    writeBoard("software-delivery", [
+      {
+        id: "session-s-1",
+        source: "session",
+        status: "blocked",
+        title: "fallback artifact",
+        description: "running (fallback approved)",
+        sessionId: "s-1",
+        priority: "medium",
+        assignee: "code-implementer",
+        createdAt: iso(20_000),
+        updatedAt: iso(20_000),
+      },
+    ]);
+
+    const result = reconcileDepartmentOrphanedTickets("software-delivery", {
+      engines: new Map(),
+      orgDir,
+      getSession: () => undefined,
+      listSessions: () => [],
+      emit: () => {},
+      now: () => NOW,
+      cause: "periodic",
+    });
+
+    expect(result).toEqual({ boardsUpdated: 1, ticketsUpdated: 1 });
+    expect(readBoard("software-delivery")[0]).toMatchObject({
+      status: "done",
+      description: "completed",
+    });
+  });
 });

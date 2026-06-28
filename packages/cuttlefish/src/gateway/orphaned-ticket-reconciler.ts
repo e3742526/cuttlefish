@@ -29,6 +29,19 @@ export interface OrphanedTicketDecision {
   blockedReason?: string;
 }
 
+function isFallbackApprovedArtifact(ticket: Pick<BoardTicket, "status" | "description" | "source" | "id" | "sessionId">): boolean {
+  return (
+    (ticket.status === "blocked" || ticket.status === "in_progress") &&
+    ticket.source === "session" &&
+    typeof ticket.sessionId === "string" &&
+    ticket.sessionId.trim().length > 0 &&
+    typeof ticket.description === "string" &&
+    ticket.description.trim() === "running (fallback approved)" &&
+    typeof ticket.id === "string" &&
+    ticket.id.startsWith("session-")
+  );
+}
+
 function findSessionForTicket(ticket: Pick<BoardTicket, "id" | "sessionId">, sessions: Session[]): Session | undefined {
   return resolveBestSessionForTicket(ticket, sessions);
 }
@@ -84,6 +97,27 @@ export function sweepOrphanedBoardTickets(
 ): number {
   let changed = 0;
   for (const ticket of tickets) {
+    if (isFallbackApprovedArtifact(ticket)) {
+      const session = findSessionForTicket(ticket, sessions);
+      if (session?.status === "idle" || !session) {
+        ticket.status = "done";
+        ticket.description = "completed";
+        delete ticket.blockedReason;
+        ticket.updatedAt = new Date(now).toISOString();
+        changed++;
+        continue;
+      }
+      if (session.status === "error" || session.status === "interrupted") {
+        ticket.status = "blocked";
+        ticket.description = "failed - see session";
+        ticket.blockedReason = session.status === "interrupted"
+          ? "interrupted - gateway restarted"
+          : "interrupted - worker died";
+        ticket.updatedAt = new Date(now).toISOString();
+        changed++;
+        continue;
+      }
+    }
     const decision = classifyOrphanedBoardTicket(ticket, sessions, deps, now, staleMs, cause);
     if (!decision.shouldUpdate) continue;
     ticket.status = "blocked";

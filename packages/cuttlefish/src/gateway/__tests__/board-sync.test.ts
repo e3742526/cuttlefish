@@ -77,6 +77,20 @@ describe("syncBoardForEvent", () => {
     expect(readBoard("software-delivery")[0].status).toBe("done");
   });
 
+  it("does not regress a terminal session back to in_progress when approval resolves late", () => {
+    writeBoard("software-delivery", []);
+    syncBoardForEvent("session:completed", { sessionId: "s1" }, deps({
+      getSession: () => makeSession({ status: "idle" }),
+    }));
+    syncBoardForEvent("approval:resolved", { sessionId: "s1", state: "approved" }, deps({
+      getSession: () => makeSession({ status: "idle" }),
+    }));
+    expect(readBoard("software-delivery")[0]).toMatchObject({
+      status: "done",
+      description: "completed",
+    });
+  });
+
   it("ignores unrelated events", () => {
     writeBoard("software-delivery", []);
     expect(syncBoardForEvent("session:delta", { sessionId: "s1" }, deps())).toBe(false);

@@ -18,10 +18,11 @@ export function EmployeeNode({ data, selected }: NodeProps) {
   const employeeLabel = employee.displayName || employee.name
   const roleText = roleLabel(employee)
   const chatTarget = isExec ? "/" : `/?employee=${encodeURIComponent(employee.name)}`
+  const modelTitle = employee.model || ""
 
   return (
     <div
-      className="group hover-lift relative w-[200px] h-[64px] flex items-center gap-[10px] px-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--material-regular)] backdrop-blur-[20px] backdrop-saturate-[180%] [-webkit-backdrop-filter:blur(20px)_saturate(180%)] cursor-pointer overflow-hidden"
+      className="group hover-lift relative w-[200px] h-[76px] flex items-center gap-[10px] px-[var(--space-3)] rounded-[var(--radius-md)] bg-[var(--material-regular)] backdrop-blur-[20px] backdrop-saturate-[180%] [-webkit-backdrop-filter:blur(20px)_saturate(180%)] cursor-pointer overflow-hidden"
       style={{
         border: `1px solid ${selected ? "var(--accent)" : isExec ? "color-mix(in srgb, var(--accent) 45%, var(--separator))" : "var(--separator)"}`,
         boxShadow: selected
@@ -34,7 +35,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
       <Link
         to={chatTarget}
         aria-label={`Chat with ${employeeLabel}`}
-        className="nodrag nopan absolute right-[8px] bottom-[8px] z-10 flex h-7 w-7 items-center justify-center rounded-full border border-[var(--separator)] bg-[color-mix(in_srgb,var(--material-regular)_92%,transparent)] text-[var(--text-tertiary)] transition-colors duration-150 hover:text-[var(--accent)] hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--separator))] hover:bg-[var(--fill-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
+        className="nodrag nopan absolute right-[8px] top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-[var(--separator)] bg-[color-mix(in_srgb,var(--material-regular)_92%,transparent)] text-[var(--text-tertiary)] transition-colors duration-150 hover:text-[var(--accent)] hover:border-[color-mix(in_srgb,var(--accent)_35%,var(--separator))] hover:bg-[var(--fill-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)]"
         onPointerDown={(event) => {
           event.stopPropagation()
         }}
@@ -55,7 +56,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
 
       <EmployeeAvatar name={employee.name} avatar={employee.avatar as string | undefined} emoji={employee.emoji as string | undefined} size={isExec ? 28 : 22} />
 
-      <div className="min-w-0 flex-1 pr-8">
+      <div className="min-w-0 flex-1 pr-12">
         <div
           title={employeeLabel}
           className={`${isExec ? "text-[length:var(--text-subheadline)] font-[var(--weight-bold)] tracking-[var(--tracking-tight)]" : "text-[13px] font-[var(--weight-semibold)]"} text-[var(--text-primary)] whitespace-nowrap overflow-hidden text-ellipsis leading-[1.15]`}
@@ -70,14 +71,14 @@ export function EmployeeNode({ data, selected }: NodeProps) {
         </div>
       </div>
 
-      {/* Engine always; model revealed on hover/selected to keep nodes quiet */}
-      <div className="absolute right-[8px] top-[8px] flex flex-col items-end gap-[3px] shrink-0">
+      <div className="absolute right-[40px] top-[8px] flex max-w-[84px] flex-col items-end gap-[3px] shrink-0">
         <span className="text-[length:var(--text-caption2)] font-[var(--weight-semibold)] text-[var(--accent)] bg-[var(--accent-fill)] py-px px-[7px] rounded-[10px]">
           {employee.engine}
         </span>
         {employee.model && (
           <span
-            className={`text-[length:var(--text-caption2)] text-[var(--text-tertiary)] bg-[var(--fill-quaternary)] py-px px-[7px] rounded-[10px] transition-opacity duration-150 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+            title={modelTitle}
+            className="max-w-full truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)] bg-[var(--fill-quaternary)] py-px px-[7px] rounded-[10px]"
           >
             {employee.model}
           </span>

@@ -61,6 +61,20 @@ function pruneSessionTickets(tickets: BoardTicket[]): void {
   }
 }
 
+function terminalBoardStateForSession(session: Session | undefined): {
+  status: BoardTicket["status"];
+  note: string;
+} | null {
+  if (!session) return null;
+  if (session.status === "error" || session.status === "interrupted") {
+    return { status: "blocked", note: "failed - see session" };
+  }
+  if (session.status === "idle") {
+    return { status: "done", note: "completed" };
+  }
+  return null;
+}
+
 /**
  * Upsert a board ticket for a session lifecycle event. Returns true if a board was
  * written. Exported for tests; wired into the gateway emitter in server.ts.
@@ -108,7 +122,11 @@ export function syncBoardForEvent(event: string, payload: unknown, deps: BoardSy
     status = "blocked";
     note = "waiting on human (model-fallback approval)";
   } else if (event === "approval:resolved") {
-    if (p.state === "approved") {
+    const terminal = terminalBoardStateForSession(session);
+    if (terminal) {
+      status = terminal.status;
+      note = terminal.note;
+    } else if (p.state === "approved") {
       status = "in_progress";
       note = "running (fallback approved)";
     } else {
