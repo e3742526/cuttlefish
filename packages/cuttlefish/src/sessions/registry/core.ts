@@ -72,12 +72,14 @@ function openDb(): Database.Database {
   try {
     const database = new Database(SESSIONS_DB, { timeout: 5000 });
     database.pragma('journal_mode = WAL');
+    database.pragma('synchronous = NORMAL');
     return database;
   } catch (err) {
     if (isSqliteCorruptionError(err)) {
       quarantineCorruptDb(SESSIONS_DB);
       const fresh = new Database(SESSIONS_DB, { timeout: 5000 });
       fresh.pragma('journal_mode = WAL');
+      fresh.pragma('synchronous = NORMAL');
       return fresh;
     }
     throw err;

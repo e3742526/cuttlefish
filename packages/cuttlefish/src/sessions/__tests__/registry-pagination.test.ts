@@ -68,6 +68,13 @@ describe("searchSessions", () => {
 });
 
 describe("listRecentPerGroup", () => {
+  it("opens the registry database in WAL mode with NORMAL synchronous durability", () => {
+    const db = reg.initDb();
+
+    expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
+    expect(db.pragma("synchronous", { simple: true })).toBe(1);
+  });
+
   it("caps each group at perGroup, regardless of group size", () => {
     const rows = reg.listRecentPerGroup(8);
     const byEmp = (e: string | null, cron = false) =>
@@ -100,6 +107,25 @@ describe("listRecentPerGroup", () => {
 
     expect(reg.listRecentCwds(5)).toEqual(expect.arrayContaining(["/repo/a", "/repo/b"]));
     expect(reg.listRecentCwds(2)[0]).toBe("/repo/a");
+  });
+
+  it("creates composite indexes for filtered session ordering", () => {
+    const db = reg.initDb();
+    const queryPlan = (sql: string, value: string) =>
+      db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(value) as Array<{ detail: string }>;
+
+    expect(queryPlan(
+      "SELECT * FROM sessions WHERE status = ? ORDER BY last_activity DESC",
+      "idle",
+    ).some((row) => row.detail.includes("idx_sessions_status_activity"))).toBe(true);
+    expect(queryPlan(
+      "SELECT * FROM sessions WHERE source = ? ORDER BY last_activity DESC",
+      "web",
+    ).some((row) => row.detail.includes("idx_sessions_source_activity"))).toBe(true);
+    expect(queryPlan(
+      "SELECT * FROM sessions WHERE engine = ? ORDER BY last_activity DESC",
+      "claude",
+    ).some((row) => row.detail.includes("idx_sessions_engine_activity"))).toBe(true);
   });
 });
 

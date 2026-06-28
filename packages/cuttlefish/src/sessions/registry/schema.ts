@@ -50,6 +50,18 @@ export const CREATE_LAST_ACTIVITY_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions (last_activity DESC)
 `;
 
+export const CREATE_STATUS_ACTIVITY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_status_activity ON sessions (status, last_activity DESC)
+`;
+
+export const CREATE_SOURCE_ACTIVITY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_source_activity ON sessions (source, last_activity DESC)
+`;
+
+export const CREATE_ENGINE_ACTIVITY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_engine_activity ON sessions (engine, last_activity DESC)
+`;
+
 export const CREATE_PARENT_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions (parent_session_id)
 `;
@@ -247,6 +259,9 @@ export function installBaseSchema(db: Database.Database): void {
 export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_SESSION_KEY_INDEX);
   db.exec(CREATE_LAST_ACTIVITY_INDEX);
+  db.exec(CREATE_STATUS_ACTIVITY_INDEX);
+  db.exec(CREATE_SOURCE_ACTIVITY_INDEX);
+  db.exec(CREATE_ENGINE_ACTIVITY_INDEX);
   db.exec(CREATE_PARENT_INDEX);
   db.exec(CREATE_GROUP_ACTIVITY_INDEX);
   db.exec(CREATE_CWD_ACTIVITY_INDEX);

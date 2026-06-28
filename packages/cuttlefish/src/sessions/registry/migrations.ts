@@ -74,6 +74,9 @@ export function migrateSessionsSchema(database: Database.Database): void {
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_sessions_group_activity ON sessions (group_key, last_activity DESC);
     CREATE INDEX IF NOT EXISTS idx_sessions_cwd_activity ON sessions (cwd, last_activity DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_status_activity ON sessions (status, last_activity DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_source_activity ON sessions (source, last_activity DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_engine_activity ON sessions (engine, last_activity DESC);
   `);
 }
 

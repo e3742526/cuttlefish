@@ -33,6 +33,7 @@ describe("OrchestrationStore", () => {
     });
     const db = new Database(dbPath);
     expect(db.pragma("journal_mode", { simple: true })).toBe("wal");
+    expect(db.pragma("synchronous", { simple: true })).toBe(1);
     db.close();
     store.close();
   });
