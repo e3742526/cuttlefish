@@ -43,6 +43,7 @@ import { startBoardWorker } from "./board-worker.js";
 import { logBoardSummary } from "./board-service.js";
 import { syncBoardForEvent } from "./board-sync.js";
 import { ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure } from "./auth.js";
+import { assertFetchOk, jsonApiHeaders } from "./internal-auth.js";
 import { createGatewayNotificationSink } from "./notification-sink.js";
 import { createGatewayOrchestrationRuntime } from "./orchestration-runtime-factory.js";
 import {
@@ -54,9 +55,10 @@ import {
 import { scanOrg } from "./org.js";
 import { reconcileOrphanedTickets } from "./orphaned-ticket-reconciler.js";
 import { startStatusReconciler } from "./status-reconciler.js";
+import { buildLeaderAckEscalationPrompt, startLeaderAckReconciler, type LeaderAckEscalationDispatch } from "./leader-ack-reconciler.js";
 import { syncExternalTurn } from "./external-turns.js";
 import { HookRegistry } from "./hook-registry.js";
-import { readGatewayInfo, staleGatewayPids, updateGatewayPtyPids, writeGatewayInfo } from "./gateway-info.js";
+import { gatewayBaseUrl, readGatewayInfo, staleGatewayPids, updateGatewayPtyPids, writeGatewayInfo } from "./gateway-info.js";
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
 import { cleanupOldUploads, ensureFilesDir } from "./files.js";
 import { handleApiRequest, resumePendingWebQueueItems, type ApiContext } from "./api.js";
@@ -497,6 +499,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     },
   });
   const stopBoardWorker = startBoardWorker({ context: apiContext, orgDir: ORG_DIR });
+  let stopLeaderAckReconciler = () => {};
 
   const webDir = path.resolve(__dirname, "..", "..", "web");
   const authRequiredNow = (): boolean => shouldRequireGatewayAuth(currentConfig);
@@ -539,6 +542,25 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
   });
 
   await transports.startListening();
+
+  stopLeaderAckReconciler = startLeaderAckReconciler({
+    emit,
+    getConfig: () => currentConfig,
+    dispatchEscalation: async ({ childSession, recipient, ackLeaderName, timeoutMs }: LeaderAckEscalationDispatch) => {
+      const gateway = readGatewayInfo(GATEWAY_INFO_FILE);
+      if (!gateway) throw new Error("gateway info unavailable");
+      const response = await fetch(`${gatewayBaseUrl(gateway)}/api/sessions`, {
+        method: "POST",
+        headers: jsonApiHeaders(gateway.token),
+        body: JSON.stringify({
+          employee: recipient.name,
+          prompt: buildLeaderAckEscalationPrompt({ childSession, recipient, ackLeaderName, timeoutMs }),
+          promptExcerpt: `Leader acknowledgement timeout for ${childSession.employee || childSession.id}`,
+        }),
+      });
+      await assertFetchOk(response, "leader acknowledgement escalation");
+    },
+  });
 
   if (resumable.length > 0) {
     setTimeout(() => {
@@ -600,6 +622,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     ptyWss: transports.ptyWss,
     server: transports.server,
     stopBoardWorker,
+    stopLeaderAckReconciler,
     stopScheduler,
     stopStatusReconciler,
     stopEmailService: () => emailService.stop(),

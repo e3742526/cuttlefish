@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveTurnStallWatchdogConfig, shouldRetrySameEngineAfterStall } from "../run-web-session.js";
+import { resolveTurnStallWatchdogConfig, shouldNotifyLeaderReviewOnStall, shouldRetrySameEngineAfterStall } from "../run-web-session.js";
 
 describe("resolveTurnStallWatchdogConfig", () => {
   it("uses the tuned defaults when the gateway block omits stall settings", () => {
@@ -16,9 +16,10 @@ describe("resolveTurnStallWatchdogConfig", () => {
 
     expect(policy).toMatchObject({
       tickMs: 30_000,
-      inactivityMs: 180_000,
+      leaderCheckMs: 240_000,
+      inactivityMs: 900_000,
       hardCeilingMs: 2_700_000,
-      maxRetries: 1,
+      maxRetries: 0,
     });
   });
 
@@ -27,6 +28,7 @@ describe("resolveTurnStallWatchdogConfig", () => {
       gateway: {
         port: 8888,
         host: "127.0.0.1",
+        turnStallLeaderCheckMs: 240_000,
         turnStallInactivityMs: 120_000,
         turnStallCeilingMs: 900_000,
         turnStallRetries: 2,
@@ -41,6 +43,7 @@ describe("resolveTurnStallWatchdogConfig", () => {
     });
 
     expect(policy).toMatchObject({
+      leaderCheckMs: 240_000,
       inactivityMs: 120_000,
       hardCeilingMs: 900_000,
       maxRetries: 2,
@@ -56,5 +59,37 @@ describe("shouldRetrySameEngineAfterStall", () => {
 
   it("supports immediate fallback when maxRetries is 0", () => {
     expect(shouldRetrySameEngineAfterStall(0, 0)).toBe(false);
+  });
+});
+
+describe("shouldNotifyLeaderReviewOnStall", () => {
+  it("fires once after the leader-check threshold and before the hard inactivity kill", () => {
+    expect(shouldNotifyLeaderReviewOnStall({
+      idleMs: 239_000,
+      leaderCheckMs: 240_000,
+      inactivityMs: 900_000,
+      alreadyNotified: false,
+    })).toBe(false);
+
+    expect(shouldNotifyLeaderReviewOnStall({
+      idleMs: 240_000,
+      leaderCheckMs: 240_000,
+      inactivityMs: 900_000,
+      alreadyNotified: false,
+    })).toBe(true);
+
+    expect(shouldNotifyLeaderReviewOnStall({
+      idleMs: 500_000,
+      leaderCheckMs: 240_000,
+      inactivityMs: 900_000,
+      alreadyNotified: true,
+    })).toBe(false);
+
+    expect(shouldNotifyLeaderReviewOnStall({
+      idleMs: 900_000,
+      leaderCheckMs: 240_000,
+      inactivityMs: 900_000,
+      alreadyNotified: false,
+    })).toBe(false);
   });
 });

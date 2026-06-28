@@ -109,6 +109,10 @@ export interface CuttlefishConfig {
     userHeader?: string | string[];
     /** Stall detection: inactivity threshold in ms before a stalled turn is flagged. */
     turnStallInactivityMs?: number;
+    /** Stall detection: inactivity threshold in ms before a manager/leader review notice is emitted. */
+    turnStallLeaderCheckMs?: number;
+    /** Escalate a finished report to HR/COO when its leader has not acknowledged it within this many ms. */
+    leaderAckTimeoutMs?: number;
     /** Stall detection: max ceiling in ms before hard-timeout. */
     turnStallCeilingMs?: number;
     /** Stall detection: number of retries before giving up. */

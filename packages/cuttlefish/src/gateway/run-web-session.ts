@@ -32,8 +32,8 @@ import { resultAlreadyInStreamedBlocks, shouldPreserveStreamedBlocks } from "./s
 import type { ApiContext } from "./api/context.js";
 import { parseLeaseTransportMeta } from "../orchestration/lease-meta.js";
 import { emitSessionSummaryBestEffort, knowledgeRelayOptions } from "../knowledge/outbox-service.js";
-import { positiveNumberOr, resolveTurnStallWatchdogConfig, shouldRetrySameEngineAfterStall } from "./turn-stall-policy.js";
-export { resolveTurnStallWatchdogConfig, shouldRetrySameEngineAfterStall } from "./turn-stall-policy.js";
+import { positiveNumberOr, resolveTurnStallWatchdogConfig, shouldNotifyLeaderReviewOnStall, shouldRetrySameEngineAfterStall } from "./turn-stall-policy.js";
+export { resolveTurnStallWatchdogConfig, shouldNotifyLeaderReviewOnStall, shouldRetrySameEngineAfterStall } from "./turn-stall-policy.js";
 
 /**
  * Web/queue session execution orchestrator.
@@ -152,12 +152,50 @@ export async function runWebSession(
     );
 
     const stallPolicy = resolveTurnStallWatchdogConfig(config);
+    const stallLeaderCheckMs = Math.min(stallPolicy.leaderCheckMs, stallPolicy.inactivityMs);
     const stallInactivityMs = stallPolicy.inactivityMs;
     const stallHardCeilingMs = stallPolicy.hardCeilingMs;
     const maxStallRetries = stallPolicy.maxRetries;
     const killer = isInterruptibleEngine(engine) ? engine : null;
     const canKill = !!killer; // only engines we can interrupt get a watchdog
     let lastStreamAt = Date.now();
+    let leaderReviewNotified = false;
+
+    const leaderName = (() => {
+      if (!employee) return null;
+      let parentName = orgHierarchy.nodes[employee.name]?.parentName ?? null;
+      while (parentName) {
+        const parent = orgHierarchy.nodes[parentName]?.employee;
+        if (!parent) return null;
+        if (parent.rank === "manager" || parent.rank === "executive") return parent.name;
+        parentName = orgHierarchy.nodes[parent.name]?.parentName ?? null;
+      }
+      return null;
+    })();
+    const leaderReviewActor = leaderName ? `${leaderName} can` : "A manager can";
+    const leaderReviewWorker = employee?.displayName ?? employee?.name ?? currentSession.employee ?? "This worker";
+    const maybeNotifyLeaderReview = (idleMs: number) => {
+      if (!shouldNotifyLeaderReviewOnStall({
+        idleMs,
+        leaderCheckMs: stallLeaderCheckMs,
+        inactivityMs: stallInactivityMs,
+        alreadyNotified: leaderReviewNotified,
+      })) return;
+      leaderReviewNotified = true;
+      const idleMinutes = Math.max(1, Math.round(idleMs / 60_000));
+      const fallbackMinutes = Math.max(1, Math.round(stallInactivityMs / 60_000));
+      const reviewMessage =
+        `🕒 Leader check: ${leaderReviewWorker} has been silent for ${idleMinutes} minute${idleMinutes === 1 ? "" : "s"}. ` +
+        `${leaderReviewActor} switch this report to a different model/provider or take over if needed. ` +
+        `Automatic fallback will interrupt after ${fallbackMinutes} minutes of silence.`;
+      insertMessage(currentSession.id, "notification", reviewMessage);
+      logger.warn(`[watchdog] web session ${currentSession.id} requested leader review after ${idleMinutes}m idle`);
+      try {
+        context.emit("session:updated", { sessionId: currentSession.id });
+      } catch {
+        /* best effort */
+      }
+    };
 
     const sessCfg = (config as unknown as { sessions?: Record<string, unknown> }).sessions ?? {};
     const maxEscalations = positiveNumberOr(sessCfg.maxModelEscalations, 2);
@@ -370,6 +408,7 @@ export async function runWebSession(
             if (!getSession(currentSession.id)) { clearInterval(stallWatchdog!); return; }
             const idleMs = Date.now() - lastStreamAt;
             const totalMs = Date.now() - attemptStartedAt;
+            maybeNotifyLeaderReview(idleMs);
             if (idleMs >= stallInactivityMs || totalMs >= stallHardCeilingMs) {
               stalledReason =
                 idleMs >= stallInactivityMs

@@ -47,6 +47,7 @@ import {
   redispatchPendingWebQueueItemsForSessionKey,
 } from "../session-dispatch.js";
 import { HR_EMPLOYEE_NAME, HR_SESSION_KEY } from "../../org-policy.js";
+import { acknowledgeLeaderAck } from "../../../sessions/leader-ack.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -603,6 +604,8 @@ export async function handleSessionWriteRoutes(
     );
     if (isNotification) {
       context.emit("session:notification", { sessionId: session.id, message: displayMessage });
+    } else if (acknowledgeLeaderAck(session.id, session, { acknowledgedBy: session.parentSessionId ?? null })) {
+      context.emit("session:updated", { sessionId: session.id });
     }
 
     if (!isNotification && session.status === "waiting") {

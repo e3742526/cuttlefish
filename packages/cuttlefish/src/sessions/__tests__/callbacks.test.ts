@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("../registry.js", () => ({
   getSession: vi.fn(),
   listSessionsBySource: vi.fn(() => []),
+  patchSessionTransportMeta: vi.fn(),
 }));
 
 vi.mock("../../shared/config.js", () => ({

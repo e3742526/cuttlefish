@@ -7,6 +7,7 @@ import { GATEWAY_INFO_FILE } from "../shared/paths.js";
 import { gatewayBaseUrl, readGatewayInfo } from "../gateway/gateway-info.js";
 import { hydrateAllAttachments, talkSessionsAttachedTo } from "../talk/attachments.js";
 import type { SessionNotificationOptions, SessionNotificationSink } from "./notification-sink.js";
+import { markLeaderAckPending } from "./leader-ack.js";
 
 /**
  * Notify the parent session that a child session has replied.
@@ -26,6 +27,13 @@ export function notifyParentSession(
 
   if (!childSession.parentSessionId) return;
   if (options?.alwaysNotify === false) return;
+
+  const parent = getSession(childSession.parentSessionId);
+  markLeaderAckPending(childSession, {
+    leaderSessionId: childSession.parentSessionId,
+    leaderName: parent?.employee ?? parent?.title ?? null,
+    reportKind: result.error ? "error" : "result",
+  });
 
   // Run asynchronously — do not await in the caller
   _sendNotification(childSession, result, options?.sink).catch((err) => {
