@@ -14,16 +14,22 @@ let reg: Reg;
 function insert(
   db: import("better-sqlite3").Database,
   id: string,
-  fields: { source?: string; sourceRef?: string; employee?: string | null; lastActivity: string },
+  fields: { source?: string; sourceRef?: string; employee?: string | null; lastActivity: string; cwd?: string | null },
 ) {
+  const source = fields.source ?? "web";
+  const sourceRef = fields.sourceRef ?? `web:${id}`;
+  const employee = fields.employee ?? null;
+  const groupKey = source === "cron" || sourceRef.startsWith("cron:") ? reg.CRON_GROUP : employee ?? reg.DIRECT_GROUP;
   db.prepare(
-    `INSERT INTO sessions (id, engine, source, source_ref, employee, status, created_at, last_activity)
-     VALUES (?, 'claude', ?, ?, ?, 'idle', ?, ?)`,
+    `INSERT INTO sessions (id, engine, source, source_ref, employee, group_key, cwd, status, created_at, last_activity)
+     VALUES (?, 'claude', ?, ?, ?, ?, ?, 'idle', ?, ?)`,
   ).run(
     id,
-    fields.source ?? "web",
-    fields.sourceRef ?? `web:${id}`,
-    fields.employee ?? null,
+    source,
+    sourceRef,
+    employee,
+    groupKey,
+    fields.cwd ?? null,
     fields.lastActivity,
     fields.lastActivity,
   );
@@ -43,8 +49,8 @@ beforeAll(async () => {
   // a titled row in its own group (old timestamp) so it doesn't perturb the
   // alice/bob/direct/cron pagination assertions above
   db.prepare(
-    `INSERT INTO sessions (id, engine, source, source_ref, employee, title, status, created_at, last_activity)
-     VALUES ('titled-1','claude','web','web:t1','zoe','Quarterly budget review','idle','2025-01-01T00:00:00.000Z','2025-01-01T00:00:00.000Z')`,
+    `INSERT INTO sessions (id, engine, source, source_ref, employee, group_key, title, status, created_at, last_activity)
+     VALUES ('titled-1','claude','web','web:t1','zoe','zoe','Quarterly budget review','idle','2025-01-01T00:00:00.000Z','2025-01-01T00:00:00.000Z')`,
   ).run();
 });
 
@@ -84,6 +90,16 @@ describe("listRecentPerGroup", () => {
     // alice-11 is newest; alice-0..3 are the oldest and should be excluded.
     expect(alice).toContain("alice-11");
     expect(alice).not.toContain("alice-0");
+  });
+
+  it("lists recent workspace directories newest-first without duplicate paths", () => {
+    const db = reg.initDb();
+    insert(db, "cwd-1", { employee: "cwd-user", cwd: "/repo/a", lastActivity: "2026-03-01T00:00:00.000Z" });
+    insert(db, "cwd-2", { employee: "cwd-user", cwd: "/repo/b", lastActivity: "2026-03-01T00:00:05.000Z" });
+    insert(db, "cwd-3", { employee: "cwd-user", cwd: "/repo/a", lastActivity: "2026-03-01T00:00:10.000Z" });
+
+    expect(reg.listRecentCwds(5)).toEqual(expect.arrayContaining(["/repo/a", "/repo/b"]));
+    expect(reg.listRecentCwds(2)[0]).toBe("/repo/a");
   });
 });
 

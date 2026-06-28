@@ -75,6 +75,7 @@ export function upsertEmailMessage(input: Omit<EmailMessageRecord, "createdAt" |
   const db = initDb();
   const createdAt = nowIso();
   const updatedAt = createdAt;
+  const receivedAt = input.receivedAt ?? createdAt;
   db.prepare(`
     INSERT INTO email_messages (
       id, inbox_id, provider_message_id, message_id_header, thread_key, from_address,
@@ -108,7 +109,7 @@ export function upsertEmailMessage(input: Omit<EmailMessageRecord, "createdAt" |
     JSON.stringify(input.toAddresses),
     JSON.stringify(input.ccAddresses),
     input.subject,
-    input.receivedAt,
+    receivedAt,
     input.textBody,
     input.htmlBody,
     JSON.stringify(input.headers),
@@ -132,7 +133,7 @@ export function getEmailMessage(id: string): EmailMessageRecord | undefined {
 export function listEmailMessages(inboxId: string, limit = 20): EmailMessageRecord[] {
   const db = initDb();
   const rows = db.prepare(
-    `SELECT * FROM email_messages WHERE inbox_id = ? ORDER BY COALESCE(received_at, created_at) DESC LIMIT ?`,
+    `SELECT * FROM email_messages WHERE inbox_id = ? ORDER BY received_at DESC, created_at DESC LIMIT ?`,
   ).all(inboxId, limit) as EmailMessageRow[];
   return rows.map(rowToEmailMessage);
 }

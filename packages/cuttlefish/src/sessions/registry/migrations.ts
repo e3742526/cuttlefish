@@ -31,6 +31,7 @@ export function migrateSessionsSchema(database: Database.Database): void {
     ['reply_context', 'TEXT'],
     ['message_id', 'TEXT'],
     ['transport_meta', 'TEXT'],
+    ['group_key', 'TEXT'],
     ['total_cost', 'REAL', '0'],
     ['total_turns', 'INTEGER', '0'],
     ['effort_level', 'TEXT'],
@@ -55,6 +56,21 @@ export function migrateSessionsSchema(database: Database.Database): void {
   if (refreshedNames.has('connector')) {
     database.exec(`UPDATE sessions SET connector = COALESCE(connector, source) WHERE connector IS NULL OR connector = ''`);
   }
+  if (refreshedNames.has('group_key')) {
+    database.exec(`
+      UPDATE sessions
+         SET group_key = CASE
+           WHEN source = 'cron' OR source_ref LIKE 'cron:%' THEN '__cron__'
+           WHEN employee IS NULL OR employee = '' THEN '__direct__'
+           ELSE employee
+         END
+       WHERE group_key IS NULL OR group_key = ''
+    `);
+  }
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_sessions_group_activity ON sessions (group_key, last_activity DESC);
+    CREATE INDEX IF NOT EXISTS idx_sessions_cwd_activity ON sessions (cwd, last_activity DESC);
+  `);
 }
 
 export function migrateFilesSchema(database: Database.Database): void {

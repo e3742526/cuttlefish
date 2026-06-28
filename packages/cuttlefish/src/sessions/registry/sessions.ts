@@ -22,6 +22,12 @@ export interface CreateSessionOpts {
   promptExcerpt?: string;
 }
 
+function computeGroupKey(source: string, sourceRef: string, employee: string | null | undefined): string {
+  if (source === 'cron' || sourceRef.startsWith('cron:')) return CRON_GROUP;
+  const normalized = employee?.trim();
+  return normalized ? normalized : DIRECT_GROUP;
+}
+
 function getNextSessionNumber(): number {
   const db = initDb();
   const row = db.prepare('SELECT MAX(rowid) as maxRowid FROM sessions').get() as { maxRowid: number | null };
@@ -52,15 +58,16 @@ export function createSession(opts: CreateSessionOpts & { prompt?: string; porta
   const promptExcerpt = promptExcerptOf(opts.promptExcerpt) ?? promptExcerptOf(opts.prompt) ?? null;
   const sessionKey = opts.sessionKey ?? opts.sourceRef;
   const connector = opts.connector ?? opts.source;
+  const groupKey = computeGroupKey(opts.source, opts.sourceRef, opts.employee);
   const replyContext = opts.replyContext ? JSON.stringify(opts.replyContext) : null;
   const transportMeta = opts.transportMeta ? JSON.stringify(opts.transportMeta) : null;
 
   db.prepare(`
     INSERT INTO sessions (
       id, engine, source, source_ref, connector, session_key, reply_context, message_id, transport_meta,
-      employee, model, title, prompt_excerpt, parent_session_id, user_id, effort_level, cwd, status, created_at, last_activity
+      employee, group_key, model, title, prompt_excerpt, parent_session_id, user_id, effort_level, cwd, status, created_at, last_activity
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?)
   `).run(
     id,
     opts.engine,
@@ -72,6 +79,7 @@ export function createSession(opts: CreateSessionOpts & { prompt?: string; porta
     opts.messageId ?? null,
     transportMeta,
     opts.employee ?? null,
+    groupKey,
     opts.model ?? null,
     title,
     promptExcerpt,
@@ -241,7 +249,6 @@ export function listSessions(filter?: ListSessionsFilter): Session[] {
 
 export const CRON_GROUP = '__cron__';
 export const DIRECT_GROUP = '__direct__';
-const IS_CRON_SQL = `(source = 'cron' OR source_ref LIKE 'cron:%')`;
 
 export function coercePortalEmployee(
   employee: string | null | undefined,
@@ -254,46 +261,43 @@ export function coercePortalEmployee(
   return emp;
 }
 
-function groupKeySql(portalSlug?: string | null): { sql: string; params: unknown[] } {
-  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
-  const directExtra = slug ? ` OR LOWER(employee) = ?` : '';
-  const sql = `CASE
-  WHEN ${IS_CRON_SQL} THEN '${CRON_GROUP}'
-  WHEN employee IS NULL OR employee = ''${directExtra} THEN '${DIRECT_GROUP}'
-  ELSE employee
-END`;
-  return { sql, params: slug ? [slug] : [] };
-}
-
-function groupFilter(group: string, portalSlug?: string | null): { clause: string; params: unknown[] } {
-  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
-  if (group === CRON_GROUP) return { clause: IS_CRON_SQL, params: [] };
-  if (group === DIRECT_GROUP) {
-    const directExtra = slug ? ` OR LOWER(employee) = ?` : '';
-    return {
-      clause: `NOT ${IS_CRON_SQL} AND (employee IS NULL OR employee = ''${directExtra})`,
-      params: slug ? [slug] : [],
-    };
-  }
-  const slugExclude = slug ? ` AND LOWER(employee) <> ?` : '';
-  return {
-    clause: `NOT ${IS_CRON_SQL} AND employee = ?${slugExclude}`,
-    params: slug ? [group, slug] : [group],
-  };
-}
-
 export function listRecentPerGroup(perGroup: number, portalSlug?: string | null): Session[] {
   const db = initDb();
-  const { sql, params } = groupKeySql(portalSlug);
   const rows = db
     .prepare(
       `SELECT * FROM (
-         SELECT *, ROW_NUMBER() OVER (PARTITION BY ${sql} ORDER BY last_activity DESC) AS __rn
+         SELECT *, ROW_NUMBER() OVER (PARTITION BY group_key ORDER BY last_activity DESC) AS __rn
          FROM sessions
        ) WHERE __rn <= ? ORDER BY last_activity DESC`,
     )
-    .all(...params, perGroup) as Record<string, unknown>[];
-  return rows.map(rowToSession);
+    .all(perGroup) as Record<string, unknown>[];
+  if (!portalSlug) return rows.map(rowToSession);
+
+  const directIds = new Set<string>();
+  const slug = portalEmployeeSlug(portalSlug);
+  const directRows: Record<string, unknown>[] = [];
+  const out: Record<string, unknown>[] = [];
+
+  for (const row of rows) {
+    const groupKey = String(row.group_key ?? DIRECT_GROUP);
+    if (groupKey === DIRECT_GROUP || groupKey.toLowerCase() === slug) {
+      directRows.push(row);
+      continue;
+    }
+    out.push(row);
+  }
+
+  directRows
+    .sort((a, b) => String(b.last_activity).localeCompare(String(a.last_activity)))
+    .slice(0, perGroup)
+    .forEach((row) => {
+      if (directIds.has(String(row.id))) return;
+      directIds.add(String(row.id));
+      out.push(row);
+    });
+
+  out.sort((a, b) => String(b.last_activity).localeCompare(String(a.last_activity)));
+  return out.map(rowToSession);
 }
 
 export function listSessionsForGroup(
@@ -303,10 +307,18 @@ export function listSessionsForGroup(
   portalSlug?: string | null,
 ): Session[] {
   const db = initDb();
-  const { clause, params } = groupFilter(group, portalSlug);
-  const rows = db
-    .prepare(`SELECT * FROM sessions WHERE ${clause} ORDER BY last_activity DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset) as Record<string, unknown>[];
+  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
+  let query = 'SELECT * FROM sessions WHERE group_key = ? ORDER BY last_activity DESC LIMIT ? OFFSET ?';
+  let params: unknown[] = [group, limit, offset];
+  if (group === DIRECT_GROUP && slug) {
+    query = `SELECT * FROM sessions
+      WHERE group_key = ? OR LOWER(group_key) = ?
+      ORDER BY last_activity DESC LIMIT ? OFFSET ?`;
+    params = [group, slug, limit, offset];
+  } else if (group !== DIRECT_GROUP && group !== CRON_GROUP && slug && group.toLowerCase() === slug) {
+    return [];
+  }
+  const rows = db.prepare(query).all(...params) as Record<string, unknown>[];
   return rows.map(rowToSession);
 }
 
@@ -339,11 +351,18 @@ export function listChildSessions(parentSessionId: string): Session[] {
 
 export function getSessionGroupCounts(portalSlug?: string | null): Record<string, number> {
   const db = initDb();
-  const { sql, params } = groupKeySql(portalSlug);
-  const rows = db.prepare(`SELECT ${sql} AS grp, COUNT(*) AS n FROM sessions GROUP BY grp`)
-    .all(...params) as Array<{ grp: string; n: number }>;
+  const rows = db.prepare('SELECT group_key AS grp, COUNT(*) AS n FROM sessions GROUP BY group_key')
+    .all() as Array<{ grp: string; n: number }>;
   const out: Record<string, number> = {};
-  for (const r of rows) out[r.grp] = r.n;
+  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
+  for (const r of rows) {
+    const groupKey = String(r.grp ?? DIRECT_GROUP);
+    if (slug && groupKey.toLowerCase() === slug) {
+      out[DIRECT_GROUP] = (out[DIRECT_GROUP] ?? 0) + r.n;
+      continue;
+    }
+    out[groupKey] = (out[groupKey] ?? 0) + r.n;
+  }
   return out;
 }
 
@@ -389,10 +408,10 @@ export function duplicateSession(sourceId: string, newTitle?: string): { session
       INSERT INTO sessions (
         id, engine, engine_session_id, source, source_ref, connector, session_key,
         reply_context, message_id, transport_meta,
-        employee, model, title, parent_session_id, effort_level, cwd, status,
+        employee, group_key, model, title, parent_session_id, effort_level, cwd, status,
         total_cost, total_turns, created_at, last_activity
       )
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'idle', 0, 0, ?, ?)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'idle', 0, 0, ?, ?)
     `).run(
       newId,
       source.engine,
@@ -404,6 +423,7 @@ export function duplicateSession(sourceId: string, newTitle?: string): { session
       source.messageId,
       source.transportMeta ? JSON.stringify(source.transportMeta) : null,
       source.employee,
+      computeGroupKey(source.source, source.sourceRef, source.employee),
       source.model,
       title,
       source.effortLevel,

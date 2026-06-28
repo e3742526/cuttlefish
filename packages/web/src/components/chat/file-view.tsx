@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import {
-  oneDark,
-  oneLight,
-} from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 import { useTheme } from "@/routes/providers";
+import { SyntaxHighlighter, syntaxTheme } from "@/lib/syntax-highlighter";
 
 /** Shape returned by GET /api/files/read?path=<path>. */
 interface FileReadResponse {
@@ -183,7 +179,7 @@ export function FileView({
   const ext = getExt(path);
   const isMarkdown = MARKDOWN_EXTS.has(ext) || data?.mime === "text/markdown";
   const lang = EXT_TO_LANG[ext] ?? "text";
-  const codeTheme = isDark ? oneDark : oneLight;
+  const codeTheme = syntaxTheme(isDark);
 
   const body = (
     <>
@@ -373,7 +369,7 @@ function MarkdownView({
   content: string;
   isDark: boolean;
 }) {
-  const codeTheme = isDark ? oneDark : oneLight;
+  const codeTheme = syntaxTheme(isDark);
   return (
     <div className="cuttlefish-markdown min-w-0 max-w-full break-words [overflow-wrap:anywhere] text-[length:var(--text-body)] leading-[1.7] text-[var(--text-secondary)]">
       <ReactMarkdown

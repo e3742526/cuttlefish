@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   message_id TEXT,
   transport_meta TEXT,
   employee TEXT,
+  group_key TEXT,
   model TEXT,
   title TEXT,
   prompt_excerpt TEXT,
@@ -37,6 +38,10 @@ export const CREATE_MESSAGES_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages (session_id, timestamp)
 `;
 
+export const CREATE_MESSAGES_TIMESTAMP_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages (timestamp DESC)
+`;
+
 export const CREATE_SESSION_KEY_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_session_key ON sessions (session_key, last_activity)
 `;
@@ -47,6 +52,14 @@ CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions (last_activity
 
 export const CREATE_PARENT_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_sessions_parent ON sessions (parent_session_id)
+`;
+
+export const CREATE_GROUP_ACTIVITY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_group_activity ON sessions (group_key, last_activity DESC)
+`;
+
+export const CREATE_CWD_ACTIVITY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_sessions_cwd_activity ON sessions (cwd, last_activity DESC)
 `;
 
 export const CREATE_FILES_TABLE = `
@@ -227,6 +240,7 @@ export function installBaseSchema(db: Database.Database): void {
   db.exec(CREATE_TABLE);
   db.exec(CREATE_MESSAGES_TABLE);
   db.exec(CREATE_MESSAGES_INDEX);
+  db.exec(CREATE_MESSAGES_TIMESTAMP_INDEX);
   db.exec(CREATE_META_TABLE);
 }
 
@@ -234,6 +248,8 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_SESSION_KEY_INDEX);
   db.exec(CREATE_LAST_ACTIVITY_INDEX);
   db.exec(CREATE_PARENT_INDEX);
+  db.exec(CREATE_GROUP_ACTIVITY_INDEX);
+  db.exec(CREATE_CWD_ACTIVITY_INDEX);
   db.exec(`
     CREATE TABLE IF NOT EXISTS queue_items (
       id TEXT PRIMARY KEY,
@@ -275,4 +291,5 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_EMAIL_HEALTH_TABLE);
   db.exec(CREATE_EMAIL_MESSAGES_INBOX_INDEX);
   db.exec(CREATE_EMAIL_MESSAGES_THREAD_INDEX);
+  db.exec(`UPDATE email_messages SET received_at = created_at WHERE received_at IS NULL`);
 }

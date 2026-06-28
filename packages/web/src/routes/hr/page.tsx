@@ -1,7 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { MessageSquare, GitPullRequestArrow, ChevronDown, ChevronRight, ShieldQuestion, Check, X, Archive } from 'lucide-react'
 import { PageLayout } from '@/components/page-layout'
 import { useBreadcrumbs } from '@/context/breadcrumb-context'
@@ -11,6 +9,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useTheme } from '@/routes/providers'
 import { useOrgChanges, useApproveOrgChange, useRejectOrgChange, useRetiredEmployees } from '@/hooks/use-org-changes'
 import type { OrgChangeRequest, OrgChangeRiskLevel, OrgChangeStatus } from '@/lib/api-hr'
+import { SyntaxHighlighter, syntaxTheme } from '@/lib/syntax-highlighter'
 
 const HR_EMPLOYEE = 'hr-manager'
 
@@ -51,7 +50,7 @@ function YamlBlock({ label, yaml, isDark }: { label: string; yaml: string | null
       {yaml ? (
         <SyntaxHighlighter
           language="yaml"
-          style={isDark ? oneDark : oneLight}
+          style={syntaxTheme(isDark)}
           customStyle={{ margin: 0, borderRadius: 8, fontSize: 12, maxHeight: 360, overflow: 'auto' }}
         >
           {yaml}

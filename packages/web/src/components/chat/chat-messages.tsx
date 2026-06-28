@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Message } from '@/lib/conversations'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { stopMessageTts } from './use-message-tts'
@@ -11,6 +12,8 @@ import { ChatMessagesStyles } from './chat-messages-styles'
 
 export { isFilePath, parseFenceLang } from './message-markdown'
 export { USER_COLLAPSE_PX, USER_COLLAPSE_SLACK, shouldCollapse } from './collapsible-user-text'
+
+const VIRTUALIZE_MESSAGES_THRESHOLD = 40
 
 /* ── Tool grouping ──────────────────────────────────────── */
 
@@ -31,6 +34,11 @@ export function ChatMessages({ messages, loading, streamingText, onRetry }: Chat
     streamingText,
     messageCount: messages.length,
   })
+  const scrollElementRef = useRef<HTMLDivElement | null>(null)
+  const setContainerRef = useCallback((node: HTMLDivElement | null) => {
+    scrollElementRef.current = node
+    containerRef(node)
+  }, [containerRef])
 
   // Memoize grouped messages to avoid re-running on streaming-only re-renders
   const groupedMessages = useMemo(() => groupMessages(messages), [messages])
@@ -38,6 +46,14 @@ export function ChatMessages({ messages, loading, streamingText, onRetry }: Chat
     () => findActiveToolGroupStart(groupedMessages, loading),
     [groupedMessages, loading],
   )
+  const shouldVirtualize = groupedMessages.length >= VIRTUALIZE_MESSAGES_THRESHOLD
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? groupedMessages.length : 0,
+    getScrollElement: () => scrollElementRef.current,
+    estimateSize: () => 180,
+    overscan: 6,
+    enabled: shouldVirtualize,
+  })
 
   // Stop any in-progress read-aloud when the chat view unmounts (navigation away).
   useEffect(() => () => stopMessageTts(), [])
@@ -58,57 +74,48 @@ export function ChatMessages({ messages, loading, streamingText, onRetry }: Chat
   }
 
   return (
-    <div ref={containerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll relative flex-1 overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
-      <div className="mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] pb-[var(--space-6)] lg:pt-[88px]">
-      {groupedMessages.map((item) => {
-        if (item.kind === 'tool-group') {
-          const firstMsg = item.msgs[0]
-          const showTimestamp = shouldShowTimestamp(messages, item.startIndex)
-          const prevMsg = item.startIndex > 0 ? messages[item.startIndex - 1] : null
-          const isActive = item.startIndex === activeToolGroupStart
-          return (
-            <div key={`tg-${item.startIndex}`}>
-              {showTimestamp && (
-                <div className="text-center py-[var(--space-3)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
-                  {formatTimestamp(firstMsg.timestamp)}
+    <div ref={setContainerRef} style={{ overflowAnchor: 'auto' }} className="chat-messages-scroll relative flex-1 overflow-y-auto overflow-x-hidden bg-[var(--bg)] min-h-0">
+      <div
+        className="mx-auto w-full max-w-[var(--chat-measure)] pt-[72px] pb-[var(--space-6)] lg:pt-[88px]"
+        style={shouldVirtualize ? { height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' } : undefined}
+      >
+        {(shouldVirtualize
+          ? rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const item = groupedMessages[virtualRow.index]
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {renderGroupedMessage(item)}
                 </div>
-              )}
-              {!showTimestamp && prevMsg && (
-                <div className={prevMsg.role !== 'assistant' ? 'h-[var(--space-4)]' : 'h-[var(--space-1)]'} />
-              )}
-              <ToolGroup msgs={item.msgs} isActive={isActive} />
-            </div>
-          )
-        }
+              )
+            })
+          : groupedMessages.map(renderGroupedMessage))}
 
-        const { msg, index: i } = item
-        return (
-          <MessageRow
-            key={msg.id || i}
-            msg={msg}
-            index={i}
-            messages={messages}
-            loading={loading}
-            onRetry={onRetry}
-          />
-        )
-      })}
+        {/* Streaming message — shows text as it arrives, always re-renders */}
+        {streamingText && <StreamingBubble streamingText={streamingText} />}
 
-      {/* Streaming message — shows text as it arrives, always re-renders */}
-      {streamingText && <StreamingBubble streamingText={streamingText} />}
-
-      {/* Running indicator — pre-first-token only; once streamingText arrives the
-          caret carries the "live" signal, so suppress this to avoid a double cue. */}
-      {loading && messages.length > 0 && !streamingText && (
-        // Share the assistant text gutter (space-3 mobile / space-8 @lg) so the
-        // indicator lines up flush with the messages and tool cards.
-        <div className="assistant-msg-row flex items-center gap-1.5 mt-[var(--space-1)]">
-          <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-[cuttlefish-pulse_1.4s_infinite] shrink-0" />
-          <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
-            Thinking
-          </span>
-        </div>
-      )}
+        {/* Running indicator — pre-first-token only; once streamingText arrives the
+            caret carries the "live" signal, so suppress this to avoid a double cue. */}
+        {loading && messages.length > 0 && !streamingText && (
+          // Share the assistant text gutter (space-3 mobile / space-8 @lg) so the
+          // indicator lines up flush with the messages and tool cards.
+          <div className="assistant-msg-row flex items-center gap-1.5 mt-[var(--space-1)]">
+            <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-[cuttlefish-pulse_1.4s_infinite] shrink-0" />
+            <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] font-[var(--weight-medium)]">
+              Thinking
+            </span>
+          </div>
+        )}
 
       </div>
 
@@ -130,4 +137,38 @@ export function ChatMessages({ messages, loading, streamingText, onRetry }: Chat
       <ChatMessagesStyles />
     </div>
   )
+
+  function renderGroupedMessage(item: ReturnType<typeof groupMessages>[number]) {
+    if (item.kind === 'tool-group') {
+      const firstMsg = item.msgs[0]
+      const showTimestamp = shouldShowTimestamp(messages, item.startIndex)
+      const prevMsg = item.startIndex > 0 ? messages[item.startIndex - 1] : null
+      const isActive = item.startIndex === activeToolGroupStart
+      return (
+        <div key={`tg-${item.startIndex}`}>
+          {showTimestamp && (
+            <div className="text-center py-[var(--space-3)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+              {formatTimestamp(firstMsg.timestamp)}
+            </div>
+          )}
+          {!showTimestamp && prevMsg && (
+            <div className={prevMsg.role !== 'assistant' ? 'h-[var(--space-4)]' : 'h-[var(--space-1)]'} />
+          )}
+          <ToolGroup msgs={item.msgs} isActive={isActive} />
+        </div>
+      )
+    }
+
+    const { msg, index: i } = item
+    return (
+      <MessageRow
+        key={msg.id || i}
+        msg={msg}
+        index={i}
+        messages={messages}
+        loading={loading}
+        onRetry={onRetry}
+      />
+    )
+  }
 }
