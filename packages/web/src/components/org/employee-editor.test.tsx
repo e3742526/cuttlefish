@@ -9,16 +9,36 @@ vi.mock("@/components/chat/model-selector-row", () => ({
   ModelSelectorRow: () => null,
 }))
 vi.mock("@/components/org/employee-fallback-model-select", () => ({
-  EmployeeFallbackModelSelect: ({ value, onChange }: { value: string; onChange: (next: string) => void }) => (
-    <select
-      aria-label="Fallback model"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">None</option>
-      <option value="claude-sonnet-4-6">Sonnet 4.6</option>
-      <option value="claude-opus-4-8">Opus 4.8</option>
-    </select>
+  EmployeeFallbackModelSelect: ({
+    valueEngine,
+    value,
+    onEngineChange,
+    onChange,
+  }: {
+    valueEngine?: string
+    value: string
+    onEngineChange: (next: string) => void
+    onChange: (next: string) => void
+  }) => (
+    <>
+      <select
+        aria-label="Fallback engine"
+        value={valueEngine}
+        onChange={(e) => onEngineChange(e.target.value)}
+      >
+        <option value="claude">Claude</option>
+        <option value="antigravity">Antigravity</option>
+      </select>
+      <select
+        aria-label="Fallback model"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">None</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="Gemini 3.5 Flash (Medium)">Gemini 3.5 Flash Medium</option>
+      </select>
+    </>
   ),
 }))
 
@@ -94,6 +114,30 @@ describe("EmployeeEditor", () => {
 
     await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
       fallbackModel: "claude-sonnet-4-6",
+    }))
+  })
+
+  it("sends fallbackEngine together with a cross-provider fallback model", async () => {
+    updateEmployee.mockResolvedValue({
+      status: "ok",
+      employee: {
+        ...EMP,
+        modelPolicy: { fallback_chain: [{ engine: "antigravity", model: "Gemini 3.5 Flash (Medium)" }] },
+      },
+    })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Fallback engine" }), {
+      target: { value: "antigravity" },
+    })
+    fireEvent.change(screen.getByRole("combobox", { name: "Fallback model" }), {
+      target: { value: "Gemini 3.5 Flash (Medium)" },
+    })
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      fallbackEngine: "antigravity",
+      fallbackModel: "Gemini 3.5 Flash (Medium)",
     }))
   })
 

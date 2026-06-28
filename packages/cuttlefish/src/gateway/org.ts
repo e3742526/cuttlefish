@@ -161,6 +161,8 @@ export interface EmployeeUpdate {
   alwaysNotify?: boolean;
   lifecycle?: EmployeeLifecycle;
   /** UI convenience field persisted into modelPolicy.fallback_chain[0]. */
+  fallbackEngine?: string | null;
+  /** UI convenience field persisted into modelPolicy.fallback_chain[0]. */
   fallbackModel?: string | null;
   /** Canonical icon: an ocean avatar id ("kind:id"). "" clears it. Mutually
    *  exclusive with `emoji` — setting one clears the other on merge. */
@@ -182,6 +184,7 @@ export interface EmployeeCreate {
   cliFlags?: string[];
   alwaysNotify?: boolean;
   lifecycle?: EmployeeLifecycle;
+  fallbackEngine?: string | null;
   fallbackModel?: string | null;
   avatar?: string;
   emoji?: string;
@@ -204,7 +207,7 @@ const WRITABLE_FIELDS = [
 
 // `avatar`/`emoji` are accepted but not in WRITABLE_FIELDS — like `fallbackModel`,
 // they are merged via dedicated XOR logic (see mergeEmployeeUpdateData).
-const ACCEPTED_UPDATE_FIELDS = [...WRITABLE_FIELDS, "fallbackModel", "avatar", "emoji"] as const;
+const ACCEPTED_UPDATE_FIELDS = [...WRITABLE_FIELDS, "fallbackEngine", "fallbackModel", "avatar", "emoji"] as const;
 
 const VALID_RANKS: ReadonlyArray<Employee["rank"]> = [
   "executive",
@@ -383,7 +386,40 @@ export function validateEmployeeUpdate(
     updates.lifecycle = body.lifecycle as EmployeeLifecycle;
   }
 
+  if (body.fallbackEngine !== undefined) {
+    if (body.fallbackEngine === null) {
+      updates.fallbackEngine = null;
+    } else if (typeof body.fallbackEngine !== "string") {
+      return { ok: false, error: "fallbackEngine must be a string or null" };
+    } else {
+      const fallbackEngine = body.fallbackEngine.trim();
+      if (!fallbackEngine) {
+        updates.fallbackEngine = null;
+      } else if (!registry[fallbackEngine]) {
+        return { ok: false, error: `unknown fallbackEngine "${fallbackEngine}"` };
+      } else {
+        updates.fallbackEngine = fallbackEngine;
+        const currentFallbackModel =
+          updates.fallbackModel ??
+          current.modelPolicy?.fallback_chain?.[0]?.model;
+        if (typeof currentFallbackModel === "string" && currentFallbackModel.trim()) {
+          const fallbackError = validateModelIdForEngine(
+            registry,
+            fallbackEngine,
+            currentFallbackModel.trim(),
+            "fallbackModel",
+          );
+          if (fallbackError) return { ok: false, error: fallbackError };
+        }
+      }
+    }
+  }
+
   if (body.fallbackModel !== undefined) {
+    const fallbackEngine =
+      typeof updates.fallbackEngine === "string" && updates.fallbackEngine.trim()
+        ? updates.fallbackEngine.trim()
+        : resultingEngine;
     if (body.fallbackModel === null) {
       updates.fallbackModel = null;
     } else if (typeof body.fallbackModel !== "string") {
@@ -393,7 +429,7 @@ export function validateEmployeeUpdate(
       if (!fallbackModel) {
         updates.fallbackModel = null;
       } else {
-        const fallbackError = validateModelIdForEngine(registry, resultingEngine, fallbackModel, "fallbackModel");
+        const fallbackError = validateModelIdForEngine(registry, fallbackEngine, fallbackModel, "fallbackModel");
         if (fallbackError) return { ok: false, error: fallbackError };
         updates.fallbackModel = fallbackModel;
       }
@@ -439,6 +475,7 @@ export function validateEmployeeCreate(
     "cliFlags",
     "alwaysNotify",
     "lifecycle",
+    "fallbackEngine",
     "fallbackModel",
     "avatar",
     "emoji",
@@ -496,11 +533,12 @@ export function validateEmployeeCreate(
     persona,
     reportsTo: body.reportsTo,
     cliFlags: body.cliFlags,
-    alwaysNotify: body.alwaysNotify,
-    lifecycle: body.lifecycle,
-    fallbackModel: body.fallbackModel,
-    avatar: body.avatar,
-    emoji: body.emoji,
+      alwaysNotify: body.alwaysNotify,
+      lifecycle: body.lifecycle,
+      fallbackEngine: body.fallbackEngine,
+      fallbackModel: body.fallbackModel,
+      avatar: body.avatar,
+      emoji: body.emoji,
   });
   if (!updates.ok || !updates.updates) {
     return { ok: false, error: updates.error || "invalid employee body" };
@@ -521,6 +559,7 @@ export function validateEmployeeCreate(
       cliFlags: updates.updates.cliFlags,
       alwaysNotify: updates.updates.alwaysNotify,
       lifecycle: updates.updates.lifecycle,
+      fallbackEngine: updates.updates.fallbackEngine,
       fallbackModel: updates.updates.fallbackModel,
       avatar: updates.updates.avatar,
       emoji: updates.updates.emoji,
@@ -603,17 +642,41 @@ export function mergeEmployeeUpdateData(
     : isNonEmptyRecord(next.model_policy)
       ? { ...next.model_policy }
       : undefined;
-  if (Object.prototype.hasOwnProperty.call(updates, "fallbackModel")) {
+  if (
+    Object.prototype.hasOwnProperty.call(updates, "fallbackModel") ||
+    Object.prototype.hasOwnProperty.call(updates, "fallbackEngine")
+  ) {
+    const requestedFallbackEngine =
+      typeof updates.fallbackEngine === "string" ? updates.fallbackEngine.trim() : "";
     const fallbackModel = typeof updates.fallbackModel === "string" ? updates.fallbackModel.trim() : "";
+    const currentFallbackEngine =
+      rawPolicy && Array.isArray(rawPolicy.fallback_chain) && rawPolicy.fallback_chain.length > 0 && isNonEmptyRecord(rawPolicy.fallback_chain[0])
+        ? String(rawPolicy.fallback_chain[0].engine ?? "").trim()
+        : "";
     if (fallbackModel) {
       const nextPolicy = rawPolicy ?? {};
-      nextPolicy.fallback_chain = [{ engine: effectiveEngine, model: fallbackModel }];
+      nextPolicy.fallback_chain = [{
+        engine: requestedFallbackEngine || currentFallbackEngine || effectiveEngine,
+        model: fallbackModel,
+      }];
       next.modelPolicy = nextPolicy;
     } else if (rawPolicy) {
-      const nextPolicy = { ...rawPolicy };
-      delete nextPolicy.fallback_chain;
-      if (Object.keys(nextPolicy).length > 0) next.modelPolicy = nextPolicy;
-      else delete next.modelPolicy;
+      if (requestedFallbackEngine && Array.isArray(rawPolicy.fallback_chain) && rawPolicy.fallback_chain.length > 0) {
+        const nextPolicy = {
+          ...rawPolicy,
+          fallback_chain: rawPolicy.fallback_chain.map((entry, index) =>
+            index === 0 && isNonEmptyRecord(entry)
+              ? { ...entry, engine: requestedFallbackEngine }
+              : entry,
+          ),
+        };
+        next.modelPolicy = nextPolicy;
+      } else {
+        const nextPolicy = { ...rawPolicy };
+        delete nextPolicy.fallback_chain;
+        if (Object.keys(nextPolicy).length > 0) next.modelPolicy = nextPolicy;
+        else delete next.modelPolicy;
+      }
     } else {
       delete next.modelPolicy;
     }
@@ -652,7 +715,7 @@ export function buildEmployeeCreateData(employee: EmployeeCreate): Record<string
   if (employee.lifecycle && employee.lifecycle !== "active") data.lifecycle = employee.lifecycle;
   if (employee.fallbackModel && employee.fallbackModel.trim()) {
     data.modelPolicy = {
-      fallback_chain: [{ engine: employee.engine, model: employee.fallbackModel.trim() }],
+      fallback_chain: [{ engine: employee.fallbackEngine?.trim() || employee.engine, model: employee.fallbackModel.trim() }],
     };
   }
   // Canonical icon: avatar wins if both somehow set; never write empty keys.

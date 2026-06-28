@@ -43,6 +43,7 @@ export interface EmployeeUpdate {
   reportsTo?: string | string[]
   cliFlags?: string[]
   alwaysNotify?: boolean
+  fallbackEngine?: string | null
   fallbackModel?: string | null
   /** Canonical icon: ocean avatar id ("kind:id"). "" clears it. Mutually exclusive with `emoji`. */
   avatar?: string

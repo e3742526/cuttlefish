@@ -5,6 +5,32 @@ vi.mock("@/components/chat/model-selector-row", () => ({
   ModelSelectorRow: () => null,
 }))
 
+vi.mock("@/components/org/employee-fallback-model-select", () => ({
+  EmployeeFallbackModelSelect: ({
+    valueEngine,
+    value,
+    onEngineChange,
+    onChange,
+  }: {
+    valueEngine?: string
+    value: string
+    onEngineChange: (next: string) => void
+    onChange: (next: string) => void
+  }) => (
+    <>
+      <select aria-label="Fallback engine" value={valueEngine} onChange={(e) => onEngineChange(e.target.value)}>
+        <option value="claude">Claude</option>
+        <option value="antigravity">Antigravity</option>
+      </select>
+      <select aria-label="Fallback model" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">None</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6</option>
+        <option value="Gemini 3.5 Flash (Medium)">Gemini 3.5 Flash Medium</option>
+      </select>
+    </>
+  ),
+}))
+
 vi.mock("@/components/org/reports-to-field", async () => {
   const actual = await vi.importActual<typeof import("@/components/org/reports-to-field")>("@/components/org/reports-to-field")
   return {
@@ -115,5 +141,39 @@ describe("EmployeeCreateForm", () => {
     expect(createEmployee).toHaveBeenCalledWith(expect.objectContaining({
       reportsTo: ["lead-a", "lead-b"],
     }))
+  })
+
+  it("creates an agent with a cross-provider fallback target", async () => {
+    createEmployee.mockResolvedValue({
+      status: "ok",
+      employee: {
+        name: "platform-lead",
+        displayName: "Platform Lead",
+        department: "platform",
+        rank: "manager",
+        engine: "claude",
+        model: "sonnet",
+        persona: "Lead platform work.",
+        modelPolicy: { fallback_chain: [{ engine: "antigravity", model: "Gemini 3.5 Flash (Medium)" }] },
+      },
+    })
+
+    render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
+
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
+    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "platform" } })
+    fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Lead platform work." } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Fallback engine" }), {
+      target: { value: "antigravity" },
+    })
+    fireEvent.change(screen.getByRole("combobox", { name: "Fallback model" }), {
+      target: { value: "Gemini 3.5 Flash (Medium)" },
+    })
+    fireEvent.click(createBtn())
+
+    await waitFor(() => expect(createEmployee).toHaveBeenCalledWith(expect.objectContaining({
+      fallbackEngine: "antigravity",
+      fallbackModel: "Gemini 3.5 Flash (Medium)",
+    })))
   })
 })

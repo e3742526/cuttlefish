@@ -29,6 +29,10 @@ function fallbackModelOf(employee: Employee): string {
   return employee.modelPolicy?.fallback_chain?.[0]?.model ?? ""
 }
 
+function fallbackEngineOf(employee: Employee): string {
+  return employee.modelPolicy?.fallback_chain?.[0]?.engine ?? employee.engine
+}
+
 interface FieldProps {
   label: string
   children: React.ReactNode
@@ -67,6 +71,7 @@ export function EmployeeEditor({
   const [persona, setPersona] = useState(employee.persona || "")
   const [alwaysNotify, setAlwaysNotify] = useState(employee.alwaysNotify ?? true)
   const [cliFlags, setCliFlags] = useState((employee.cliFlags ?? []).join(" "))
+  const [fallbackEngine, setFallbackEngine] = useState(fallbackEngineOf(employee))
   const [fallbackModel, setFallbackModel] = useState(fallbackModelOf(employee))
   // Canonical icon: an ocean avatar id ("kind:id") or a plain emoji, "" for none.
   const [icon, setIcon] = useState(canonicalIcon(employee))
@@ -108,6 +113,7 @@ export function EmployeeEditor({
     if (alwaysNotify !== (employee.alwaysNotify ?? true)) p.alwaysNotify = alwaysNotify
     const flags = cliFlags.split(/\s+/).filter(Boolean)
     if (flags.join(" ") !== (employee.cliFlags ?? []).join(" ")) p.cliFlags = flags
+    if (fallbackEngine !== fallbackEngineOf(employee)) p.fallbackEngine = fallbackEngine.trim() || null
     if (fallbackModel !== fallbackModelOf(employee)) p.fallbackModel = fallbackModel.trim() || null
     if (selector.engine !== employee.engine) p.engine = selector.engine
     if (selector.model !== employee.model) p.model = selector.model
@@ -119,7 +125,7 @@ export function EmployeeEditor({
       p.emoji = emoji
     }
     return p
-  }, [displayName, department, rank, reportsTo, persona, alwaysNotify, cliFlags, fallbackModel, selector, icon, employee])
+  }, [displayName, department, rank, reportsTo, persona, alwaysNotify, cliFlags, fallbackEngine, fallbackModel, selector, icon, employee])
 
   const dirty = Object.keys(patch).length > 0
 
@@ -254,11 +260,13 @@ export function EmployeeEditor({
         </div>
       </Field>
 
-      <Field label="Fallback model" hint="Optional same-engine backup model for model fallback.">
+      <Field label="Fallback model" hint="Optional cross-provider backup target for model fallback.">
         <EmployeeFallbackModelSelect
           engine={selector.engine}
           primaryModel={selector.model}
+          valueEngine={fallbackEngine}
           value={fallbackModel}
+          onEngineChange={setFallbackEngine}
           onChange={setFallbackModel}
         />
       </Field>

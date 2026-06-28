@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { ModelSelectorRow, type SelectorValue } from "@/components/chat/model-selector-row"
+import { EmployeeFallbackModelSelect } from "@/components/org/employee-fallback-model-select"
 import { ReportsToField, serializeReportsTo } from "@/components/org/reports-to-field"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
@@ -67,6 +68,7 @@ export function EmployeeCreateForm({
   const [persona, setPersona] = useState("")
   const [alwaysNotify, setAlwaysNotify] = useState(true)
   const [cliFlags, setCliFlags] = useState("")
+  const [fallbackEngine, setFallbackEngine] = useState("claude")
   const [fallbackModel, setFallbackModel] = useState("")
   // Canonical icon: an ocean avatar id ("kind:id") or a plain emoji, "" for none.
   const [icon, setIcon] = useState("")
@@ -110,6 +112,7 @@ export function EmployeeCreateForm({
         reportsTo: serializeReportsTo(reportsTo),
         cliFlags: cliFlags.split(/\s+/).filter(Boolean),
         alwaysNotify,
+        fallbackEngine: fallbackModel.trim() ? fallbackEngine : null,
         fallbackModel: fallbackModel.trim() || null,
         ...(icon ? iconPatchFromPickerValue(icon) : {}),
       }
@@ -233,12 +236,14 @@ export function EmployeeCreateForm({
         </div>
       </Field>
 
-      <Field label="Fallback model" hint="Optional same-engine backup model for fallback handoffs.">
-        <input
-          className={inputCls}
+      <Field label="Fallback model" hint="Optional cross-provider backup target for fallback handoffs.">
+        <EmployeeFallbackModelSelect
+          engine={selector.engine}
+          primaryModel={selector.model}
+          valueEngine={fallbackEngine}
           value={fallbackModel}
-          onChange={(e) => setFallbackModel(e.target.value)}
-          placeholder="Leave blank to disable"
+          onEngineChange={setFallbackEngine}
+          onChange={setFallbackModel}
         />
       </Field>
 

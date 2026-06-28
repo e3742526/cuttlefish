@@ -190,6 +190,23 @@ modelPolicy:
     expect(data.modelPolicy).toBeUndefined();
   });
 
+  it("stores a cross-engine fallback target without snapping it back to the primary engine", () => {
+    writeYaml("platform", "fallback-cross.yaml", `
+name: fallback-cross
+persona: Original persona
+rank: employee
+engine: codex
+model: gpt-5.5
+`);
+    expect(updateEmployeeYaml("fallback-cross", {
+      fallbackEngine: "claude",
+      fallbackModel: "sonnet",
+    })).toBe(true);
+
+    const data = readYaml("platform", "fallback-cross.yaml");
+    expect(data.modelPolicy.fallback_chain).toEqual([{ engine: "claude", model: "sonnet" }]);
+  });
+
   it("never writes/renames the immutable name field", () => {
     writeYaml("platform", "safe.yaml", `
 name: safe
@@ -364,6 +381,24 @@ describe("createEmployeeYaml", () => {
     expect(data.modelPolicy.fallback_chain).toEqual([{ engine: "claude", model: "opus" }]);
   });
 
+  it("creates a new employee yaml with a cross-engine fallback policy", () => {
+    expect(createEmployeeYaml({
+      name: "platform-router",
+      displayName: "Platform Router",
+      department: "platform",
+      rank: "manager",
+      engine: "codex",
+      model: "gpt-5.5",
+      fallbackEngine: "claude",
+      fallbackModel: "sonnet",
+      persona: "Route platform work.",
+      alwaysNotify: true,
+    })).toBe(true);
+
+    const data = readYaml("platform", "platform-router.yaml");
+    expect(data.modelPolicy.fallback_chain).toEqual([{ engine: "claude", model: "sonnet" }]);
+  });
+
   it("writes a chosen ocean avatar and no emoji", () => {
     expect(createEmployeeYaml({
       name: "icon-a",
@@ -479,6 +514,27 @@ describe("validateEmployeeUpdate", () => {
     expect(cleared.updates?.fallbackModel).toBeNull();
   });
 
+  it("accepts a cross-engine fallback target when the model is valid for that engine", () => {
+    const ok = validateEmployeeUpdate(testConfig, emp(), {
+      fallbackEngine: "codex",
+      fallbackModel: "gpt-5.5",
+    });
+    expect(ok.ok).toBe(true);
+    expect(ok.updates).toMatchObject({
+      fallbackEngine: "codex",
+      fallbackModel: "gpt-5.5",
+    });
+  });
+
+  it("rejects a cross-engine fallback model when it is invalid for the selected fallback engine", () => {
+    const bad = validateEmployeeUpdate(testConfig, emp(), {
+      fallbackEngine: "codex",
+      fallbackModel: "sonnet",
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.error).toMatch(/fallbackModel/i);
+  });
+
   it("rejects the immutable name field", () => {
     const r = validateEmployeeUpdate(testConfig, emp(), { name: "renamed" });
     expect(r.ok).toBe(false);
@@ -589,6 +645,26 @@ describe("validateEmployeeUpdate", () => {
     expect(result.employee).toMatchObject({
       name: "reviewer",
       fallbackModel: "opus",
+    });
+  });
+
+  it("validates a create payload for a cross-engine fallback target", () => {
+    const result = validateEmployeeCreate(testConfig, {
+      name: "router",
+      displayName: "Router",
+      department: "platform",
+      rank: "senior",
+      engine: "codex",
+      model: "gpt-5.5",
+      fallbackEngine: "claude",
+      fallbackModel: "sonnet",
+      persona: "Route work.",
+    }, []);
+    expect(result.ok).toBe(true);
+    expect(result.employee).toMatchObject({
+      name: "router",
+      fallbackEngine: "claude",
+      fallbackModel: "sonnet",
     });
   });
 });
