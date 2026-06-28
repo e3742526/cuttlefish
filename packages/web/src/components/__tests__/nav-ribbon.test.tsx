@@ -4,12 +4,15 @@ import { within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { NavRibbon } from "../pill-nav"
 import { NAV_ITEMS } from "@/lib/nav"
+import { SettingsProvider } from "@/routes/settings-provider"
 
 const useApprovalsMock = vi.fn<() => { data: Array<{ id: string }> }>(() => ({ data: [] }))
 
 vi.mock("@/hooks/use-approvals", () => ({
   useApprovals: () => useApprovalsMock(),
 }))
+
+vi.mock("@/lib/api", () => ({ api: { getOnboarding: () => Promise.resolve({}) } }))
 
 function renderRibbon(props: { listOpen: boolean; path?: string }) {
   return render(
@@ -82,6 +85,20 @@ describe("NavRibbon", () => {
     useApprovalsMock.mockReturnValue({ data: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] })
     renderRibbon({ listOpen: true, path: "/org" })
     expect(screen.getByLabelText("3 approvals waiting")).toBeTruthy()
+  })
+
+  it("keeps the nav brand icon fixed even when the COO icon setting is an avatar id", () => {
+    localStorage.setItem("cuttlefish-settings", JSON.stringify({ portalEmoji: "aquatic:octopus" }))
+    const { container } = render(
+      <SettingsProvider>
+        <MemoryRouter initialEntries={["/org"]}>
+          <NavRibbon />
+        </MemoryRouter>
+      </SettingsProvider>,
+    )
+    const brandImg = container.querySelector('a[href="/"] img')
+    expect(brandImg?.getAttribute("src")).toBe("/brand/cuttlefish_icon_app.svg")
+    expect(container.textContent).not.toContain("aquatic:octopus")
   })
 
   // Chat icon is OPEN-ONLY: reveals a collapsed list while already on /chat,

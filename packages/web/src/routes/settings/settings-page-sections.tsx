@@ -8,6 +8,8 @@ import type { AuthState, PairedDevice, PairingCode } from "@/lib/auth"
 import { ACCENT_PRESETS } from "./settings-constants"
 import { Section } from "./settings-fields"
 import { DEFAULT_PORTAL_ICON } from "@/lib/settings"
+import { EmployeeAvatar } from "@/components/ui/employee-avatar"
+import { iconPatchFromPickerValue } from "@/lib/employee-icon"
 
 const LANGUAGE_OPTIONS = [
   "English",
@@ -162,6 +164,7 @@ export function CooEmojiSection({
   setPortalEmoji,
   setShowEmojiPicker,
 }: CooEmojiSectionProps) {
+  const icon = iconPatchFromPickerValue(portalEmoji ?? "")
   return (
     <Section title="COO Emoji">
       <div>
@@ -171,10 +174,15 @@ export function CooEmojiSection({
         <div className="relative flex items-center gap-[var(--space-4)]">
           <button
             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-            className="text-4xl cursor-pointer bg-transparent border-none p-0"
+            className="flex size-12 items-center justify-center cursor-pointer bg-transparent border-none p-0"
           >
             {portalEmoji ? (
-              portalEmoji
+              <EmployeeAvatar
+                name={operatorName || "COO"}
+                avatar={icon.avatar || undefined}
+                emoji={icon.emoji || undefined}
+                size={40}
+              />
             ) : (
               <img src={DEFAULT_PORTAL_ICON} alt="" className="size-10 object-contain" draggable={false} />
             )}

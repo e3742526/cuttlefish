@@ -318,8 +318,6 @@ export function NavRibbon({
   const { theme, setTheme } = useTheme()
   const { settings, setNavOrder } = useSettings()
   const portalName = settings.portalName ?? "Cuttlefish"
-  const brandIcon = settings.portalIcon ?? DEFAULT_PORTAL_ICON
-  const emoji = settings.portalEmoji
   const cycleTheme = () => {
     const ids = THEMES.map((t) => t.id)
     setTheme(ids[(ids.indexOf(theme) + 1) % ids.length])
@@ -414,11 +412,7 @@ export function NavRibbon({
                 aria-hidden
                 className="absolute inset-0 flex items-center justify-center transition-opacity duration-150 group-hover/sidebar:opacity-0 group-focus-within/logo:opacity-0"
               >
-                {emoji ? (
-                  <span className="text-[26px] leading-none [font-variant-emoji:emoji]">{emoji}</span>
-                ) : (
-                  <img src={brandIcon} alt="" className="size-7 object-contain" draggable={false} />
-                )}
+                <img src={DEFAULT_PORTAL_ICON} alt="" className="size-7 object-contain" draggable={false} />
               </span>
               <PanelLeft
                 size={22}
@@ -438,11 +432,7 @@ export function NavRibbon({
                 aria-hidden
                 className="flex items-center justify-center"
               >
-                {emoji ? (
-                  <span className="text-[26px] leading-none [font-variant-emoji:emoji]">{emoji}</span>
-                ) : (
-                  <img src={brandIcon} alt="" className="size-7 object-contain" draggable={false} />
-                )}
+                <img src={DEFAULT_PORTAL_ICON} alt="" className="size-7 object-contain" draggable={false} />
               </span>
             </Link>
           )}
@@ -540,9 +530,6 @@ export function NavPopover({ open, onClose }: { open: boolean; onClose: () => vo
 export function PillNav({ actions }: { actions?: ReactNode }) {
   const pathname = useLocation().pathname
   const { items } = useBreadcrumbs()
-  const { settings } = useSettings()
-  const brandIcon = settings.portalIcon ?? DEFAULT_PORTAL_ICON
-  const emoji = settings.portalEmoji
   const [navOpen, setNavOpen] = useState(false)
 
   const title = items[0]?.label ?? ""
@@ -569,11 +556,7 @@ export function PillNav({ actions }: { actions?: ReactNode }) {
                 aria-hidden
                 className="absolute inset-0 hidden items-center justify-center transition-opacity duration-150 lg:flex lg:group-hover/brand:opacity-0"
               >
-                {emoji ? (
-                  <span className="text-[14px] leading-none [font-variant-emoji:emoji]">{emoji}</span>
-                ) : (
-                  <img src={brandIcon} alt="" className="size-4 object-contain" draggable={false} />
-                )}
+                <img src={DEFAULT_PORTAL_ICON} alt="" className="size-4 object-contain" draggable={false} />
               </span>
               <Menu
                 size={17}
