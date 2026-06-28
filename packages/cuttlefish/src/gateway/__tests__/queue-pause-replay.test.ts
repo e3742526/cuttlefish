@@ -95,7 +95,7 @@ describe("resumePendingWebQueueItems", () => {
     expect(getEngine).not.toHaveBeenCalled();
 
     restartedQueue.resumeQueue(session.sessionKey);
-    dispatch.resumePendingWebQueueItems(ctx);
+    dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey);
     await new Promise((resolve) => setTimeout(resolve, 25));
 
     expect(getEngine).toHaveBeenCalledWith("claude");

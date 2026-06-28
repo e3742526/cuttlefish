@@ -530,6 +530,8 @@ function buildOrgContext(hierarchy?: import("../shared/types.js").OrgHierarchy):
       }
 
       lines.push(`\nFull persona/details: \`GET /api/org/employees/:name\` or the YAML under \`${ORG_DIR}/\`. Create new employees by writing YAML files there.`);
+      lines.push(`Managers and executives may switch a report's engine/model/effort via \`PATCH /api/org/employees/:name\` with \`{"managerName":"<manager>","engine":"...","model":"...","effortLevel":"..."}\`.`);
+      lines.push(`Before a significant model change, managers may ask \`hr-manager\` to sanity-check cost, overlap, and org-fit concerns; use the direct PATCH path when the change is straightforward and within the manager's scope.`);
       return lines.join("\n");
     }
 
@@ -564,6 +566,8 @@ function buildOrgContext(hierarchy?: import("../shared/types.js").OrgHierarchy):
       lines.push(`- **${displayMatch?.[1] || name}** (${name}) — ${deptMatch?.[1] || "unassigned"}, ${rankMatch?.[1] || "employee"}`);
     }
     lines.push(`\nFull persona/details: \`GET /api/org/employees/:name\` or the YAML under \`${ORG_DIR}/\`. Create new employees by writing YAML files there.`);
+    lines.push(`Managers and executives may switch a report's engine/model/effort via \`PATCH /api/org/employees/:name\` with \`{"managerName":"<manager>","engine":"...","model":"...","effortLevel":"..."}\`.`);
+    lines.push(`Before a significant model change, managers may ask \`hr-manager\` to sanity-check cost, overlap, and org-fit concerns; use the direct PATCH path when the change is straightforward and within the manager's scope.`);
     return lines.join("\n");
   } catch {
     return null;

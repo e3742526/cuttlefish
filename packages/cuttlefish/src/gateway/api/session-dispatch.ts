@@ -122,6 +122,48 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
   }
 }
 
+export function redispatchPendingWebQueueItemsForSessionKey(
+  context: ApiContext,
+  sessionKey: string,
+): number {
+  if (!sessionKey || context.sessionManager.getQueue().isPaused(sessionKey)) return 0;
+  if (context.sessionManager.getQueue().isRunning(sessionKey)) return 0;
+
+  const pending = listAllPendingQueueItems().filter((item) => item.sessionKey === sessionKey);
+  if (pending.length === 0) return 0;
+
+  let resumed = 0;
+  for (const item of pending) {
+    const existingSession = getSession(item.sessionId);
+    if (!existingSession) {
+      cancelQueueItem(item.id);
+      continue;
+    }
+    let session = existingSession;
+    if (session.source !== "web") continue;
+    session = maybeRevertEngineOverride(session);
+
+    const config = context.getConfig();
+    const engine = context.sessionManager.getEngine(session.engine);
+    if (!engine) {
+      cancelQueueItem(item.id);
+      updateSession(session.id, {
+        status: "error",
+        lastActivity: new Date().toISOString(),
+        lastError: `Engine "${session.engine}" not available`,
+      });
+      continue;
+    }
+
+    updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
+    dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
+    resumed++;
+    break;
+  }
+
+  return resumed;
+}
+
 export function maybeRevertEngineOverride(session: Session): Session {
   const meta = (session.transportMeta || {}) as Record<string, unknown>;
   const override = meta["engineOverride"] as Record<string, unknown> | undefined;

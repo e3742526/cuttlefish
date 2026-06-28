@@ -20,6 +20,13 @@ import { ORG_CHANGE_TYPES, type OrgChangeType } from "../../../shared/types.js";
 const TICKET_SESSION_TAIL_LIMIT = 8;
 
 const VALID_CHANGE_TYPES = new Set<OrgChangeType>(ORG_CHANGE_TYPES);
+const MANAGER_MUTABLE_EMPLOYEE_FIELDS = new Set([
+  "engine",
+  "model",
+  "effortLevel",
+  "fallbackEngine",
+  "fallbackModel",
+] as const);
 
 type ParsedChangeInput =
   | { ok: true; value: { changeType: OrgChangeType; employeeName: string; proposed: Record<string, unknown> } }
@@ -180,6 +187,19 @@ export async function handleOrgRoutes(
       const auth = authorizeManagerScope(registry, managerName, [params.name]);
       if (!auth.ok) {
         json(res, { error: auth.error }, 403);
+        return true;
+      }
+      const disallowedFields = Object.keys(body).filter(
+        (key) => key !== "managerName" && !MANAGER_MUTABLE_EMPLOYEE_FIELDS.has(key as "engine" | "model" | "effortLevel" | "fallbackEngine" | "fallbackModel"),
+      );
+      if (disallowedFields.length > 0) {
+        json(
+          res,
+          {
+            error: `manager-scoped employee updates may only modify ${[...MANAGER_MUTABLE_EMPLOYEE_FIELDS].join(", ")} (received: ${disallowedFields.join(", ")})`,
+          },
+          403,
+        );
         return true;
       }
     }

@@ -51,6 +51,15 @@ export interface EmployeeUpdate {
   emoji?: string
 }
 
+export interface ManagerEmployeeUpdate {
+  managerName: string
+  engine?: string
+  model?: string
+  effortLevel?: string
+  fallbackEngine?: string | null
+  fallbackModel?: string | null
+}
+
 export interface EmployeeCreate extends EmployeeUpdate {
   name: string
   displayName: string
@@ -84,6 +93,8 @@ export const orgApi = {
   getOrg: () => get<OrgData>("/api/org"),
   getEmployee: (name: string) => get<Employee>(`/api/org/employees/${name}`),
   updateEmployee: (name: string, data: EmployeeUpdate) =>
+    patch<{ status: string; employee: Employee | null }>(`/api/org/employees/${name}`, data),
+  updateEmployeeAsManager: (name: string, data: ManagerEmployeeUpdate) =>
     patch<{ status: string; employee: Employee | null }>(`/api/org/employees/${name}`, data),
   createEmployee: (data: EmployeeCreate) =>
     post<{ status: string; employee: Employee | null }>("/api/org/employees", data),

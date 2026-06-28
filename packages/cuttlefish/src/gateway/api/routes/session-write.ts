@@ -39,7 +39,12 @@ import type { ApiContext } from "../context.js";
 import { matchRoute } from "../match-route.js";
 import { badRequest, json, notFound, serverError } from "../responses.js";
 import { serializeSession } from "../serialize-session.js";
-import { dispatchWebSessionRun, killSessionEngines, maybeRevertEngineOverride } from "../session-dispatch.js";
+import {
+  dispatchWebSessionRun,
+  killSessionEngines,
+  maybeRevertEngineOverride,
+  redispatchPendingWebQueueItemsForSessionKey,
+} from "../session-dispatch.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -347,8 +352,9 @@ export async function handleSessionWriteRoutes(
     }
     const sessionKey = session.sessionKey || session.sourceRef || session.id;
     context.sessionManager.getQueue().resumeQueue(sessionKey);
+    const redispatched = redispatchPendingWebQueueItemsForSessionKey(context, sessionKey);
     context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: false });
-    json(res, { status: "resumed", sessionId: params.id });
+    json(res, { status: "resumed", sessionId: params.id, redispatched });
     return true;
   }
 
