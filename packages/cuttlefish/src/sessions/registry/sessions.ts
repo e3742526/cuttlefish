@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { JsonObject, ReplyContext, Session } from '../../shared/types.js';
 import { initDb, parseJsonObject, rowToSession } from './core.js';
+import { portalEmployeeSlug } from '../../shared/portal-slug.js';
 
 export interface CreateSessionOpts {
   engine: string;
@@ -248,13 +249,13 @@ export function coercePortalEmployee(
 ): string | null {
   const emp = employee?.trim();
   if (!emp) return null;
-  const slug = portalName?.trim().toLowerCase();
+  const slug = portalName ? portalEmployeeSlug(portalName) : null;
   if (slug && emp.toLowerCase() === slug) return null;
   return emp;
 }
 
 function groupKeySql(portalSlug?: string | null): { sql: string; params: unknown[] } {
-  const slug = portalSlug?.trim().toLowerCase();
+  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
   const directExtra = slug ? ` OR LOWER(employee) = ?` : '';
   const sql = `CASE
   WHEN ${IS_CRON_SQL} THEN '${CRON_GROUP}'
@@ -265,7 +266,7 @@ END`;
 }
 
 function groupFilter(group: string, portalSlug?: string | null): { clause: string; params: unknown[] } {
-  const slug = portalSlug?.trim().toLowerCase();
+  const slug = portalSlug ? portalEmployeeSlug(portalSlug) : null;
   if (group === CRON_GROUP) return { clause: IS_CRON_SQL, params: [] };
   if (group === DIRECT_GROUP) {
     const directExtra = slug ? ` OR LOWER(employee) = ?` : '';

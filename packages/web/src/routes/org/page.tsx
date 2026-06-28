@@ -8,6 +8,7 @@ import { PageLayout } from "@/components/page-layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSettings } from "@/routes/settings-provider";
 import { useBreadcrumbs } from "@/context/breadcrumb-context";
+import { portalEmployeeSlug } from "@/lib/portal-slug";
 
 const OrgMap = lazy(() =>
   import("@/components/org/org-map").then((m) => ({ default: m.OrgMap })),
@@ -74,7 +75,7 @@ export default function OrgPage() {
       .getOrg()
       .then((data: OrgData) => {
         const coo: Employee = {
-          name: (settings.portalName ?? "Jinn").toLowerCase(),
+          name: portalEmployeeSlug(settings.portalName),
           displayName: settings.portalName ?? "Jinn",
           department: "",
           rank: "executive",

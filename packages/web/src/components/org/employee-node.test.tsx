@@ -98,4 +98,19 @@ describe("EmployeeNode quick chat affordance", () => {
 
     expect(onWrapperClick).toHaveBeenCalledTimes(1)
   })
+
+  it("exposes full display name and role text via hover titles", () => {
+    renderNode({
+      name: "parliamentarian",
+      displayName: "Parliamentarian and Strategic Governance Lead",
+      department: "General",
+      rank: "manager",
+      engine: "claude",
+      model: "opus",
+      persona: "Keeps the org aligned",
+    })
+
+    expect(screen.getByTitle("Parliamentarian and Strategic Governance Lead")).toBeTruthy()
+    expect(screen.getByTitle("Manager")).toBeTruthy()
+  })
 })

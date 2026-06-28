@@ -15,6 +15,7 @@ import {
 } from "@/hooks/use-sessions"
 import { queryKeys } from "@/lib/query-keys"
 import { useSettings } from "@/routes/settings-provider"
+import { portalEmployeeSlug } from "@/lib/portal-slug"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -90,7 +91,7 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const { settings } = useSettings()
   const portalName = settings.portalName ?? "Cuttlefish"
-  const portalSlug = portalName.toLowerCase()
+  const portalSlug = portalEmployeeSlug(portalName)
 
   const qc = useQueryClient()
   const { data: rawSessions, isLoading: loading } = useSessions()

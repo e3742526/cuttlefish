@@ -6,6 +6,7 @@ import { scanOrg, findEmployee } from "../gateway/org.js";
 import { CronConnector } from "../connectors/cron/index.js";
 import type { SessionManager } from "../sessions/manager.js";
 import { getSession } from "../sessions/registry.js";
+import { portalEmployeeSlug } from "../shared/portal-slug.js";
 
 export async function runCronJob(
   job: CronJob,
@@ -20,7 +21,7 @@ export async function runCronJob(
   logger.info(`Cron job "${job.name}" (${job.id}) starting`);
 
   const delivery = job.delivery || config.cron?.defaultDelivery;
-  const cooSlug = config.portal?.portalName?.toLowerCase() || "cuttlefish";
+  const cooSlug = portalEmployeeSlug(config.portal?.portalName);
   if (delivery && job.employee && job.employee !== cooSlug) {
     logger.debug(
       `Cron job "${job.name}" targets employee "${job.employee}" directly (skipping COO delegation).`,

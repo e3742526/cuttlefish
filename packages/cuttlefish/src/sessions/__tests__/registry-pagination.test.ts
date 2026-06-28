@@ -165,4 +165,12 @@ describe("portal-slug sessions fold into the direct group", () => {
     // real employees still capped/grouped normally
     expect(rows.filter((r) => r.employee === "alice").length).toBe(12);
   });
+
+  it("normalizes spaced portal names to the same slug for direct-session folding", () => {
+    const db = reg.initDb();
+    insert(db, "octo-ops-0", { employee: "octo-ops", lastActivity: "2026-02-01T00:00:59.000Z" });
+    const counts = reg.getSessionGroupCounts("Octo Ops");
+    expect(counts["octo-ops"]).toBeUndefined();
+    expect(reg.listSessionsForGroup(reg.DIRECT_GROUP, 100, 0, "Octo Ops").map((row) => row.id)).toContain("octo-ops-0");
+  });
 });

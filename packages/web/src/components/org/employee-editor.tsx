@@ -17,6 +17,8 @@ import { ReportsToField, normalizeReportsTo, serializeReportsTo } from "@/compon
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { canonicalIcon, iconPatchFromPickerValue } from "@/lib/employee-icon"
+import { useSettings } from "@/routes/settings-provider"
+import { buildSupervisorOptions } from "@/components/org/supervisor-options"
 
 const LEVEL_OPTIONS = [
   { value: "manager", label: "Manager" },
@@ -81,6 +83,7 @@ export function EmployeeEditor({
     model: employee.model,
     effortLevel: employee.effortLevel,
   })
+  const { settings } = useSettings()
 
   // Department + reportsTo option lists come from the live org.
   const [departments, setDepartments] = useState<string[]>([])
@@ -93,9 +96,12 @@ export function EmployeeEditor({
   useEffect(() => {
     api.getOrg().then((o) => {
       setDepartments(o.departments)
-      setEmployeeNames(o.employees.map((e) => e.name).filter((n) => n !== employee.name))
+      setEmployeeNames(buildSupervisorOptions(o.employees, {
+        portalName: settings.portalName,
+        excludeName: employee.name,
+      }))
     }).catch(() => {})
-  }, [employee.name])
+  }, [employee.name, settings.portalName])
 
   const personaInvalid = persona.trim().length === 0
   const displayNameInvalid = displayName.trim().length === 0

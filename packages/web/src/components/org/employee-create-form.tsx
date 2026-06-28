@@ -17,6 +17,8 @@ import { ReportsToField, serializeReportsTo } from "@/components/org/reports-to-
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
 import { iconPatchFromPickerValue } from "@/lib/employee-icon"
+import { useSettings } from "@/routes/settings-provider"
+import { buildSupervisorOptions } from "@/components/org/supervisor-options"
 
 const LEVEL_OPTIONS = [
   { value: "manager", label: "Manager" },
@@ -77,6 +79,7 @@ export function EmployeeCreateForm({
     engine: "claude",
     model: "sonnet",
   })
+  const { settings } = useSettings()
   const [departments, setDepartments] = useState<string[]>([])
   const [employeeNames, setEmployeeNames] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
@@ -85,9 +88,11 @@ export function EmployeeCreateForm({
   useEffect(() => {
     api.getOrg().then((org) => {
       setDepartments(org.departments)
-      setEmployeeNames(org.employees.map((employee) => employee.name))
+      setEmployeeNames(buildSupervisorOptions(org.employees, {
+        portalName: settings.portalName,
+      }))
     }).catch(() => {})
-  }, [])
+  }, [settings.portalName])
 
   const nameInvalid = !name.trim() || !/^[a-z0-9][a-z0-9._-]*$/i.test(name.trim())
   const displayNameInvalid = displayName.trim().length === 0
