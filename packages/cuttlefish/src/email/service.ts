@@ -8,7 +8,7 @@ import { sanitizeUploadFilename } from "../gateway/files/storage.js";
 import { getEmailIngestState, getEmailMessage, listEmailInboxHealth, listEmailMessages, setEmailInboxHealth, upsertEmailIngestState, upsertEmailMessage } from "./store.js";
 import type { EmailMailboxClient } from "./client.js";
 import { normalizeEmail } from "./normalize.js";
-import { insertFile } from "../sessions/registry.js";
+import { getFile, insertFile } from "../sessions/registry.js";
 
 export interface EmailServiceDeps {
   client: EmailMailboxClient;
@@ -30,6 +30,17 @@ async function persistAttachment(messageId: string, attachment: {
   contentId?: string | null;
 }): Promise<EmailAttachmentRecord> {
   const artifactId = crypto.randomUUID();
+  const existing = getFile(artifactId);
+  if (existing) {
+    return {
+      id: attachment.id,
+      filename: existing.filename,
+      contentType: existing.mimetype ?? attachment.contentType,
+      size: existing.size,
+      artifactId: existing.id,
+      contentId: attachment.contentId ?? null,
+    };
+  }
   const filename = sanitizeUploadFilename(attachment.filename);
   const dir = path.join(FILES_DIR, artifactId);
   fs.mkdirSync(dir, { recursive: true });
@@ -122,11 +133,11 @@ export class EmailService {
       const results: EmailMessageRecord[] = [];
       for (const message of fetched) {
         const existing = getEmailIngestState(inbox.id, message.providerMessageId);
+        const existingMessage = existing?.emailMessageId ? getEmailMessage(existing.emailMessageId) : undefined;
         const normalized = await normalizeEmail(inbox, message.providerMessageId, message.raw);
-        const persistedAttachments: EmailAttachmentRecord[] = [];
-        for (const attachment of normalized.attachments) {
-          persistedAttachments.push(await persistAttachment(normalized.record.id, attachment));
-        }
+        const persistedAttachments: EmailAttachmentRecord[] = existingMessage?.attachments?.length
+          ? existingMessage.attachments
+          : await Promise.all(normalized.attachments.map((attachment) => persistAttachment(normalized.record.id, attachment)));
         const persisted = upsertEmailMessage({
           ...normalized.record,
           attachments: persistedAttachments,

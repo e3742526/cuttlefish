@@ -29,8 +29,11 @@ import type { PtyViewEngine } from "../engines/pty-view-engine.js";
 import { AntigravityEngine } from "../engines/antigravity.js";
 import { AiderEngine } from "../engines/aider.js";
 import { AiderInteractiveEngine } from "../engines/aider-interactive.js";
+import { buildEmailIngestPrompt, annotateEmailSession } from "../email/ingest.js";
+import { ImapEmailMailboxClient } from "../email/client.js";
+import { EmailService } from "../email/service.js";
 import type { OrchestrationRuntime } from "../orchestration/runtime.js";
-import { initDb, clearAllPartialMessages, getInterruptedSessions, getSession, listSessions, recoverStaleQueueItems, recoverStaleSessions, updateSession } from "../sessions/registry.js";
+import { initDb, clearAllPartialMessages, createSession, getInterruptedSessions, getSession, getSessionBySessionKey, listSessions, recoverStaleQueueItems, recoverStaleSessions, updateSession } from "../sessions/registry.js";
 import { SessionManager } from "../sessions/manager.js";
 import { initStt } from "../stt/stt.js";
 import { loadJobs } from "../cron/jobs.js";
@@ -56,6 +59,7 @@ import { readGatewayInfo, staleGatewayPids, updateGatewayPtyPids, writeGatewayIn
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
 import { cleanupOldUploads, ensureFilesDir } from "./files.js";
 import { handleApiRequest, resumePendingWebQueueItems, type ApiContext } from "./api.js";
+import { dispatchWebSessionRun } from "./api/session-dispatch.js";
 import { startConfiguredConnectors } from "./server/connectors.js";
 import { createGatewayCleanup, type GatewayCleanup } from "./server/cleanup.js";
 import { serveStatic, isAllowedCorsOrigin } from "./server/http-static.js";
@@ -366,6 +370,41 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     backgroundActivity,
     gatewayAuthToken,
   };
+  const emailService = new EmailService(currentConfig.email, {
+    client: new ImapEmailMailboxClient(),
+    onAutoIngest: async (message) => {
+      const sessionKey = `email:${message.inboxId}:${message.threadKey}`;
+      const existing = getSessionBySessionKey(sessionKey);
+      const session = existing ?? createSession({
+        engine: currentConfig.engines.default,
+        source: "email",
+        sourceRef: `${sessionKey}:${message.providerMessageId}`,
+        connector: "email",
+        sessionKey,
+        title: message.subject ?? `Email ${message.inboxId}`,
+        prompt: buildEmailIngestPrompt(message),
+        promptExcerpt: message.subject ?? message.fromAddress ?? `Email ${message.inboxId}`,
+      });
+      annotateEmailSession(session.id, message);
+      const runningSession = updateSession(session.id, {
+        status: "running",
+        lastActivity: new Date().toISOString(),
+        lastError: null,
+      }) ?? session;
+      const engine = apiContext.sessionManager.getEngine(runningSession.engine);
+      if (!engine) throw new Error(`Engine "${runningSession.engine}" not available`);
+      void dispatchWebSessionRun(
+        runningSession,
+        buildEmailIngestPrompt(message),
+        engine,
+        currentConfig,
+        apiContext,
+        { attachments: message.attachments.map((attachment) => attachment.artifactId).filter((id): id is string => typeof id === "string" && id.length > 0) },
+      );
+      return runningSession.id;
+    },
+  });
+  apiContext.emailService = emailService;
   let knowledgeSink = buildKnowledgeSink(currentConfig);
   let knowledgeReadProvider = buildKnowledgeReadProvider(currentConfig);
   const relayKnowledgeOutbox = async (): Promise<{ attempted: number; delivered: number; failed: number }> =>
@@ -390,6 +429,8 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     try {
       currentConfig = loadConfig();
       apiContext.config = currentConfig;
+      emailService.setConfig(currentConfig.email);
+      emailService.start();
       sessionManager.setConfig(currentConfig);
       knowledgeSink = buildKnowledgeSink(currentConfig);
       knowledgeReadProvider = buildKnowledgeReadProvider(currentConfig);
@@ -414,6 +455,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     }
   };
   apiContext.reloadConfig = reloadConfig;
+  emailService.start();
   void relayKnowledgeOutbox();
   const knowledgeRelayTimer = setInterval(() => {
     void relayKnowledgeOutbox();
@@ -551,6 +593,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     stopBoardWorker,
     stopScheduler,
     stopStatusReconciler,
+    stopEmailService: () => emailService.stop(),
     stopWatchers,
     stopWsHeartbeat: transports.stopWsHeartbeat,
     uploadCleanupTimer,

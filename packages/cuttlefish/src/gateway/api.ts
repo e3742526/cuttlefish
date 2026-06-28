@@ -15,6 +15,7 @@ import { handleAuthRoutes } from "./api/routes/auth.js";
 import { handleCheckpointRoutes } from "./api/routes/checkpoints.js";
 import { handleConnectorRoutes } from "./api/routes/connectors.js";
 import { handleCronRoutes } from "./api/routes/cron.js";
+import { handleEmailRoutes } from "../email/routes.js";
 import { handleFsRoutes } from "./api/routes/fs.js";
 import { handleKnowledgeRoutes } from "./api/routes/knowledge.js";
 import { handleOrgRoutes } from "./api/routes/org.js";
@@ -64,6 +65,7 @@ export async function handleApiRequest(
     if (await handleOrgRoutes(method, pathname, req, res, context)) return;
     if (await handleSkillRoutes(method, pathname, res)) return;
     if (await handleSystemRoutes(method, pathname, req, url, res, context)) return;
+    if (await handleEmailRoutes(method, pathname, req, url, res, context)) return;
     if (await handleConnectorRoutes(method, pathname, req, res, context)) return;
 
     if (pathname.startsWith("/api/talk/")) {

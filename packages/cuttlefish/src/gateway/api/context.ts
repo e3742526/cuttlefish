@@ -3,6 +3,7 @@ import type { OrchestrationConfig } from "../../orchestration/types.js";
 import type { OrchestrationRuntime } from "../../orchestration/runtime.js";
 import type { SessionNotificationSink } from "../../sessions/notification-sink.js";
 import type { SessionManager } from "../../sessions/manager.js";
+import type { EmailService } from "../../email/service.js";
 
 export interface ApiContext {
   config: CuttlefishConfig;
@@ -43,6 +44,8 @@ export interface ApiContext {
    *  maintained in server.ts from the interactive engine's onBackgroundActivity
    *  callback. lastActivityAt is epoch ms; serializeSession converts to ISO. */
   backgroundActivity?: Map<string, { activeStreams: number; lastActivityAt: number }>;
+  /** Optional email inbox polling + inspection service. */
+  emailService?: EmailService;
   /** Optional test/embedding override for observe-only orchestration routes. */
   orchestration?: {
     runtime?: OrchestrationRuntime;

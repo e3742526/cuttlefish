@@ -47,6 +47,7 @@ export async function handleStatusRoutes(
     const connectors = Object.fromEntries(
       Array.from(context.connectors.values()).map((connector) => [connector.name, connector.getHealth()]),
     );
+    const emailInboxes = context.emailService?.listInboxes() ?? [];
     const connectorErrors = Object.values(connectors).filter((health) => health.status === "error");
     checks.push({
       name: "connectors",
@@ -86,6 +87,17 @@ export async function handleStatusRoutes(
       },
       sessions: { total: sessions.length, running, active: running },
       connectors,
+      email: {
+        enabled: config.email?.enabled === true,
+        inboxes: emailInboxes.map((inbox) => ({
+          id: inbox.id,
+          label: inbox.label ?? null,
+          status: inbox.health?.status ?? "idle",
+          detail: inbox.health?.detail ?? null,
+          lastCheckedAt: inbox.health?.lastCheckedAt ?? null,
+          cachedCount: inbox.health?.cachedCount ?? 0,
+        })),
+      },
     });
     return true;
   }
