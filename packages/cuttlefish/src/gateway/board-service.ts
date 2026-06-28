@@ -22,6 +22,9 @@ export interface BoardTicket {
   priority: BoardTicketPriority;
   complexity?: BoardTicketComplexity;
   assignee: string;
+  resourcePath?: string;
+  resourceUrl?: string;
+  manualOnly?: boolean;
   source?: string;
   sessionId?: string;
   createdAt: string;
@@ -182,6 +185,30 @@ function assertValidBoardTicket(ticket: unknown, index: number): asserts ticket 
   }
   if (t.complexity !== undefined && (typeof t.complexity !== "string" || !VALID_COMPLEXITIES.has(t.complexity as BoardTicketComplexity))) {
     throw new Error(`tickets[${index}].complexity must be one of ${[...VALID_COMPLEXITIES].join(", ")}`);
+  }
+  if (t.resourcePath !== undefined && (typeof t.resourcePath !== "string" || !t.resourcePath.trim())) {
+    throw new Error(`tickets[${index}].resourcePath must be a non-empty string when provided`);
+  }
+  if (t.resourceUrl !== undefined) {
+    if (typeof t.resourceUrl !== "string" || !t.resourceUrl.trim()) {
+      throw new Error(`tickets[${index}].resourceUrl must be a non-empty string when provided`);
+    }
+    try {
+      const parsed = new URL(t.resourceUrl);
+      if (!/^https?:$/.test(parsed.protocol)) {
+        throw new Error(`tickets[${index}].resourceUrl must use http or https`);
+      }
+    } catch (err) {
+      throw err instanceof Error && err.message.includes(`tickets[${index}]`)
+        ? err
+        : new Error(`tickets[${index}].resourceUrl must be a valid http(s) URL`);
+    }
+  }
+  if (t.resourcePath && t.resourceUrl) {
+    throw new Error(`tickets[${index}] may specify resourcePath or resourceUrl, but not both`);
+  }
+  if (t.manualOnly !== undefined && typeof t.manualOnly !== "boolean") {
+    throw new Error(`tickets[${index}].manualOnly must be a boolean when provided`);
   }
 }
 

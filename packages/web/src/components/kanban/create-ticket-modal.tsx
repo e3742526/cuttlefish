@@ -5,6 +5,7 @@ import type { Employee } from '@/lib/api'
 import type { TicketComplexity, TicketPriority } from '@/lib/kanban/types'
 import { PRIORITY_COLORS } from '@/lib/kanban/types'
 import { EmployeePicker } from './employee-picker'
+import { FolderPicker } from '@/components/chat/folder-picker'
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,9 @@ interface CreateTicketModalProps {
   onSubmit: (ticket: {
     title: string
     description: string
+    resourcePath?: string
+    resourceUrl?: string
+    manualOnly?: boolean
     priority: TicketPriority
     complexity: TicketComplexity
     assigneeId: string | null
@@ -45,6 +49,9 @@ const initialState = {
   priority: 'medium' as TicketPriority,
   complexity: 'medium' as TicketComplexity,
   assigneeId: '' as string,
+  resourcePath: null as string | null,
+  resourceUrl: '',
+  manualOnly: false,
 }
 
 export function CreateTicketModal({
@@ -71,6 +78,9 @@ export function CreateTicketModal({
     onSubmit({
       title: form.title.trim(),
       description: form.description.trim(),
+      resourcePath: form.resourcePath?.trim() || undefined,
+      resourceUrl: form.resourceUrl.trim() || undefined,
+      manualOnly: form.manualOnly,
       priority: form.priority,
       complexity: form.complexity,
       assigneeId: form.assigneeId || null,
@@ -220,6 +230,41 @@ export function CreateTicketModal({
               onChange={(name) => setForm((f) => ({ ...f, assigneeId: name }))}
             />
           </div>
+
+          <div className="flex flex-col gap-[var(--space-2)]">
+            <span className="text-[length:var(--text-caption1)] font-[var(--weight-medium)] text-[var(--text-secondary)]">
+              Ticket context
+            </span>
+            <div className="flex items-center gap-[var(--space-2)]">
+              <FolderPicker
+                value={form.resourcePath}
+                onChange={(cwd) => setForm((f) => ({ ...f, resourcePath: cwd, resourceUrl: cwd ? '' : f.resourceUrl }))}
+              />
+              <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)] truncate">
+                {form.resourcePath || 'No local directory selected'}
+              </span>
+            </div>
+            <input
+              type="url"
+              placeholder="https://example.com/reference"
+              value={form.resourceUrl}
+              onChange={(e) => setForm((f) => ({ ...f, resourceUrl: e.target.value, resourcePath: e.target.value.trim() ? null : f.resourcePath }))}
+              className="text-[length:var(--text-body)] text-[var(--text-primary)] py-2 px-3 border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none font-[inherit]"
+            />
+            <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
+              Add either one local directory or one URL for the agent to inspect when this ticket runs.
+            </div>
+          </div>
+
+          <label className="flex items-center gap-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
+            <input
+              type="checkbox"
+              checked={form.manualOnly}
+              onChange={(e) => setForm((f) => ({ ...f, manualOnly: e.target.checked }))}
+            />
+            <span>Manual only</span>
+            <span className="text-[var(--text-tertiary)]">No automatic board-worker runs.</span>
+          </label>
 
           {/* Submit */}
           <button

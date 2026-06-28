@@ -13,6 +13,11 @@ import { findEmployee, scanOrg } from "./org.js";
 import { readBoardArray, writeBoardTickets, type BoardTicket } from "./board-service.js";
 import type { ApiContext } from "./api/context.js";
 import { orgWorkerIdForName, orgWorkerRoleForName } from "./org-worker-bridge.js";
+import {
+  buildResolvedRunAttachments,
+  resolveIncomingRunAttachments,
+  setRunAttachmentsOnTransportMeta,
+} from "./run-attachments.js";
 
 export type DispatchTicketFailureReason =
   | "no-assignee"
@@ -21,6 +26,8 @@ export type DispatchTicketFailureReason =
   | "foreign-department-assignee"
   | "no-manager"
   | "already-running"
+  | "manual-only"
+  | "invalid-resource"
   | "orchestration-unavailable"
   | "orchestration-worker-unmapped"
   | "orchestration-busy";
@@ -40,8 +47,6 @@ export interface DispatchTicketOptions {
   routeToManager: boolean;
 }
 
-type BoardDispatchState = "session_created" | "board_linked";
-
 interface BoardDispatchLeaseGuard {
   lease: Lease;
   worker: Worker;
@@ -58,18 +63,6 @@ interface CapturedCompletion {
 function boardDispatchMeta(session: Session): Record<string, unknown> {
   const meta = session.transportMeta;
   return meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {};
-}
-
-function withBoardDispatchState(
-  session: Session,
-  state: BoardDispatchState,
-  leaseMeta?: JsonObject,
-): JsonObject {
-  return {
-    ...boardDispatchMeta(session),
-    ...(leaseMeta ?? {}),
-    boardDispatchState: state,
-  };
 }
 
 function isRecoverableBoardDispatchSession(session: Session): boolean {
@@ -97,6 +90,25 @@ function ticketPrompt(ticket: BoardTicket): string {
   const title = String(ticket.title || "").trim();
   const description = String(ticket.description || "").trim();
   return description ? `${title}\n\n${description}` : title;
+}
+
+async function resolveTicketResources(ticket: BoardTicket, context: ApiContext) {
+  const specs: Array<Record<string, string>> = [];
+  if (typeof ticket.resourcePath === "string" && ticket.resourcePath.trim()) {
+    specs.push({
+      path: ticket.resourcePath.trim(),
+      intendedUse: "Ticket-linked directory context",
+    });
+  }
+  if (typeof ticket.resourceUrl === "string" && ticket.resourceUrl.trim()) {
+    specs.push({
+      url: ticket.resourceUrl.trim(),
+      intendedUse: "Ticket-linked URL context",
+    });
+  }
+  if (specs.length === 0) return { attachments: [], promptBlock: null, engineAttachments: [] };
+  const attachments = await resolveIncomingRunAttachments(specs, context);
+  return buildResolvedRunAttachments(attachments);
 }
 
 function priorityForTicket(ticket: BoardTicket): TaskPriority {
@@ -281,6 +293,9 @@ export async function dispatchTicket(
   }
 
   const employee = resolved.employee;
+  if (ticket.manualOnly && opts.source !== "manual") {
+    return { ok: false, reason: "manual-only" };
+  }
   const engine = deps.context.sessionManager.getEngine(employee.engine);
   if (!engine) {
     throw new Error(`Engine "${employee.engine}" not available for ${employee.name}`);
@@ -309,6 +324,24 @@ export async function dispatchTicket(
   const now = deps.now?.() ?? Date.now();
   const iso = new Date(now).toISOString();
   const prompt = ticketPrompt(dispatchTicket);
+  let resolvedResources;
+  try {
+    resolvedResources = await resolveTicketResources(dispatchTicket, deps.context);
+  } catch (err) {
+    logger.info(`[ticket-dispatch] skipped ${department}/${ticketId}: invalid-resource`);
+    return { ok: false, reason: "invalid-resource" };
+  }
+  const dispatchTransportMeta = {
+    ...(resolvedResources.attachments.length > 0
+      ? setRunAttachmentsOnTransportMeta(reusableSession?.transportMeta ?? null, resolvedResources.attachments)
+      : (reusableSession?.transportMeta ?? {})),
+    ...(leaseGuard?.transportMeta ?? {}),
+    boardDepartment: department,
+    boardTicketId: ticketId,
+    boardDispatchState: "session_created",
+    dispatchSource: opts.source,
+    routedToManager: opts.routeToManager,
+  };
   let session: Session;
   try {
     session = reusableSession ?? createSession({
@@ -318,14 +351,7 @@ export async function dispatchTicket(
       connector: opts.source,
       sessionKey,
       replyContext: { source: opts.source, department, ticketId },
-      transportMeta: {
-        ...(leaseGuard?.transportMeta ?? {}),
-        boardDepartment: department,
-        boardTicketId: ticketId,
-        boardDispatchState: "session_created",
-        dispatchSource: opts.source,
-        routedToManager: opts.routeToManager,
-      },
+      transportMeta: dispatchTransportMeta,
       employee: employee.name,
       model: employee.model,
       title: dispatchTicket.title,
@@ -344,13 +370,19 @@ export async function dispatchTicket(
       status: "running",
       lastActivity: iso,
       lastError: null,
-      transportMeta: withBoardDispatchState(session, "board_linked", leaseGuard?.transportMeta),
+      transportMeta: {
+        ...dispatchTransportMeta,
+        boardDispatchState: "board_linked",
+      } as JsonObject,
     }) ?? {
       ...session,
       status: "running" as const,
       lastActivity: iso,
       lastError: null,
-      transportMeta: withBoardDispatchState(session, "board_linked", leaseGuard?.transportMeta),
+      transportMeta: {
+        ...dispatchTransportMeta,
+        boardDispatchState: "board_linked",
+      } as JsonObject,
     };
 
     deps.context.emit("board:updated", { department });
@@ -376,6 +408,10 @@ export async function dispatchTicket(
       engine,
       deps.context.getConfig(),
       telemetryContext,
+      {
+        attachments: resolvedResources.engineAttachments,
+        resourceContext: resolvedResources.promptBlock,
+      },
     );
     if (leaseGuard) {
       void run.then(

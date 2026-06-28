@@ -73,6 +73,27 @@ describe('buildDepartmentBoardSaveRequests', () => {
       tickets: [expect.objectContaining({ id: 'ticket-2' })],
     })
   })
+
+  it('serializes ticket resource context and manual-only flags', () => {
+    const requests = buildDepartmentBoardSaveRequests(
+      {
+        ...store,
+        'ticket-1': {
+          ...store['ticket-1'],
+          resourcePath: '/tmp/project',
+          manualOnly: true,
+        },
+      },
+      [{ department: 'engineering' }],
+      { engineering: 3, marketing: 5 },
+    )
+
+    expect(requests[0].payload.tickets[0]).toMatchObject({
+      id: 'ticket-1',
+      resourcePath: '/tmp/project',
+      manualOnly: true,
+    })
+  })
 })
 
 describe('buildAssigneeChangeUpdate', () => {

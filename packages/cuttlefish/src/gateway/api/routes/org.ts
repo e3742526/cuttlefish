@@ -536,6 +536,14 @@ export async function handleOrgRoutes(
         json(res, { reason: result.reason, error: "Ticket already has a running session." }, 409);
         return true;
       }
+      if (result.reason === "manual-only") {
+        json(res, { reason: result.reason, error: "This ticket is marked manual only and cannot be auto-dispatched." }, 409);
+        return true;
+      }
+      if (result.reason === "invalid-resource") {
+        json(res, { reason: result.reason, error: "Ticket resource path or URL is invalid for this gateway." }, 400);
+        return true;
+      }
       if (result.reason.startsWith("orchestration-")) {
         json(res, { reason: result.reason, error: result.reason }, 409);
         return true;

@@ -159,4 +159,18 @@ describe("board-service mergeBoardTickets", () => {
     })).toThrow(/status must be one of/);
   });
 
+  it("accepts a manual-only ticket with either a directory path or a URL, but not both", () => {
+    expect(parseBoardWritePayload([
+      { ...ticket("dir"), manualOnly: true, resourcePath: "/tmp/project" },
+    ]).tickets[0]).toMatchObject({ manualOnly: true, resourcePath: "/tmp/project" });
+
+    const orgDir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-board-service-"));
+    const deptDir = path.join(orgDir, "software-delivery");
+    fs.mkdirSync(deptDir, { recursive: true });
+
+    expect(() => writeMergedBoard(orgDir, "software-delivery", {
+      tickets: [{ ...ticket("bad-resource"), resourcePath: "/tmp/project", resourceUrl: "https://example.com" }],
+    })).toThrow(/resourcePath or resourceUrl/);
+  });
+
 });

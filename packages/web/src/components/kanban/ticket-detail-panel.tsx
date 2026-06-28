@@ -6,6 +6,7 @@ import type { Message } from '@/lib/conversations'
 import type { KanbanTicket, TicketStatus, TicketPriority, TicketComplexity } from '@/lib/kanban/types'
 import { PRIORITY_COLORS, COLUMNS } from '@/lib/kanban/types'
 import { EmployeePicker } from './employee-picker'
+import { FolderPicker } from '@/components/chat/folder-picker'
 
 /* Priority badge */
 function PriorityBadge({ priority }: { priority: TicketPriority }) {
@@ -115,7 +116,7 @@ interface TicketDetailPanelProps {
   onAssigneeChange: (employeeName: string | null) => void
   onRunNow: () => void
   onDelete: () => void
-  onSaveDetails: (updates: Pick<KanbanTicket, 'title' | 'description'>) => void
+  onSaveDetails: (updates: Pick<KanbanTicket, 'title' | 'description' | 'resourcePath' | 'resourceUrl' | 'manualOnly'>) => void
   onAppendNote: (updates: { title: string; description: string; note: string }) => void
 }
 
@@ -137,6 +138,9 @@ export function TicketDetailPanel({
   const [liveLoading, setLiveLoading] = useState(false)
   const [draftTitle, setDraftTitle] = useState(ticket.title)
   const [draftDescription, setDraftDescription] = useState(ticket.description)
+  const [draftResourcePath, setDraftResourcePath] = useState<string | null>(ticket.resourcePath ?? null)
+  const [draftResourceUrl, setDraftResourceUrl] = useState(ticket.resourceUrl ?? '')
+  const [draftManualOnly, setDraftManualOnly] = useState(ticket.manualOnly === true)
   const [noteDraft, setNoteDraft] = useState('')
 
   // Escape key to close
@@ -156,8 +160,11 @@ export function TicketDetailPanel({
   useEffect(() => {
     setDraftTitle(ticket.title)
     setDraftDescription(ticket.description)
+    setDraftResourcePath(ticket.resourcePath ?? null)
+    setDraftResourceUrl(ticket.resourceUrl ?? '')
+    setDraftManualOnly(ticket.manualOnly === true)
     setNoteDraft('')
-  }, [ticket.id, ticket.title, ticket.description])
+  }, [ticket.id, ticket.title, ticket.description, ticket.resourcePath, ticket.resourceUrl, ticket.manualOnly])
 
   function handleDelete() {
     onDelete()
@@ -166,7 +173,13 @@ export function TicketDetailPanel({
   function handleSaveDetails() {
     const title = draftTitle.trim()
     if (!title) return
-    onSaveDetails({ title, description: draftDescription })
+    onSaveDetails({
+      title,
+      description: draftDescription,
+      resourcePath: draftResourcePath?.trim() || undefined,
+      resourceUrl: draftResourceUrl.trim() || undefined,
+      manualOnly: draftManualOnly,
+    })
   }
 
   function handleAppendNoteClick() {
@@ -229,13 +242,22 @@ export function TicketDetailPanel({
   const assignee = employees.find(e => e.name === ticket.assigneeId) ?? null
   const accentColor = 'var(--accent)'
   const trimmedTitle = draftTitle.trim()
-  const detailsDirty = trimmedTitle !== ticket.title || draftDescription !== ticket.description
+  const detailsDirty =
+    trimmedTitle !== ticket.title ||
+    draftDescription !== ticket.description ||
+    (draftResourcePath ?? '') !== (ticket.resourcePath ?? '') ||
+    draftResourceUrl !== (ticket.resourceUrl ?? '') ||
+    draftManualOnly !== (ticket.manualOnly === true)
   const saveDetailsDisabled = trimmedTitle.length === 0 || !detailsDirty
   const appendNoteDisabled = trimmedTitle.length === 0 || noteDraft.trim().length === 0
   const runDisabled = !ticket.assigneeId || ticket.workState === 'starting'
   const runHelperText = !ticket.assigneeId
     ? 'Assign someone first.'
-    : (ticket.workState === 'starting' ? 'Starting worker session…' : 'Run immediately, bypassing idle and schedule gates.')
+    : (ticket.workState === 'starting'
+      ? 'Starting worker session…'
+      : (ticket.manualOnly
+        ? 'Manual-only ticket. It will never be launched by the board worker.'
+        : 'Run immediately, bypassing idle and schedule gates.'))
   const transcriptMessages = useMemo(() => mapTailMessages(liveSession), [liveSession])
   const showLiveSection = ticket.status === 'in-progress' || liveSession?.found === true
   const showTranscript = transcriptMessages.length > 0 || liveSession?.status === 'running'
@@ -404,6 +426,42 @@ export function TicketDetailPanel({
               onChange={(e) => setDraftDescription(e.target.value)}
               className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none resize-y"
             />
+            <div className="mt-[var(--space-3)] text-[length:var(--text-caption1)] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.5px] mb-[var(--space-2)]">
+              Ticket context
+            </div>
+            <div className="flex items-center gap-[var(--space-2)] mb-[var(--space-2)]">
+              <FolderPicker
+                value={draftResourcePath}
+                onChange={(cwd) => {
+                  setDraftResourcePath(cwd)
+                  if (cwd) setDraftResourceUrl('')
+                }}
+              />
+              <span className="min-w-0 truncate text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+                {draftResourcePath || 'No local directory selected'}
+              </span>
+            </div>
+            <input
+              aria-label="Ticket URL"
+              type="url"
+              placeholder="https://example.com/reference"
+              value={draftResourceUrl}
+              onChange={(e) => {
+                const next = e.target.value
+                setDraftResourceUrl(next)
+                if (next.trim()) setDraftResourcePath(null)
+              }}
+              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none"
+            />
+            <label className="mt-[var(--space-3)] flex items-center gap-[var(--space-2)] text-[length:var(--text-caption2)] text-[var(--text-secondary)]">
+              <input
+                type="checkbox"
+                checked={draftManualOnly}
+                onChange={(e) => setDraftManualOnly(e.target.checked)}
+              />
+              <span>Manual only</span>
+              <span className="text-[var(--text-tertiary)]">Skip board-worker auto-dispatch.</span>
+            </label>
             <div className="mt-[var(--space-2)] flex justify-end">
               <button
                 onClick={handleSaveDetails}

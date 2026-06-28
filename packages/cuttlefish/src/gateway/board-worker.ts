@@ -150,7 +150,7 @@ async function buildCandidates(
     const usageMode = usageModeForStatus(status, boardWorkerConfig.usage.minRemainingPercent);
     if (usageMode === "skip") continue;
 
-    const todoTickets = tickets.filter((ticket) => ticket.status === "todo");
+    const todoTickets = tickets.filter((ticket) => ticket.status === "todo" && ticket.manualOnly !== true);
     const filtered = usageMode === "low-only"
       ? todoTickets.filter((ticket) => boardTicketComplexity(ticket) === "low")
       : todoTickets;

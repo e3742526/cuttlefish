@@ -227,6 +227,9 @@ export interface DepartmentBoardTicket {
   priority?: 'low' | 'medium' | 'high'
   complexity?: 'low' | 'medium' | 'high'
   assignee?: string
+  resourcePath?: string
+  resourceUrl?: string
+  manualOnly?: boolean
   source?: string
   sessionId?: string
   createdAt?: string

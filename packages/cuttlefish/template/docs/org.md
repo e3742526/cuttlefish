@@ -79,6 +79,11 @@ use. Active tickets use this schema:
 
 Canonical task fields: `id`, `title`, `assignee`, `status` (`backlog`, `todo`, `in_progress`, `review`, `done`, `blocked`), `priority` (`low`, `medium`, `high`), `complexity` (`low`, `medium`, `high`), `description`, `createdAt`, `updatedAt`.
 
+Optional ticket-level execution controls:
+- `resourcePath` — one local directory path to attach when the ticket runs
+- `resourceUrl` — one http(s) URL to attach when the ticket runs
+- `manualOnly` — when `true`, the board worker will never auto-dispatch the ticket
+
 ## Ranks
 
 | Rank | Privileges |

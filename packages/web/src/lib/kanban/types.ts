@@ -12,6 +12,9 @@ export interface KanbanTicket {
   id: string
   title: string
   description: string
+  resourcePath?: string
+  resourceUrl?: string
+  manualOnly?: boolean
   status: TicketStatus
   priority: TicketPriority
   complexity: TicketComplexity

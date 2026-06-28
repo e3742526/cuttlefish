@@ -70,4 +70,8 @@ describe("ticket dispatch resolution", () => {
       reason: "foreign-department-assignee",
     });
   });
+
+  it("marks tickets as manual-only through the board ticket contract", () => {
+    expect(ticket({ manualOnly: true }).manualOnly).toBe(true);
+  });
 });

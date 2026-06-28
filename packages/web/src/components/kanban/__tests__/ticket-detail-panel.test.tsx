@@ -31,6 +31,10 @@ vi.mock('../employee-picker', () => ({
   EmployeePicker: () => <div data-testid="employee-picker" />,
 }))
 
+vi.mock('@/components/chat/folder-picker', () => ({
+  FolderPicker: () => <div data-testid="folder-picker" />,
+}))
+
 vi.mock('@/components/chat/chat-messages', () => ({
   ChatMessages: ({ messages }: { messages: Array<{ content: string }> }) => (
     <div data-testid="chat-messages">{messages.map((message) => message.content).join('|')}</div>
@@ -73,7 +77,7 @@ function renderPanel(
     onAssigneeChange?: (employeeName: string | null) => void
     onRunNow?: () => void
     onDelete?: () => void
-    onSaveDetails?: (updates: Pick<KanbanTicket, 'title' | 'description'>) => void
+    onSaveDetails?: (updates: Pick<KanbanTicket, 'title' | 'description' | 'resourcePath' | 'resourceUrl' | 'manualOnly'>) => void
     onAppendNote?: (updates: { title: string; description: string; note: string }) => void
   } = {},
 ) {
@@ -120,6 +124,9 @@ describe('TicketDetailPanel', () => {
     expect(onSaveDetails).toHaveBeenCalledWith({
       title: 'Updated worker ticket',
       description: 'Updated ticket description',
+      resourcePath: undefined,
+      resourceUrl: undefined,
+      manualOnly: false,
     })
   })
 

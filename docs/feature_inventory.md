@@ -78,6 +78,20 @@
   `securityReviewer`.
 - Employee, manager, and executive org-map cards also expose a compact quick-chat affordance that opens the main chat workspace, using the existing employee preselection deep-link for non-executive employees.
 
+### Kanban ticket resource context and manual-only dispatch
+- `packages/web/src/routes/kanban/page.tsx`
+- `packages/web/src/components/kanban/create-ticket-modal.tsx`
+- `packages/web/src/components/kanban/ticket-detail-panel.tsx`
+- `packages/cuttlefish/src/gateway/ticket-dispatch.ts`
+- `packages/cuttlefish/src/gateway/board-worker.ts`
+- Department-board tickets can now store one local directory (`resourcePath`)
+  or one http(s) URL (`resourceUrl`) that is attached when the ticket runs,
+  reusing the session run-resource attachment system rather than a kanban-only
+  path.
+- Tickets can also set `manualOnly: true`, exposed in the UI as a manual-only
+  toggle, which prevents background board-worker auto-dispatch while still
+  allowing explicit human `Run now`.
+
 ### Settings orchestration controls
 - `packages/web/src/routes/settings/page.tsx`
 - `packages/web/src/routes/settings/settings-config-sections.tsx`

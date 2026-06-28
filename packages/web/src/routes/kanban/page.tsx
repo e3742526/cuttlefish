@@ -79,6 +79,9 @@ function mapBoardTicket(item: DepartmentBoardTicket, department: string): Kanban
     id: item.id,
     title: item.title,
     description: item.description || '',
+    resourcePath: item.resourcePath,
+    resourceUrl: item.resourceUrl,
+    manualOnly: item.manualOnly === true,
     status: statusMap[item.status] ?? (() => { throw new Error(`Unknown ticket status '${String(item.status)}' in ${department}/${item.id}`) })(),
     priority: priorityMap[item.priority || 'medium'] || 'medium',
     complexity: complexityMap[item.complexity || 'medium'] || 'medium',
@@ -144,6 +147,9 @@ export function buildDepartmentBoardSaveRequests(
         id: t.id,
         title: t.title,
         description: t.description,
+        resourcePath: t.resourcePath,
+        resourceUrl: t.resourceUrl,
+        manualOnly: t.manualOnly === true,
         status: BOARD_STATUS_BY_KANBAN_STATUS[t.status],
         priority: t.priority,
         complexity: t.complexity,
@@ -385,6 +391,9 @@ export default function KanbanPage() {
   function handleCreateTicket(data: {
     title: string
     description: string
+    resourcePath?: string
+    resourceUrl?: string
+    manualOnly?: boolean
     priority: TicketPriority
     complexity: TicketComplexity
     assigneeId: string | null
@@ -499,7 +508,10 @@ export default function KanbanPage() {
     })
   }
 
-  function handleSaveDetails(ticketId: string, updates: Pick<KanbanTicket, 'title' | 'description'>) {
+  function handleSaveTicketConfig(
+    ticketId: string,
+    updates: Pick<KanbanTicket, 'title' | 'description' | 'resourcePath' | 'resourceUrl' | 'manualOnly'>,
+  ) {
     setTickets((prev) => {
       const next = updateTicket(prev, ticketId, updates)
       persistBoardChange(next, targetForTicket(next[ticketId]))
@@ -766,7 +778,7 @@ export default function KanbanPage() {
               onAssigneeChange={(name) => handleAssigneeChange(selectedTicket.id, name)}
               onRunNow={() => handleRunNow(selectedTicket.id)}
               onDelete={() => setDeleteConfirm(selectedTicket)}
-              onSaveDetails={(updates) => handleSaveDetails(selectedTicket.id, updates)}
+              onSaveDetails={(updates) => handleSaveTicketConfig(selectedTicket.id, updates)}
               onAppendNote={(updates) => handleAppendNote(selectedTicket.id, updates)}
             />
         )}

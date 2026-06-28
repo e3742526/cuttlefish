@@ -135,6 +135,15 @@ describe("board worker selection ordering", () => {
     expect(ranked.map((entry) => entry.ticket.id)).toEqual(["newer-low", "older-low"]);
   });
 
+  it("does not rank manual-only tickets for automatic dispatch", () => {
+    const ranked = rankBoardWorkerCandidates([
+      candidate("manual-only", { manualOnly: true, complexity: "low", priority: "high" }),
+      candidate("normal", { complexity: "low", priority: "medium" }),
+    ].filter((entry) => entry.ticket.manualOnly !== true));
+
+    expect(ranked.map((entry) => entry.ticket.id)).toEqual(["normal"]);
+  });
+
   it("falls through to highest priority available when no low-complexity tickets exist", () => {
     const selected = selectBoardWorkerCandidate([
       candidate("medium-old", { priority: "medium", complexity: "medium", createdAt: "2026-06-18T00:00:00.000Z" }),

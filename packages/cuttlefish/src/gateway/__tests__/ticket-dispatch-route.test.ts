@@ -175,4 +175,42 @@ describe("POST /api/org/departments/:name/tickets/:id/dispatch", () => {
     expect(cap.status).toBe(409);
     expect(cap.body).toMatchObject({ reason: "orchestration-busy" });
   }, 15_000);
+
+  it("maps manual-only and invalid-resource failures cleanly", async () => {
+    vi.doMock("../ticket-dispatch.js", () => ({
+      dispatchTicket: vi
+        .fn()
+        .mockReturnValueOnce({ ok: false, reason: "manual-only" })
+        .mockReturnValueOnce({ ok: false, reason: "invalid-resource" }),
+    }));
+    const api = await import("../api.js");
+    const ctx = {
+      getConfig: () => ({ gateway: {}, engines: { default: "claude", claude: { bin: "claude", model: "opus" } } }),
+      connectors: new Map(),
+      startTime: Date.now(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine: () => undefined,
+        getQueue: () => ({ enqueue: vi.fn(), getPendingCount: () => 0, getTransportState: (_key: string, status: string) => status }),
+      },
+    } as any;
+
+    const manualCap = makeRes();
+    await api.handleApiRequest(
+      makeReq("POST", "/api/org/departments/software-delivery/tickets/ticket-1/dispatch"),
+      manualCap.res,
+      ctx,
+    );
+    expect(manualCap.status).toBe(409);
+    expect(manualCap.body).toMatchObject({ reason: "manual-only" });
+
+    const resourceCap = makeRes();
+    await api.handleApiRequest(
+      makeReq("POST", "/api/org/departments/software-delivery/tickets/ticket-1/dispatch"),
+      resourceCap.res,
+      ctx,
+    );
+    expect(resourceCap.status).toBe(400);
+    expect(resourceCap.body).toMatchObject({ reason: "invalid-resource" });
+  }, 15_000);
 });
