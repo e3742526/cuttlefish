@@ -335,6 +335,9 @@ export function TicketDetailPanel({
               <span className="text-[length:var(--text-caption2)] font-semibold text-[var(--text-secondary)] bg-[var(--fill-tertiary)] px-[var(--space-2)] py-[2px] rounded-[var(--radius-sm)] uppercase tracking-[0.3px]">
                 {ticket.complexity}
               </span>
+              <span className="ml-auto text-[length:var(--text-caption2)] font-mono text-[var(--text-tertiary)]">
+                ID: {ticket.id}
+              </span>
             </div>
 
             {/* Assignee */}

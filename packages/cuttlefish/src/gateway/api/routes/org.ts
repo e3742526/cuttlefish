@@ -638,7 +638,8 @@ export async function handleOrgRoutes(
         badRequest(res, assigneeError);
         return true;
       }
-      const { rejected } = writeMergedBoardPartial(ORG_DIR, params.name, parsed.body);
+      const activeSessionIds = new Set(listSessions().map((session) => session.id));
+      const { rejected } = writeMergedBoardPartial(ORG_DIR, params.name, parsed.body, { activeSessionIds });
       if (rejected.length > 0) {
         logger.warn(
           `PUT /api/org/departments/${params.name}/board: accepted valid tickets, rejected ${rejected.length} invalid: ` +

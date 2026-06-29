@@ -102,6 +102,10 @@ export function TicketCard({ ticket, assigneeName, onClick, onDelete }: TicketCa
         </span>
       </div>
 
+      <div className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)] font-mono break-all">
+        ID: {ticket.id}
+      </div>
+
       {/* Description preview */}
       {ticket.description && (
         <div className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)] leading-[1.4] line-clamp-2 overflow-hidden break-words">

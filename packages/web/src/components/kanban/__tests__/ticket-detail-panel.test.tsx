@@ -176,6 +176,13 @@ describe('TicketDetailPanel', () => {
     expect(screen.getByTestId('chat-messages').textContent).toContain('Thinking through it')
   })
 
+  it('shows the ticket ID in the metadata header', async () => {
+    getTicketSession.mockResolvedValue({ found: false })
+    renderPanel()
+
+    expect(await screen.findByText('ID: ticket-live')).toBeDefined()
+  })
+
   it('renders stalled and fallback header badges from live session metadata', async () => {
     getTicketSession.mockResolvedValue({
       found: true,

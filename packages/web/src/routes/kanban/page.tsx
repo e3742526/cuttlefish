@@ -775,6 +775,9 @@ export default function KanbanPage() {
                       <div className="truncate text-[length:var(--text-footnote)] font-semibold text-[var(--text-primary)]">
                         {ticket.title}
                       </div>
+                      <div className="mt-[2px] text-[length:var(--text-caption2)] text-[var(--text-tertiary)] font-mono">
+                        ID: {ticket.id}
+                      </div>
                       <div className="mt-[2px] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
                         Deleted {formatDeletedAt(ticket.deletedAt)}
                       </div>

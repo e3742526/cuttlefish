@@ -53,6 +53,10 @@ export class BoardConflictError extends Error {
   }
 }
 
+export interface BoardMergeOptions {
+  activeSessionIds?: ReadonlySet<string>;
+}
+
 export function boardTicketComplexity(ticket: Pick<BoardTicket, "complexity">): BoardTicketComplexity {
   return typeof ticket.complexity === "string" && VALID_COMPLEXITIES.has(ticket.complexity as BoardTicketComplexity)
     ? ticket.complexity as BoardTicketComplexity
@@ -263,23 +267,28 @@ function assertFreshBoardTicket(current: BoardTicket | undefined, baseUpdatedAt:
   );
 }
 
-function isActiveSessionTicket(ticket: BoardTicket): boolean {
+function isActiveSessionTicket(ticket: BoardTicket, activeSessionIds?: ReadonlySet<string>): boolean {
   return (
     typeof ticket.sessionId === "string" &&
     ticket.sessionId.trim().length > 0 &&
+    (!activeSessionIds || activeSessionIds.has(ticket.sessionId)) &&
     ticket.status !== "done" &&
     ticket.status !== "blocked"
   );
 }
 
-function shouldClearTerminalSessionLink(current: BoardTicket | undefined, incoming: BoardTicket): boolean {
-  if (!current || isActiveSessionTicket(current)) return false;
+function shouldClearTerminalSessionLink(current: BoardTicket | undefined, incoming: BoardTicket, activeSessionIds?: ReadonlySet<string>): boolean {
+  if (!current || isActiveSessionTicket(current, activeSessionIds)) return false;
   if (typeof current.sessionId !== "string" || !current.sessionId.trim()) return false;
   return incoming.status !== "done" && incoming.status !== "blocked";
 }
 
-function assertDoesNotReplaceActiveSession(current: BoardTicket | undefined, incoming: BoardTicket): void {
-  if (!current || !isActiveSessionTicket(current)) return;
+function assertDoesNotReplaceActiveSession(
+  current: BoardTicket | undefined,
+  incoming: BoardTicket,
+  activeSessionIds?: ReadonlySet<string>,
+): void {
+  if (!current || !isActiveSessionTicket(current, activeSessionIds)) return;
   const replacesSession = (
     typeof incoming.sessionId === "string" &&
     incoming.sessionId.trim().length > 0 &&
@@ -298,21 +307,22 @@ export function mergeBoardTickets(
   incoming: BoardTicket[],
   deletedIds = new Set<string>(),
   deletedVersions = new Map<string, string>(),
+  options: BoardMergeOptions = {},
 ): BoardTicket[] {
   const currentById = new Map(current.map((ticket) => [ticket.id, ticket]));
   const validIncoming = incoming.filter((ticket) => ticket && ticket.id && !deletedIds.has(ticket.id));
   for (const ticket of validIncoming) {
     const currentTicket = currentById.get(ticket.id);
     assertFreshBoardTicket(currentTicket, ticket.baseUpdatedAt ?? ticket.updatedAt, "update");
-    assertDoesNotReplaceActiveSession(currentTicket, ticket);
+    assertDoesNotReplaceActiveSession(currentTicket, ticket, options.activeSessionIds);
   }
   const filteredIncoming = validIncoming.map((ticket) => {
     const currentTicket = currentById.get(ticket.id);
     const { baseUpdatedAt: _baseUpdatedAt, ...stored } = ticket;
-    if (currentTicket && isActiveSessionTicket(currentTicket)) {
+    if (currentTicket && isActiveSessionTicket(currentTicket, options.activeSessionIds)) {
       stored.sessionId = currentTicket.sessionId;
       if (currentTicket.source != null) stored.source = currentTicket.source;
-    } else if (shouldClearTerminalSessionLink(currentTicket, stored as BoardTicket)) {
+    } else if (shouldClearTerminalSessionLink(currentTicket, stored as BoardTicket, options.activeSessionIds)) {
       delete stored.sessionId;
       delete stored.source;
     }
@@ -320,7 +330,7 @@ export function mergeBoardTickets(
   });
   for (const deletedId of deletedIds) {
     const currentTicket = currentById.get(deletedId);
-    if (!currentTicket || !isActiveSessionTicket(currentTicket)) continue;
+    if (!currentTicket || !isActiveSessionTicket(currentTicket, options.activeSessionIds)) continue;
     if (!deletedVersions.has(deletedId)) {
       throw new BoardConflictError(
         `board conflict: ticket "${deletedId}" has active session state; refresh before deleting`,
@@ -370,13 +380,14 @@ export function writeMergedBoard(
   orgDir: string,
   department: string,
   payload: unknown,
+  options: BoardMergeOptions = {},
 ): BoardTicket[] {
   const file = boardPath(orgDir, department);
   const current = readBoardState(orgDir, department) ?? defaultBoardState();
   const { tickets, deletedIds, deletedVersions, retentionDays } = parseBoardWritePayload(payload);
   assertValidBoardTickets(tickets);
   const nextRetentionDays = retentionDays ?? current.retentionDays;
-  const mergedTickets = mergeBoardTickets(current.tickets, tickets, deletedIds, deletedVersions);
+  const mergedTickets = mergeBoardTickets(current.tickets, tickets, deletedIds, deletedVersions, options);
   const mergedDeletedTickets = pruneDeletedTickets(
     mergeDeletedTickets(current, mergedTickets, deletedIds, new Date().toISOString()),
     nextRetentionDays,
@@ -399,13 +410,14 @@ export function writeMergedBoardPartial(
   orgDir: string,
   department: string,
   payload: unknown,
+  options: BoardMergeOptions = {},
 ): WriteMergedBoardPartialResult {
   const file = boardPath(orgDir, department);
   const current = readBoardState(orgDir, department) ?? defaultBoardState();
   const { tickets: rawTickets, deletedIds, deletedVersions, retentionDays } = parseBoardWritePayload(payload);
   const { valid, rejected } = partitionBoardTickets(rawTickets);
   const nextRetentionDays = retentionDays ?? current.retentionDays;
-  const mergedTickets = mergeBoardTickets(current.tickets, valid, deletedIds, deletedVersions);
+  const mergedTickets = mergeBoardTickets(current.tickets, valid, deletedIds, deletedVersions, options);
   const mergedDeletedTickets = pruneDeletedTickets(
     mergeDeletedTickets(current, mergedTickets, deletedIds, new Date().toISOString()),
     nextRetentionDays,

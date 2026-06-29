@@ -71,6 +71,36 @@ describe("board-service mergeBoardTickets", () => {
     expect(() => mergeBoardTickets(current, [], new Set(["session-s1"]))).toThrow(BoardConflictError);
   });
 
+  it("allows deleting a session ticket when the referenced session is no longer present", () => {
+    const current = [{
+      ...ticket("session-s1", "session"),
+      status: "in_progress" as const,
+    }];
+
+    expect(mergeBoardTickets(
+      current,
+      [],
+      new Set(["session-s1"]),
+      new Map(),
+      { activeSessionIds: new Set() },
+    )).toEqual([]);
+  });
+
+  it("still rejects deleting an in-progress ticket when its session is active", () => {
+    const current = [{
+      ...ticket("session-s1", "session"),
+      status: "in_progress" as const,
+    }];
+
+    expect(() => mergeBoardTickets(
+      current,
+      [],
+      new Set(["session-s1"]),
+      new Map(),
+      { activeSessionIds: new Set(["session-s1"]) },
+    )).toThrow(BoardConflictError);
+  });
+
   it("allows a fresh update that omits active session metadata and preserves server state", () => {
     const current = [{
       ...ticket("session-s1", "session"),
