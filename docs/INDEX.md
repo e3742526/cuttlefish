@@ -7,7 +7,8 @@ artifacts unless explicitly published.
 ## Current Operator Docs
 
 - `README.md`: public overview and install/use workflow.
-- `docs/USER_MANUAL.md`: maintained user manual for setup, workflows,
+- `docs/USER_MANUAL.md`
+- `docs/QDRANT_SETUP.md`: maintained user manual for setup, workflows,
   persistence, recovery, and troubleshooting.
 - `docs/ARCHITECTURE.md`: current architecture summary, component map,
   persistence map, boundaries, risks, and extension points.
