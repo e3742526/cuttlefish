@@ -216,6 +216,36 @@ function assertValidBoardTickets(tickets: unknown[]): asserts tickets is BoardTi
   tickets.forEach(assertValidBoardTicket);
 }
 
+export interface RejectedBoardTicket {
+  index: number;
+  id: string | null;
+  title: string | null;
+  error: string;
+}
+
+export function partitionBoardTickets(tickets: unknown[]): {
+  valid: BoardTicket[];
+  rejected: RejectedBoardTicket[];
+} {
+  const valid: BoardTicket[] = [];
+  const rejected: RejectedBoardTicket[] = [];
+  for (let i = 0; i < tickets.length; i++) {
+    try {
+      assertValidBoardTicket(tickets[i], i);
+      valid.push(tickets[i] as BoardTicket);
+    } catch (err) {
+      const t = tickets[i] && typeof tickets[i] === "object" ? tickets[i] as Record<string, unknown> : {};
+      rejected.push({
+        index: i,
+        id: typeof t["id"] === "string" ? t["id"] : null,
+        title: typeof t["title"] === "string" ? t["title"] : null,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { valid, rejected };
+}
+
 function ticketTime(value: unknown): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const time = Date.parse(value);
@@ -316,14 +346,24 @@ function mergeDeletedTickets(
   deletedAt: string,
 ): DeletedBoardTicket[] {
   const activeIds = new Set(activeTickets.map((ticket) => ticket.id).filter(Boolean));
+  const currentTicketsById = indexBoardTicketsById(current.tickets);
   const deleted = new Map(current.deletedTickets.map((ticket) => [ticket.id, ticket]));
   for (const deletedId of deletedIds) {
     if (deleted.has(deletedId)) continue;
-    const existing = current.tickets.find((ticket) => ticket.id === deletedId);
+    const existing = currentTicketsById.get(deletedId);
     if (!existing) continue;
     deleted.set(deletedId, { ...existing, deletedAt });
   }
   return [...deleted.values()].filter((ticket) => !activeIds.has(ticket.id));
+}
+
+export function indexBoardTicketsById(tickets: BoardTicket[]): Map<string, BoardTicket> {
+  const ticketsById = new Map<string, BoardTicket>();
+  for (const ticket of tickets) {
+    if (!ticket?.id || ticketsById.has(ticket.id)) continue;
+    ticketsById.set(ticket.id, ticket);
+  }
+  return ticketsById;
 }
 
 export function writeMergedBoard(
@@ -348,6 +388,35 @@ export function writeMergedBoard(
   }));
   verifyBoardWrite(file, mergedTickets);
   return mergedTickets;
+}
+
+export interface WriteMergedBoardPartialResult {
+  written: BoardTicket[];
+  rejected: RejectedBoardTicket[];
+}
+
+export function writeMergedBoardPartial(
+  orgDir: string,
+  department: string,
+  payload: unknown,
+): WriteMergedBoardPartialResult {
+  const file = boardPath(orgDir, department);
+  const current = readBoardState(orgDir, department) ?? defaultBoardState();
+  const { tickets: rawTickets, deletedIds, deletedVersions, retentionDays } = parseBoardWritePayload(payload);
+  const { valid, rejected } = partitionBoardTickets(rawTickets);
+  const nextRetentionDays = retentionDays ?? current.retentionDays;
+  const mergedTickets = mergeBoardTickets(current.tickets, valid, deletedIds, deletedVersions);
+  const mergedDeletedTickets = pruneDeletedTickets(
+    mergeDeletedTickets(current, mergedTickets, deletedIds, new Date().toISOString()),
+    nextRetentionDays,
+  );
+  safeWriteFile(file, serializeBoardState({
+    tickets: mergedTickets,
+    deletedTickets: mergedDeletedTickets,
+    retentionDays: nextRetentionDays,
+  }));
+  verifyBoardWrite(file, mergedTickets);
+  return { written: mergedTickets, rejected };
 }
 
 export function writeBoardTickets(orgDir: string, department: string, tickets: BoardTicket[]): void {

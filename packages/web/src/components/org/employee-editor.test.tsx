@@ -143,6 +143,15 @@ describe("EmployeeEditor", () => {
     expect(screen.getByText("Persona cannot be empty.")).toBeTruthy()
   })
 
+  it("describes non-solo execution as profile configuration", () => {
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    expect(screen.getByText("Execution profile")).toBeTruthy()
+    expect(screen.getByText("Review profile")).toBeTruthy()
+    expect(screen.queryByText("Built-in review")).toBeNull()
+    expect(screen.getByText(/Solo remains the normal runtime path/i)).toBeTruthy()
+  })
+
   it("sends only the changed fields and calls onSaved on success", async () => {
     const onSaved = vi.fn()
     updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, persona: "New persona." } })

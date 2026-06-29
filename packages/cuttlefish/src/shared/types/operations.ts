@@ -108,9 +108,10 @@ export interface Employee {
   /** Services this employee provides to the org */
   provides?: ServiceDeclaration[];
   /**
-   * Hard-gate policy for risky tool actions intercepted by the gateway. `none`
-   * disables the checkpoint gate for this employee; `checkpoint` requires a
-   * human checkpoint before matching Bash actions may proceed.
+   * Policy for risky tool actions intercepted by the gateway. `none` disables
+   * the extra review layer; `notify` allows matching Bash actions but records a
+   * session notification; `checkpoint` requires a human checkpoint before the
+   * action may proceed. When omitted, runtime defaults to `notify`.
    */
   approvalPolicy?: EmployeeApprovalPolicy;
   /** Risk categories that should trigger the hard security gate. */
@@ -129,7 +130,7 @@ export interface Employee {
 }
 
 export type EmployeeLifecycle = "draft" | "active" | "probation" | "disabled" | "retired";
-export type EmployeeApprovalPolicy = "none" | "checkpoint";
+export type EmployeeApprovalPolicy = "none" | "notify" | "checkpoint";
 export type SecurityReviewTrigger =
   | "destructive_shell"
   | "privileged_shell"
@@ -147,6 +148,7 @@ export const EMPLOYEE_LIFECYCLES: readonly EmployeeLifecycle[] = [
 
 export const EMPLOYEE_APPROVAL_POLICIES: readonly EmployeeApprovalPolicy[] = [
   "none",
+  "notify",
   "checkpoint",
 ];
 

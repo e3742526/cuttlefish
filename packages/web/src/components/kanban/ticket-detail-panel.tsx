@@ -126,6 +126,7 @@ interface TicketDetailPanelProps {
   onDelete: () => void
   onSaveDetails: (updates: Pick<KanbanTicket, 'title' | 'description' | 'resourcePath' | 'resourceUrl' | 'manualOnly'>) => void
   onAppendNote: (updates: { title: string; description: string; note: string }) => void
+  onEscalateToLead?: () => void
 }
 
 export function TicketDetailPanel({
@@ -139,6 +140,7 @@ export function TicketDetailPanel({
   onDelete,
   onSaveDetails,
   onAppendNote,
+  onEscalateToLead,
 }: TicketDetailPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const { subscribe } = useGateway()
@@ -563,7 +565,7 @@ export function TicketDetailPanel({
                       {staleHint && <span className="text-[var(--system-orange)]">stale?</span>}
                     </div>
                     {liveSession.lastError && (
-                      <div className="mt-[var(--space-2)] text-[length:var(--text-caption2)] text-[var(--system-red)] whitespace-pre-wrap">
+                      <div className="mt-[var(--space-2)] max-h-24 overflow-y-auto rounded text-[length:var(--text-caption2)] text-[var(--system-red)] whitespace-pre-wrap">
                         {liveSession.lastError}
                       </div>
                     )}
@@ -574,7 +576,7 @@ export function TicketDetailPanel({
                       Showing latest {LIVE_TRANSCRIPT_LIMIT} messages. Open live session for full history.
                     </div>
                     {showTranscript ? (
-                      <div className="rounded-[var(--radius-md)] border border-[var(--separator)] overflow-hidden h-[280px] bg-[var(--bg)]">
+                      <div className="rounded-[var(--radius-md)] border border-[var(--separator)] overflow-y-auto h-[280px] bg-[var(--bg)]">
                         <ChatMessages
                           messages={transcriptMessages}
                           loading={liveSession.status === 'running'}
@@ -614,6 +616,14 @@ export function TicketDetailPanel({
           <div className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)] mb-[var(--space-3)]">
             {runHelperText}
           </div>
+          {ticket.status === 'blocked' && onEscalateToLead && (
+            <button
+              onClick={onEscalateToLead}
+              className="w-full py-[var(--space-2)] px-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--system-orange)] bg-transparent text-[var(--system-orange)] text-[length:var(--text-footnote)] font-semibold cursor-pointer transition-all duration-[120ms] ease-linear mb-[var(--space-2)]"
+            >
+              Escalate to Lead
+            </button>
+          )}
           <button
             onClick={handleDelete}
             className="w-full py-[var(--space-2)] px-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--system-red)] bg-transparent text-[var(--system-red)] text-[length:var(--text-footnote)] font-semibold cursor-pointer transition-all duration-[120ms] ease-linear"

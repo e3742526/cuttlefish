@@ -31,7 +31,7 @@ persona: |
 | `model` | string | no | Model override (default from config) |
 | `reportsTo` | string or string[] | no | Explicit manager/parent override. If omitted, hierarchy is inferred from rank within the department. |
 | `persona` | string | yes | System prompt defining personality and behavior |
-| `approvalPolicy` | string | no | `checkpoint` requires a human checkpoint before matching risky Bash actions can proceed; `none` disables the hard gate for that employee |
+| `approvalPolicy` | string | no | `checkpoint` requires a human checkpoint before matching risky Bash actions can proceed; `notify` allows them but records a session notification; `none` disables the extra review layer. When omitted, runtime defaults to `notify`. |
 | `reviewTriggers` | string[] | no | Risk categories that trigger the security gate: `destructive_shell`, `privileged_shell`, `secret_access`, `external_network`, `prompt_injection_risk` |
 | `securityReviewer` | string | no | Employee name to receive the generated security-review context for gated actions |
 

@@ -1,6 +1,8 @@
 import {
   SECURITY_REVIEW_TRIGGERS,
+  type ContentScreeningResult,
   type Employee,
+  type EmployeeApprovalPolicy,
   type SecurityReviewTrigger,
   type Session,
 } from "../shared/types.js";
@@ -22,14 +24,45 @@ export interface SecurityReviewRequest {
   reason: string;
 }
 
+export interface UntrustedContentCheckpointRequest {
+  sessionId: string;
+  location: string;
+  screening: ContentScreeningResult;
+}
+
+export interface SecurityReviewDisposition {
+  action: "allow" | "checkpoint";
+  reason: string;
+}
+
 function effectiveReviewTriggers(employee?: Employee): readonly SecurityReviewTrigger[] {
   return employee?.reviewTriggers?.length ? employee.reviewTriggers : SECURITY_REVIEW_TRIGGERS;
 }
 
-function requiresCheckpoint(employee: Employee | undefined, triggers: SecurityReviewTrigger[]): boolean {
-  if (employee?.approvalPolicy === "none") return false;
+function effectiveApprovalPolicy(employee?: Employee): EmployeeApprovalPolicy {
+  return employee?.approvalPolicy ?? "notify";
+}
+
+function triggersEnabled(employee: Employee | undefined, triggers: SecurityReviewTrigger[]): boolean {
   const enabled = new Set(effectiveReviewTriggers(employee));
   return triggers.some((trigger) => enabled.has(trigger));
+}
+
+function requiresCheckpoint(employee: Employee | undefined, triggers: SecurityReviewTrigger[]): boolean {
+  return effectiveApprovalPolicy(employee) === "checkpoint" && triggersEnabled(employee, triggers);
+}
+
+function shouldNotify(employee: Employee | undefined, triggers: SecurityReviewTrigger[]): boolean {
+  const policy = effectiveApprovalPolicy(employee);
+  return policy === "notify" && triggersEnabled(employee, triggers);
+}
+
+function shouldRunSecurityReviewer(triggers: SecurityReviewTrigger[]): boolean {
+  return triggers.length > 1 || triggers.some((trigger) => (
+    trigger === "destructive_shell" ||
+    trigger === "secret_access" ||
+    trigger === "prompt_injection_risk"
+  ));
 }
 
 function existingPendingCheckpoint(sessionId: string, command: string) {
@@ -109,12 +142,33 @@ async function runSecurityReviewer(input: SecurityReviewRequest, context: ApiCon
   context.emit("session:updated", { sessionId: session.id });
 }
 
-export function openSecurityCheckpoint(input: SecurityReviewRequest, context: ApiContext): void {
+export function openSecurityCheckpoint(input: SecurityReviewRequest, context: ApiContext): SecurityReviewDisposition {
   const session = getSession(input.sessionId);
-  if (!session) return;
+  if (!session) {
+    return { action: "checkpoint", reason: input.reason };
+  }
   const employee = session.employee ? scanOrg().get(session.employee) : undefined;
-  if (!requiresCheckpoint(employee, input.triggers)) return;
-  if (existingPendingCheckpoint(session.id, input.command)) return;
+  if (!triggersEnabled(employee, input.triggers)) {
+    return { action: "allow", reason: input.reason };
+  }
+  if (effectiveApprovalPolicy(employee) === "none") {
+    return { action: "allow", reason: input.reason };
+  }
+  if (shouldNotify(employee, input.triggers)) {
+    insertMessage(
+      session.id,
+      "notification",
+      `⚠️ Security triggers matched for Bash command and it was allowed under notify policy: ${input.command}`,
+    );
+    context.emit("session:updated", { sessionId: session.id });
+    return { action: "allow", reason: input.reason };
+  }
+  if (!requiresCheckpoint(employee, input.triggers)) {
+    return { action: "allow", reason: input.reason };
+  }
+  if (existingPendingCheckpoint(session.id, input.command)) {
+    return { action: "checkpoint", reason: input.reason };
+  }
 
   const reviewerName = employee?.securityReviewer?.trim() || SECURITY_REVIEWER_EMPLOYEE_NAME;
   createCheckpoint(
@@ -134,7 +188,39 @@ export function openSecurityCheckpoint(input: SecurityReviewRequest, context: Ap
     },
     context,
   );
-  void runSecurityReviewer(input, context, session, employee).catch((err) => {
-    logger.warn(`security review failed for session ${session.id}: ${err instanceof Error ? err.message : String(err)}`);
-  });
+  if (shouldRunSecurityReviewer(input.triggers)) {
+    void runSecurityReviewer(input, context, session, employee).catch((err) => {
+      logger.warn(`security review failed for session ${session.id}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+  return { action: "checkpoint", reason: input.reason };
+}
+
+export function openUntrustedContentCheckpoint(input: UntrustedContentCheckpointRequest, context: ApiContext): void {
+  const session = getSession(input.sessionId);
+  if (!session) return;
+  const employee = session.employee ? scanOrg().get(session.employee) : undefined;
+  const reviewerName = employee?.securityReviewer?.trim() || SECURITY_REVIEWER_EMPLOYEE_NAME;
+  createCheckpoint(
+    {
+      sessionId: session.id,
+      payload: {
+        decisionNeeded: "Untrusted content was quarantined before agent execution",
+        why: input.screening.summary,
+        affectedArtifacts: [input.location],
+        affectedActions: [`consume untrusted content from ${input.location}`],
+        options: ["approved", "rejected", "revised"],
+        revisePrompt: "Provide a safer way to use this content or confirm it should remain quarantined.",
+        reviewer: reviewerName,
+        screening: {
+          source: input.screening.source,
+          verdict: input.screening.verdict,
+          summary: input.screening.summary,
+          suspiciousSpans: input.screening.suspiciousSpans,
+          recommendedAction: input.screening.action,
+        },
+      } as any,
+    },
+    context,
+  );
 }

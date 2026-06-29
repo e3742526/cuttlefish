@@ -113,6 +113,27 @@ describe("handleHookPost", () => {
     );
   });
 
+  it("lets a review-gated Bash command proceed when policy handling returns allow", () => {
+    const reg = makeReg();
+    const seen: string[] = [];
+    reg.register("s1", (h) => seen.push(h.hook_event_name));
+    const res = handleHookPost(
+      {
+        reg,
+        secret: "sek",
+        remoteAddress: "127.0.0.1",
+        onSecurityReview: () => ({ action: "allow", reason: "notify policy allows this command" }),
+      },
+      "sek",
+      {
+        cuttlefishSessionId: "s1",
+        hook: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "sudo systemctl restart nginx" } },
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(seen).toEqual(["PreToolUse"]);
+  });
+
   it("returns 401 when the server secret is empty (defense-in-depth)", () => {
     const reg = makeReg();
     const res = handleHookPost(ctx(reg, { secret: "" }), "", body());

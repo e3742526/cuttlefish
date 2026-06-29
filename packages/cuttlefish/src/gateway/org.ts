@@ -670,12 +670,6 @@ export function validateEmployeeUpdate(
     return { ok: false, error: "no recognized fields to update" };
   }
 
-  const effectiveApprovalPolicy = updates.approvalPolicy ?? current.approvalPolicy;
-  const effectiveReviewTriggers = updates.reviewTriggers ?? current.reviewTriggers;
-  if (effectiveReviewTriggers && effectiveReviewTriggers.length > 0 && effectiveApprovalPolicy !== "checkpoint") {
-    return { ok: false, error: "reviewTriggers require approvalPolicy \"checkpoint\"" };
-  }
-
   return { ok: true, updates };
 }
 

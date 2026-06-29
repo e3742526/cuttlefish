@@ -11,6 +11,7 @@ import { listChildSessions, getSession, updateSession, patchSessionTransportMeta
 import { logger } from "../shared/logger.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { resolveEffort } from "../shared/effort.js";
+import { resolveEngineInvocation } from "../shared/engine-arg-resolver.js";
 import { detectRateLimit } from "../shared/rateLimit.js";
 import {
   handleRateLimit,
@@ -36,6 +37,14 @@ import { positiveNumberOr, resolveTurnStallWatchdogConfig, shouldNotifyLeaderRev
 export { resolveTurnStallWatchdogConfig, shouldNotifyLeaderReviewOnStall, shouldRetrySameEngineAfterStall } from "./turn-stall-policy.js";
 import { isExecutionDepthBlocked } from "./employee-execution.js";
 import { createScopedSessionToken } from "./auth.js";
+
+export function resolveFallbackContinuationSession(
+  updated: Session | undefined,
+  sessionId: string,
+  lookup: (id: string) => Session | undefined = getSession,
+): Session | undefined {
+  return updated ?? lookup(sessionId);
+}
 
 /**
  * Web/queue session execution orchestrator.
@@ -332,7 +341,12 @@ export async function runWebSession(
         });
       } catch { /* best effort */ }
       const fallbackPrompt = "You are taking over this task after a model fallback. Read the handoff packet below, preserve prior decisions and technical truth, then continue the original task.\n\n" + handoff.markdown;
-      await runWebSession(rolled ?? getSession(currentSession.id)!, fallbackPrompt, nextEngine, config, context, attachments, resourceContext);
+      const continuationSession = resolveFallbackContinuationSession(rolled, currentSession.id);
+      if (!continuationSession) {
+        logger.info(`Skipping fallback continuation for missing session ${currentSession.id}`);
+        return true;
+      }
+      await runWebSession(continuationSession, fallbackPrompt, nextEngine, config, context, attachments, resourceContext);
       return true;
     };
 
@@ -435,6 +449,13 @@ export async function runWebSession(
           }, stallPolicy.tickMs)
         : null;
       try {
+      // Reconcile explicit effort/cliFlags against the (possibly post-fallback)
+      // engine's implicit capabilities — strip effort inputs an engine can't accept.
+      const invocation = resolveEngineInvocation(config, currentSession.engine, {
+        effortLevel,
+        cliFlags: employee?.cliFlags,
+      });
+
       result = await engine.run({
       prompt: promptToRun,
       resumeSessionId: currentSession.engineSessionId ?? undefined,
@@ -442,8 +463,8 @@ export async function runWebSession(
       cwd: currentSession.cwd || CUTTLEFISH_HOME,
       bin: engineConfig.bin,
       model: currentSession.model ?? engineConfig.model,
-      effortLevel,
-      cliFlags: employee?.cliFlags,
+      effortLevel: invocation.effortLevel,
+      cliFlags: invocation.cliFlags,
       attachments: attachments?.length ? attachments : undefined,
       sessionId: currentSession.id,
       source: currentSession.source,

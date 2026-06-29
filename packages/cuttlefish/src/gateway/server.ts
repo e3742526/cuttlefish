@@ -40,6 +40,7 @@ import { initStt } from "../stt/stt.js";
 import { loadJobs } from "../cron/jobs.js";
 import { reloadScheduler, startScheduler, stopScheduler } from "../cron/scheduler.js";
 import { startBoardWorker } from "./board-worker.js";
+import { startStuckTicketWatchdog } from "./stuck-ticket-watchdog.js";
 import { logBoardSummary } from "./board-service.js";
 import { syncBoardForEvent } from "./board-sync.js";
 import { ensureGatewayAuthToken, shouldRequireGatewayAuth, validateGatewayExposure } from "./auth.js";
@@ -53,7 +54,9 @@ import {
   type OrchestrationRuntimeRefreshState,
 } from "./orchestration-runtime-manager.js";
 import { scanOrg } from "./org.js";
+import { screenUntrustedText, screeningMetaForSession, screeningNotification } from "./content-screening.js";
 import { reconcileOrphanedTickets } from "./orphaned-ticket-reconciler.js";
+import { openUntrustedContentCheckpoint } from "./security-review.js";
 import { startStatusReconciler } from "./status-reconciler.js";
 import { buildLeaderAckEscalationPrompt, startLeaderAckReconciler, type LeaderAckEscalationDispatch } from "./leader-ack-reconciler.js";
 import { syncExternalTurn } from "./external-turns.js";
@@ -73,6 +76,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export { isAllowedCorsOrigin, serveStatic };
+
+function screenNotificationPrompt(text: string, source: string, workerText: string): string {
+  return text === workerText
+    ? workerText
+    : `[BEGIN UNTRUSTED MESSAGE via ${source} — sanitized before execution]\n${workerText}\n[END UNTRUSTED MESSAGE]`;
+}
 
 export async function startGateway(config: CuttlefishConfig): Promise<GatewayCleanup> {
   const bootId = randomUUID().slice(0, 8);
@@ -428,6 +437,42 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
   apiContext.notificationSink = notificationSink;
   sessionManager.setNotificationSink(notificationSink);
   sessionManager.setKnowledgeSink(knowledgeSink);
+  sessionManager.setUntrustedContentGate(async ({ session, text }) => {
+    const screened = await screenUntrustedText(
+      {
+        text,
+        source: session.source === "email" ? "email_body" : "connector_message",
+        location: session.sourceRef,
+        operatorIntent: session.promptExcerpt ?? session.title ?? null,
+      },
+      apiContext,
+    );
+    const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
+    nextMeta["latestUntrustedContentScreening"] = screeningMetaForSession(screened.screening);
+    updateSession(session.id, { transportMeta: nextMeta as any });
+    const prompt = screenNotificationPrompt(text, session.source, screened.workerText);
+    if (screened.blocked) {
+      openUntrustedContentCheckpoint(
+        {
+          sessionId: session.id,
+          location: session.sourceRef,
+          screening: screened.screening,
+        },
+        apiContext,
+      );
+      return {
+        action: "checkpoint" as const,
+        prompt,
+        screening: screened.screening,
+        notification: screeningNotification(screened.screening),
+      };
+    }
+    return {
+      action: "allow" as const,
+      prompt,
+      screening: screened.screening,
+    };
+  });
   orchestrationRuntime = createGatewayOrchestrationRuntime(currentConfig, employeeRegistry);
   if (orchestrationRuntime) {
     bindOrchestrationRuntimeHandlers(orchestrationRuntime, apiContext);
@@ -497,6 +542,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     },
   });
   const stopBoardWorker = startBoardWorker({ context: apiContext, orgDir: ORG_DIR });
+  const stopStuckTicketWatchdog = startStuckTicketWatchdog({ context: apiContext, orgDir: ORG_DIR });
   let stopLeaderAckReconciler = () => {};
 
   const webDir = path.resolve(__dirname, "..", "..", "web");
@@ -620,6 +666,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     ptyWss: transports.ptyWss,
     server: transports.server,
     stopBoardWorker,
+    stopStuckTicketWatchdog,
     stopLeaderAckReconciler,
     stopScheduler,
     stopStatusReconciler,

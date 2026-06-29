@@ -655,24 +655,26 @@ describe("validateEmployeeUpdate", () => {
 
   it("accepts machine-readable security gate fields", () => {
     const result = validateEmployeeUpdate(testConfig, emp(), {
-      approvalPolicy: "checkpoint",
+      approvalPolicy: "notify",
       reviewTriggers: ["privileged_shell", "external_network"],
       securityReviewer: "senior-security-officer",
     });
     expect(result.ok).toBe(true);
     expect(result.updates).toMatchObject({
-      approvalPolicy: "checkpoint",
+      approvalPolicy: "notify",
       reviewTriggers: ["privileged_shell", "external_network"],
       securityReviewer: "senior-security-officer",
     });
   });
 
-  it("rejects reviewTriggers without checkpoint approvalPolicy", () => {
+  it("accepts reviewTriggers without explicit approvalPolicy and relies on runtime notify default", () => {
     const result = validateEmployeeUpdate(testConfig, emp(), {
       reviewTriggers: ["privileged_shell"],
     });
-    expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/approvalPolicy/i);
+    expect(result.ok).toBe(true);
+    expect(result.updates).toMatchObject({
+      reviewTriggers: ["privileged_shell"],
+    });
   });
 
   it("accepts string avatar/emoji including the empty-string clear signal", () => {

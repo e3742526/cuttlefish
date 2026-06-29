@@ -85,9 +85,20 @@ function hasObservedUsage(engine: EngineLimitEngineSnapshot) {
   return (
     (engine.windows ?? []).some((window) => typeof window.usedPercent === "number") ||
     typeof engine.credits?.remainingPercent === "number" ||
+    typeof engine.credits?.balance === "string" ||
     typeof engine.context?.usedPercent === "number" ||
+    typeof engine.context?.totalInputTokens === "number" ||
+    typeof engine.context?.totalOutputTokens === "number" ||
     typeof engine.costUsd === "number"
   )
+}
+
+function formatTokens(n?: number) {
+  if (typeof n !== "number") return null
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)}B`
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
+  return `${n}`
 }
 
 function sortEngines(engines: EngineLimitEngineSnapshot[]) {
@@ -135,8 +146,15 @@ function EngineCard({ engine }: { engine: EngineLimitEngineSnapshot }) {
   const creditLabel = credits?.unlimited
     ? "Unlimited credits"
     : credits?.balance
-      ? `Credits ${credits.balance}`
+      ? `Balance ${credits.balance}`
       : null
+  const hasCost = typeof engine.costUsd === "number"
+  const inTok = formatTokens(engine.context?.totalInputTokens)
+  const outTok = formatTokens(engine.context?.totalOutputTokens)
+  const hasTokens = inTok !== null || outTok !== null
+  // Cost-based providers (API-key / prepaid) have no rate-limit windows; show
+  // cost + token usage instead of an empty "no windows" message.
+  const isCostBased = windows.length === 0 && (hasCost || hasTokens || creditLabel)
   const note = engine.error || (engine.stale ? "Snapshot is over 30 minutes old — may be out of date." : null)
 
   return (
@@ -164,13 +182,40 @@ function EngineCard({ engine }: { engine: EngineLimitEngineSnapshot }) {
             <WindowBar key={`${engine.name}-${window.name}`} window={window} />
           ))}
         </div>
+      ) : isCostBased ? (
+        <div className="mt-[var(--space-6)] flex flex-wrap items-baseline gap-x-[var(--space-6)] gap-y-[var(--space-3)]">
+          {hasCost && (
+            <div>
+              <div className="text-[length:var(--text-footnote)] text-[var(--text-secondary)]">API cost</div>
+              <div className="text-[length:var(--text-title3)] font-[var(--weight-bold)] text-[var(--text-primary)] tabular-nums">
+                ${engine.costUsd!.toFixed(engine.costUsd! < 1 ? 4 : 2)}
+              </div>
+            </div>
+          )}
+          {creditLabel && (
+            <div>
+              <div className="text-[length:var(--text-footnote)] text-[var(--text-secondary)]">Balance</div>
+              <div className="text-[length:var(--text-title3)] font-[var(--weight-bold)] text-[var(--text-primary)] tabular-nums">
+                {credits?.balance}
+              </div>
+            </div>
+          )}
+          {hasTokens && (
+            <div>
+              <div className="text-[length:var(--text-footnote)] text-[var(--text-secondary)]">Tokens (in / out)</div>
+              <div className="text-[length:var(--text-body)] font-[var(--weight-semibold)] text-[var(--text-primary)] tabular-nums">
+                {inTok ?? "—"} / {outTok ?? "—"}
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="mt-[var(--space-6)] text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
           No quota windows observed yet.
         </div>
       )}
 
-      {creditLabel && (
+      {creditLabel && !isCostBased && (
         <div className="mt-[var(--space-5)] text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
           {creditLabel}
         </div>
@@ -205,6 +250,11 @@ function CliDetectedCard({ engines }: { engines: EngineLimitEngineSnapshot[] }) 
               <div className="text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
                 {engineLabel(engine.name)}
               </div>
+              {engine.defaultModel && (
+                <div className="mt-[2px] text-[length:var(--text-caption1)] text-[var(--text-secondary)] truncate">
+                  Default model: <span className="font-[var(--weight-medium)] text-[var(--text-primary)]">{engine.defaultModel}</span>
+                </div>
+              )}
               <div className="mt-[2px] text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
                 {engine.unsupportedReason || "Usage statistics are not available for this CLI."}
               </div>

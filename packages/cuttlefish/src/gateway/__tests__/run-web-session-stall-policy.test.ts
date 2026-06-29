@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { resolveTurnStallWatchdogConfig, shouldNotifyLeaderReviewOnStall, shouldRetrySameEngineAfterStall } from "../run-web-session.js";
+import {
+  resolveFallbackContinuationSession,
+  resolveTurnStallWatchdogConfig,
+  shouldNotifyLeaderReviewOnStall,
+  shouldRetrySameEngineAfterStall,
+} from "../run-web-session.js";
+import type { Session } from "../../shared/types.js";
 
 describe("resolveTurnStallWatchdogConfig", () => {
   it("uses the tuned defaults when the gateway block omits stall settings", () => {
@@ -91,5 +97,22 @@ describe("shouldNotifyLeaderReviewOnStall", () => {
       inactivityMs: 900_000,
       alreadyNotified: false,
     })).toBe(false);
+  });
+});
+
+describe("resolveFallbackContinuationSession", () => {
+  it("returns undefined instead of forcing a cold getSession lookup to exist", () => {
+    const lookup = () => undefined;
+
+    expect(resolveFallbackContinuationSession(undefined, "missing-session", lookup)).toBeUndefined();
+  });
+
+  it("prefers the updated session when updateSession returned one", () => {
+    const updated = { id: "sess-1" } as Session;
+    const lookup = () => {
+      throw new Error("lookup should not be called");
+    };
+
+    expect(resolveFallbackContinuationSession(updated, "sess-1", lookup)).toBe(updated);
   });
 });

@@ -127,4 +127,25 @@ describe("EmployeeNode quick chat affordance", () => {
 
     expect(screen.getByText("claude-sonnet-4-6")).toBeTruthy()
   })
+
+  it("labels non-solo execution as a configured profile, not active review runtime", () => {
+    renderNode({
+      name: "reviewed",
+      displayName: "Reviewed",
+      department: "Engineering",
+      rank: "employee",
+      engine: "claude",
+      model: "opus",
+      persona: "Builds things",
+      executionProfileSummary: {
+        tier: "mid_pair",
+        label: "Built-in review",
+        hasCustomRoleOverrides: false,
+      },
+    })
+
+    expect(screen.getByText("profile")).toBeTruthy()
+    expect(screen.getByTitle("Review profile configured")).toBeTruthy()
+    expect(screen.queryByTitle("Built-in review")).toBeNull()
+  })
 })

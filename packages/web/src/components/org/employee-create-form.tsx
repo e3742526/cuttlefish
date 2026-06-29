@@ -28,7 +28,7 @@ const LEVEL_OPTIONS = [
 
 const EXECUTION_TIER_OPTIONS = [
   { value: "solo", label: "Solo" },
-  { value: "mid_pair", label: "Built-in review" },
+  { value: "mid_pair", label: "Review profile" },
 ] as const
 
 const REVIEWER_LOSS_POLICY_OPTIONS = [
@@ -338,7 +338,7 @@ export function EmployeeCreateForm({
         </Field>
       </div>
 
-      <Field label="Execution style" hint="Solo runs normally. Built-in review adds an independent reviewer after each implementation pass.">
+      <Field label="Execution profile" hint="Review profile stores reviewer settings for gateways that enable multi-role execution. Solo remains the normal runtime path.">
         <Select value={executionTier} onValueChange={(v) => setExecutionTier(v as "solo" | "mid_pair")}>
           <SelectTrigger>
             <SelectValue />

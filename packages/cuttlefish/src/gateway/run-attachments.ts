@@ -10,6 +10,12 @@ import type { JsonObject, RunAttachment, RunAttachmentAccess, RunAttachmentKind,
 import type { ApiContext } from "./api/context.js";
 import { assessFileRead, isAllowedReadPath } from "./files/read-security.js";
 import { expandPath } from "./files/storage.js";
+import {
+  renderAttachmentContentForPrompt,
+  screenAttachmentContent,
+  shouldInlineAttachmentText,
+} from "./content-screening.js";
+import { openUntrustedContentCheckpoint } from "./security-review.js";
 
 const RUN_ATTACHMENTS_META_KEY = "runAttachments";
 
@@ -26,6 +32,8 @@ export interface ResolvedRunAttachments {
   attachments: RunAttachment[];
   promptBlock: string | null;
   engineAttachments: string[];
+  blocked: boolean;
+  blockedAttachmentIds: string[];
 }
 
 function safeTrim(value: unknown): string | null {
@@ -49,7 +57,11 @@ function isRunAttachment(value: unknown): value is RunAttachment {
     (candidate.access === "read_only" || candidate.access === "writable") &&
     (candidate.intendedUse === null || typeof candidate.intendedUse === "string") &&
     (candidate.producingRunId === null || typeof candidate.producingRunId === "string") &&
-    typeof candidate.createdAt === "string"
+    typeof candidate.createdAt === "string" &&
+    (candidate.screeningState === undefined ||
+      candidate.screeningState === "screened" ||
+      candidate.screeningState === "not_text_screened" ||
+      candidate.screeningState === "screening_unavailable")
   );
 }
 
@@ -67,6 +79,8 @@ function normalizeStoredRunAttachment(value: RunAttachment): RunAttachment {
     createdAt: value.createdAt,
     resolvedPath: value.resolvedPath ?? null,
     existsOnDisk: value.existsOnDisk ?? undefined,
+    screeningState: value.screeningState,
+    contentScreening: value.contentScreening ?? null,
   };
 }
 
@@ -196,6 +210,21 @@ export function setRunAttachmentsOnTransportMeta(meta: JsonObject | null | undef
       intendedUse: attachment.intendedUse,
       producingRunId: attachment.producingRunId,
       createdAt: attachment.createdAt,
+      ...(attachment.screeningState ? { screeningState: attachment.screeningState } : {}),
+      ...(attachment.contentScreening
+        ? {
+            contentScreening: {
+              source: attachment.contentScreening.source,
+              verdict: attachment.contentScreening.verdict,
+              action: attachment.contentScreening.action,
+              screener: attachment.contentScreening.screener,
+              summary: attachment.contentScreening.summary,
+              suspiciousSpans: attachment.contentScreening.suspiciousSpans,
+              sanitizedText: attachment.contentScreening.sanitizedText,
+              occurredAt: attachment.contentScreening.occurredAt,
+            },
+          }
+        : {}),
     })),
   };
 }
@@ -205,6 +234,44 @@ export function mergeRunAttachments(existing: RunAttachment[], incoming: RunAtta
   for (const attachment of existing) byKey.set(attachmentKey(attachment), normalizeStoredRunAttachment(attachment));
   for (const attachment of incoming) byKey.set(attachmentKey(attachment), normalizeStoredRunAttachment(attachment));
   return Array.from(byKey.values());
+}
+
+export async function screenRunAttachmentsForSession(
+  session: Pick<Session, "id" | "promptExcerpt" | "title">,
+  attachments: RunAttachment[],
+  context: ApiContext,
+  operatorIntent?: string | null,
+): Promise<RunAttachment[]> {
+  const screened: RunAttachment[] = [];
+  for (const attachment of attachments) {
+    const outcome = await screenAttachmentContent(
+      attachment,
+      context,
+      operatorIntent ?? session.promptExcerpt ?? session.title ?? null,
+    );
+    screened.push(outcome.attachment);
+    if (
+      outcome.attachment.contentScreening &&
+      (outcome.attachment.contentScreening.action === "quarantine" ||
+        outcome.attachment.contentScreening.action === "checkpoint")
+    ) {
+      const location =
+        outcome.attachment.url ??
+        outcome.attachment.resolvedPath ??
+        outcome.attachment.path ??
+        outcome.attachment.artifactId ??
+        outcome.attachment.id;
+      openUntrustedContentCheckpoint(
+        {
+          sessionId: session.id,
+          location,
+          screening: outcome.attachment.contentScreening,
+        },
+        context,
+      );
+    }
+  }
+  return screened;
 }
 
 export async function resolveIncomingRunAttachments(
@@ -266,8 +333,11 @@ export async function resolveIncomingRunAttachments(
 
 export function buildResolvedRunAttachments(attachments: RunAttachment[]): ResolvedRunAttachments {
   const promptLines: string[] = [];
+  const contentBlocks: string[] = [];
   const engineAttachments: string[] = [];
   const seenEngineAttachments = new Set<string>();
+  let blocked = false;
+  const blockedAttachmentIds: string[] = [];
   for (const attachment of attachments) {
     const location = attachment.url ?? attachment.resolvedPath ?? attachment.path ?? attachment.artifactId ?? attachment.id;
     const details = [
@@ -277,9 +347,23 @@ export function buildResolvedRunAttachments(attachments: RunAttachment[]): Resol
       attachment.producingRunId ? `produced by ${attachment.producingRunId}` : null,
       attachment.sha256 ? `sha256 ${attachment.sha256}` : null,
       attachment.intendedUse ? `use: ${attachment.intendedUse}` : null,
+      attachment.screeningState ? `screening: ${attachment.screeningState}` : null,
+      attachment.contentScreening ? `verdict: ${attachment.contentScreening.verdict}` : null,
     ].filter(Boolean).join("; ");
     promptLines.push(`- ${location}${details ? ` [${details}]` : ""}`);
+    if (
+      attachment.contentScreening &&
+      (attachment.contentScreening.action === "quarantine" || attachment.contentScreening.action === "checkpoint")
+    ) {
+      blocked = true;
+      blockedAttachmentIds.push(attachment.id);
+      promptLines.push(`  quarantined: ${attachment.contentScreening.summary}`);
+      continue;
+    }
+    const rendered = renderAttachmentContentForPrompt(attachment);
+    if (rendered) contentBlocks.push(rendered);
     if ((attachment.kind === "file" || attachment.kind === "artifact") && attachment.resolvedPath) {
+      if (shouldInlineAttachmentText(attachment)) continue;
       const key = path.resolve(attachment.resolvedPath);
       if (!seenEngineAttachments.has(key)) {
         seenEngineAttachments.add(key);
@@ -289,8 +373,16 @@ export function buildResolvedRunAttachments(attachments: RunAttachment[]): Resol
   }
   return {
     attachments,
-    promptBlock: promptLines.length > 0 ? `Attached resources:\n${promptLines.join("\n")}` : null,
+    promptBlock:
+      promptLines.length > 0
+        ? [
+            `Attached resources:\n${promptLines.join("\n")}`,
+            ...(contentBlocks.length > 0 ? ["", contentBlocks.join("\n\n")] : []),
+          ].join("\n")
+        : null,
     engineAttachments,
+    blocked,
+    blockedAttachmentIds,
   };
 }
 
@@ -308,6 +400,8 @@ export function enrichRunAttachmentsForSession(session: Pick<Session, "transport
       resolvedPath,
       existsOnDisk,
       url: attachment.url ?? artifact?.sourceUrl ?? null,
+      screeningState: attachment.screeningState,
+      contentScreening: attachment.contentScreening ?? null,
     };
   });
 }

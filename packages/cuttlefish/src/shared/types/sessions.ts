@@ -2,6 +2,33 @@ import type { JsonObject } from "./json.js";
 
 export type RunAttachmentKind = "file" | "folder" | "url" | "artifact";
 export type RunAttachmentAccess = "read_only" | "writable";
+export type UntrustedContentSource =
+  | "attachment"
+  | "fetched_page"
+  | "connector_message"
+  | "email_body"
+  | "ocr_text"
+  | "pasted_external"
+  | "skill_file";
+export type ContentScreeningVerdict =
+  | "benign"
+  | "instructional_but_in_scope"
+  | "suspicious_non_destructive"
+  | "destructive_or_exfiltrative"
+  | "unclear_requires_human";
+export type ContentScreeningAction = "allow" | "sanitize" | "quarantine" | "checkpoint";
+export type ContentScreeningState = "screened" | "not_text_screened" | "screening_unavailable";
+
+export interface ContentScreeningResult {
+  source: UntrustedContentSource;
+  verdict: ContentScreeningVerdict;
+  action: ContentScreeningAction;
+  screener: string;
+  summary: string;
+  suspiciousSpans: string[];
+  sanitizedText: string | null;
+  occurredAt: string;
+}
 
 export interface RunAttachment {
   id: string;
@@ -16,6 +43,8 @@ export interface RunAttachment {
   createdAt: string;
   resolvedPath?: string | null;
   existsOnDisk?: boolean;
+  screeningState?: ContentScreeningState;
+  contentScreening?: ContentScreeningResult | null;
 }
 
 export interface Session {

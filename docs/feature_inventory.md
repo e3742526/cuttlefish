@@ -83,8 +83,31 @@
   engine/model/effort, including the local `ollama`, `kilo`, and `aider` engine options, optional same-engine fallback model, persona,
   CLI flags, always-notify behavior, and backend support for the machine-readable
   security gate fields `approvalPolicy`, `reviewTriggers`, and
-  `securityReviewer`.
+  `securityReviewer`, including the looser `notify` runtime policy that allows
+  risky-but-reviewed Bash actions to continue with a session notification
+  instead of a human checkpoint.
 - Employee, manager, and executive org-map cards also expose a compact quick-chat affordance that opens the main chat workspace, using the existing employee preselection deep-link for non-executive employees.
+- The create/edit surfaces now include multi-role execution configuration when the `features.multiRoleEmployeeExecution` feature flag is enabled: execution tier (`solo` or `mid_pair`), max internal passes, max child sessions, max wall-clock time, max tool calls, max estimated cost, reviewer loss policy, and reviewer tool profile.
+- `packages/web/src/components/org/employee-detail.tsx` displays an execution profile summary in the detail panel when a profile is configured.
+
+### Multi-role employee execution
+- `packages/cuttlefish/src/gateway/employee-execution.ts`
+- `packages/cuttlefish/src/shared/types/operations.ts`
+- `packages/cuttlefish/src/gateway/api/routes/session-write.ts`
+- `packages/cuttlefish/src/gateway/org.ts`
+- `packages/cuttlefish/src/gateway/run-web-session.ts`
+- Employees can now carry an `execution` config block defining a multi-role execution profile.
+- Execution tiers: `solo` (default, unchanged behavior) and `mid_pair` (implementer + reviewer pair).
+- `mid_pair` spawns an internal implementer session and a separate reviewer session at depth 1.
+- An execution depth guard (`isExecutionDepthBlocked`) prevents role sessions from recursively spawning additional profiles.
+- Internal roles (`implementer`, `reviewer`) are runtime-only — they are never org members.
+- The reviewer receives a read-only tool profile by default and cannot directly mutate repo contents.
+- Reviewer loss policies: `replace_then_degrade`, `skip`, and `fail` control fallback behavior when a reviewer cannot be allocated.
+- All execution-profile sessions carry `executionDepth`, `executionTier`, `profileId`, and `internalRole` in `transportMeta` for traceability.
+- Feature gated: `features.multiRoleEmployeeExecution: true` must be set in daemon config.
+- Fidelity gaps:
+  - Mid-pair review flow is wired at the session-write and org-execution layers; UI review status display is deferred.
+  - Reviewer allocation uses the configured `reviewerToolProfile`; the full reviewer diff-bundle handoff from the orchestration path is not yet ported to the employee-execution path.
 
 ### Kanban ticket resource context and manual-only dispatch
 - `packages/web/src/routes/kanban/page.tsx`
@@ -252,6 +275,13 @@
 - Existing fallback approvals continue to work through `/api/approvals/*`, but
   the underlying store now captures decision notes and resulting actions for the
   broader checkpoint model too.
+- The `/approvals` web UI (`packages/web/src/routes/approvals/page.tsx`) has been
+  significantly enhanced:
+  - Pending approvals and checkpoints are shown in a unified list with compact list items.
+  - Decided items display a colored `DecisionBadge` (`approved` / `rejected` / `deferred` / `revised`) inline.
+  - The detail panel is now scrollable and renders structured approval content, artifact lists, and file/action context.
+  - Board-assignee validation now returns an error when a ticket is assigned to an unknown employee (not just a cross-department employee).
+  - The page renders correctly inside a scrollable layout region.
 
 ### External knowledge export and lookup
 - `packages/cuttlefish/src/knowledge/*`

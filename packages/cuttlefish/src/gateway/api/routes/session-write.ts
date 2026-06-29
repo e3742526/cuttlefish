@@ -31,6 +31,7 @@ import {
   listRunAttachments,
   mergeRunAttachments,
   resolveIncomingRunAttachments,
+  screenRunAttachmentsForSession,
   setRunAttachmentsOnTransportMeta,
 } from "../../run-attachments.js";
 import { exportRunBundle } from "../../run-bundles.js";
@@ -66,6 +67,7 @@ async function attachResourcesToSession(
   session: import("../../../shared/types.js").Session;
   promptBlock: string | null;
   engineAttachments: string[];
+  blocked: boolean;
 }> {
   const existing = listRunAttachments(session);
   const incomingSpecs = combinedResourceSpecs(body);
@@ -75,6 +77,7 @@ async function attachResourcesToSession(
       session,
       promptBlock: resolved.promptBlock,
       engineAttachments: resolved.engineAttachments,
+      blocked: resolved.blocked,
     };
   }
 
@@ -85,25 +88,38 @@ async function attachResourcesToSession(
 
   const incoming = await resolveIncomingRunAttachments(incomingSpecs, context);
   const merged = mergeRunAttachments(existing, incoming);
+  const screened = await screenRunAttachmentsForSession(
+    session,
+    merged,
+    context,
+    typeof body.prompt === "string"
+      ? body.prompt
+      : typeof body.message === "string"
+        ? body.message
+        : session.promptExcerpt ?? session.title ?? null,
+  );
   const updated = updateSession(session.id, {
-    transportMeta: setRunAttachmentsOnTransportMeta(session.transportMeta, merged),
+    transportMeta: setRunAttachmentsOnTransportMeta(session.transportMeta, screened),
   }) ?? session;
-  const resolved = buildResolvedRunAttachments(merged);
+  const resolved = buildResolvedRunAttachments(screened);
   return {
     session: updated,
     promptBlock: resolved.promptBlock,
     engineAttachments: resolved.engineAttachments,
+    blocked: resolved.blocked,
   };
 }
 
 function describeSessionResources(session: import("../../../shared/types.js").Session): {
   promptBlock: string | null;
   engineAttachments: string[];
+  blocked: boolean;
 } {
   const resolved = buildResolvedRunAttachments(listRunAttachments(session));
   return {
     promptBlock: resolved.promptBlock,
     engineAttachments: resolved.engineAttachments,
+    blocked: resolved.blocked,
   };
 }
 
@@ -536,6 +552,10 @@ export async function handleSessionWriteRoutes(
       json(res, { ...serializeSession({ ...session, status: "error", lastError: `Engine "${dispatchEngineName}" not available` }, context) }, 201);
       return true;
     }
+    if (attached.blocked) {
+      json(res, serializeSession(session, context), 201);
+      return true;
+    }
 
     const singletonWasRunning = Boolean(existingSingletonSession && session.status === "running");
     if (session.status === "interrupted" || session.status === "idle") {
@@ -554,7 +574,7 @@ export async function handleSessionWriteRoutes(
     }
     if (hasPendingQueueItemBefore(queueSessionKey, queueItemId)) {
       dispatchPendingWebQueueHeadForSessionKey(context, queueSessionKey);
-    } else {
+    } else if (!attached.blocked) {
       dispatchWebSessionRun(session, prompt, engine, config, context, {
         queueItemId,
         attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
@@ -675,6 +695,10 @@ export async function handleSessionWriteRoutes(
     if (!isNotification) {
       queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
       context.emit("queue:updated", { sessionId: session.id, sessionKey });
+    }
+    if (attached.blocked) {
+      json(res, { status: "checkpoint_required", sessionId: session.id });
+      return true;
     }
     if (queueItemId && hasPendingQueueItemBefore(sessionKey, queueItemId)) {
       dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);

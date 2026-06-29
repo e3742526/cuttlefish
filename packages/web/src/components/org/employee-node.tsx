@@ -12,6 +12,11 @@ function roleLabel(emp: EmployeeNodeData): string {
   return emp.rank.charAt(0).toUpperCase() + emp.rank.slice(1)
 }
 
+function executionProfileLabel(tier: string | undefined): string | null {
+  if (tier !== "mid_pair") return null
+  return "profile"
+}
+
 export function EmployeeNode({ data, selected }: NodeProps) {
   const employee = data as EmployeeNodeData
   const isExec = employee.rank === "executive"
@@ -20,7 +25,7 @@ export function EmployeeNode({ data, selected }: NodeProps) {
   const chatTarget = isExec ? "/" : `/?employee=${encodeURIComponent(employee.name)}`
   const modelTitle = employee.model || ""
   const execSummary = employee.executionProfileSummary as { tier?: string } | undefined
-  const isMidPair = execSummary?.tier === "mid_pair"
+  const execProfileLabel = executionProfileLabel(execSummary?.tier)
 
   return (
     <div
@@ -83,12 +88,12 @@ export function EmployeeNode({ data, selected }: NodeProps) {
               {employee.model}
             </span>
           )}
-          {isMidPair && (
+          {execProfileLabel && (
             <span
-              title="Built-in review"
+              title="Review profile configured"
               className="shrink-0 rounded-[10px] bg-[color-mix(in_srgb,var(--system-purple)_15%,transparent)] px-[7px] py-px text-[length:var(--text-caption2)] font-[var(--weight-semibold)] leading-[1.2] text-[var(--system-purple)]"
             >
-              review
+              {execProfileLabel}
             </span>
           )}
         </div>

@@ -471,6 +471,150 @@ function collectUnsupported(config: CuttlefishConfig, engine: string, reason: st
   };
 }
 
+// ---------------------------------------------------------------------------
+// API-cost / usage collectors (kilo, hermes, aider)
+//
+// These engines bill per-token against your own keys/credits, NOT a flat-rate
+// subscription, so they expose API COST + token usage rather than rate-limit
+// windows. We surface costUsd / credits.balance / token totals; there is no
+// "% of window" gauge because there is no provider-enforced window to fill.
+// ---------------------------------------------------------------------------
+
+/** Run a CLI and return its stdout (stripped), or null on failure/timeout. Never throws. */
+function runCliText(bin: string, args: string[], timeoutMs = 8000): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(bin, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true }, (err, stdout) => {
+      if (err && !stdout) {
+        resolve(null);
+        return;
+      }
+      resolve(typeof stdout === "string" ? stdout : String(stdout ?? ""));
+    });
+  });
+}
+
+/** Parse a human-readable number like "12.1M", "744.9K", "583,106" into a count. */
+function parseHumanNumber(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const m = raw.trim().replace(/,/g, "").match(/^([\d.]+)\s*([KMB])?$/i);
+  if (!m) return undefined;
+  const base = Number(m[1]);
+  if (!Number.isFinite(base)) return undefined;
+  const mult = m[2]?.toUpperCase() === "B" ? 1e9 : m[2]?.toUpperCase() === "M" ? 1e6 : m[2]?.toUpperCase() === "K" ? 1e3 : 1;
+  return Math.round(base * mult);
+}
+
+function matchNum(text: string, re: RegExp): number | undefined {
+  const m = text.match(re);
+  return m ? num(Number(m[1].replace(/,/g, ""))) : undefined;
+}
+
+// Kilo: authenticated account billed by a prepaid balance + per-token cost.
+// `kilo stats` → Total Cost / Input / Output tokens; `kilo profile` → Balance.
+async function collectKiloLimits(config: CuttlefishConfig): Promise<EngineLimitEngineSnapshot> {
+  const snap = baseSnapshot(config, "kilo");
+  if (!snap.available) {
+    return { ...snap, status: "unsupported", source: "model-registry", unsupportedReason: "kilo CLI is not installed." };
+  }
+  const bin = resolveBin("kilo", config.engines.kilo?.bin);
+  const [stats, profile] = await Promise.all([
+    runCliText(bin, ["stats"]),
+    runCliText(bin, ["profile"]),
+  ]);
+  if (!stats && !profile) {
+    return { ...snap, status: "unsupported", source: "kilo stats + profile",
+      unsupportedReason: "Kilo CLI is installed but `kilo stats`/`kilo profile` returned no data." };
+  }
+  const costUsd = stats ? matchNum(stats, /Total Cost\s+\$?([\d.,]+)/i) : undefined;
+  const inputTokens = stats ? parseHumanNumber(stats.match(/│\s*Input\s+([\d.,KMB]+)/i)?.[1]) : undefined;
+  const outputTokens = stats ? parseHumanNumber(stats.match(/│\s*Output\s+([\d.,KMB]+)/i)?.[1]) : undefined;
+  const sessions = stats ? matchNum(stats, /Sessions\s+([\d,]+)/i) : undefined;
+  const balanceRaw = profile ? profile.match(/Balance:\s*(\$?[\d.,]+)/i)?.[1] : undefined;
+  const team = profile ? profile.match(/Team:\s*(.+)/i)?.[1]?.trim() : undefined;
+
+  const credits: EngineLimitCredits | undefined = balanceRaw
+    ? { hasCredits: true, balance: balanceRaw.startsWith("$") ? balanceRaw : `$${balanceRaw}` }
+    : undefined;
+
+  return {
+    ...snap,
+    status: "snapshot",
+    source: "kilo stats + profile",
+    ...(typeof costUsd === "number" ? { costUsd } : {}),
+    ...(credits ? { credits } : {}),
+    ...(inputTokens !== undefined || outputTokens !== undefined
+      ? { context: { totalInputTokens: inputTokens, totalOutputTokens: outputTokens } }
+      : {}),
+    ...(team || sessions !== undefined
+      ? { accountPlan: [team, sessions !== undefined ? `${sessions} sessions` : null].filter(Boolean).join(" · ") }
+      : {}),
+  };
+}
+
+// Hermes: a multi-provider router. `hermes insights` aggregates token/session
+// usage across providers (no single cost or provider-enforced quota).
+async function collectHermesLimits(config: CuttlefishConfig): Promise<EngineLimitEngineSnapshot> {
+  const snap = baseSnapshot(config, "hermes");
+  if (!snap.available) {
+    return { ...snap, status: "unsupported", source: "model-registry", unsupportedReason: "hermes CLI is not installed." };
+  }
+  const bin = resolveBin("hermes", config.engines.hermes?.bin);
+  const insights = await runCliText(bin, ["insights"]);
+  if (!insights) {
+    return { ...snap, status: "unsupported", source: "hermes insights",
+      unsupportedReason: "Hermes CLI is installed but `hermes insights` returned no data." };
+  }
+  const inputTokens = matchNum(insights, /Input tokens:\s*([\d,]+)/i);
+  const outputTokens = matchNum(insights, /Output tokens:\s*([\d,]+)/i);
+  const sessions = matchNum(insights, /Sessions:\s*([\d,]+)/i);
+  const costUsd = matchNum(insights, /(?:Total cost|Cost):\s*\$?([\d.,]+)/i);
+
+  if (inputTokens === undefined && outputTokens === undefined && sessions === undefined && costUsd === undefined) {
+    return { ...snap, status: "unsupported", source: "hermes insights",
+      unsupportedReason: "Hermes `insights` output could not be parsed for usage." };
+  }
+
+  return {
+    ...snap,
+    status: "snapshot",
+    source: "hermes insights (30d)",
+    ...(typeof costUsd === "number" ? { costUsd } : {}),
+    ...(inputTokens !== undefined || outputTokens !== undefined
+      ? { context: { totalInputTokens: inputTokens, totalOutputTokens: outputTokens } }
+      : {}),
+    ...(sessions !== undefined ? { accountPlan: `${sessions} sessions · last 30d` } : {}),
+    unsupportedReason: "Hermes routes across providers; usage is aggregate token/session analytics, not a provider quota.",
+  };
+}
+
+// Aider: runs against YOUR provider API keys, so cost is per-session and printed
+// to the chat history. There is no account-level aggregate; we surface the most
+// recent session cost from ~/.aider.chat.history.md.
+function collectAiderLimits(config: CuttlefishConfig): EngineLimitEngineSnapshot {
+  const snap = baseSnapshot(config, "aider");
+  if (!snap.available) {
+    return { ...snap, status: "unsupported", source: "model-registry", unsupportedReason: "aider CLI is not installed." };
+  }
+  const historyPath = path.join(os.homedir(), ".aider.chat.history.md");
+  let lastSessionCost: number | undefined;
+  try {
+    const text = fs.readFileSync(historyPath, "utf8");
+    // Lines look like: "> Tokens: 2.4k sent, 17 received. Cost: $0.0074 message, $0.02 session."
+    const matches = [...text.matchAll(/Cost:\s*\$[\d.]+\s*message,\s*\$([\d.]+)\s*session/gi)];
+    if (matches.length > 0) lastSessionCost = num(Number(matches[matches.length - 1][1]));
+  } catch {
+    /* no history yet */
+  }
+  return {
+    ...snap,
+    status: lastSessionCost !== undefined ? "snapshot" : "static",
+    source: "aider chat history (per-session)",
+    ...(lastSessionCost !== undefined ? { costUsd: lastSessionCost } : {}),
+    unsupportedReason:
+      "Aider bills per-session against your own provider API keys (no account quota). Showing the most recent session cost from ~/.aider.chat.history.md.",
+  };
+}
+
 export async function collectEngineLimits(
   config: CuttlefishConfig,
   opts: CollectEngineLimitsOptions = {},
@@ -520,11 +664,11 @@ export async function collectEngineLimits(
         "Grok currently exposes model/session behavior through its CLI, but no stable local quota endpoint is registered.",
       );
     } else if (name === "hermes") {
-      engines[name] = collectUnsupported(
-        config,
-        name,
-        "Hermes currently exposes model/session behavior through its CLI, but no stable local quota endpoint is registered.",
-      );
+      engines[name] = await collectHermesLimits(config);
+    } else if (name === "kilo") {
+      engines[name] = await collectKiloLimits(config);
+    } else if (name === "aider") {
+      engines[name] = collectAiderLimits(config);
     } else if (name === "kiro") {
       engines[name] = collectKiroLimits(config);
     } else {

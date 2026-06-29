@@ -23,6 +23,7 @@ interface GatewayCleanupDeps {
   ptyWss: WebSocketServer;
   server: http.Server;
   stopBoardWorker: () => void;
+  stopStuckTicketWatchdog: () => void;
   stopLeaderAckReconciler: () => void;
   stopScheduler: () => void;
   stopStatusReconciler: () => void;
@@ -48,6 +49,7 @@ export function createGatewayCleanup({
   ptyWss,
   server,
   stopBoardWorker,
+  stopStuckTicketWatchdog,
   stopLeaderAckReconciler,
   stopScheduler,
   stopStatusReconciler,
@@ -64,6 +66,7 @@ export function createGatewayCleanup({
 
     stopStatusReconciler();
     stopBoardWorker();
+    stopStuckTicketWatchdog();
     stopLeaderAckReconciler();
     clearInterval(uploadCleanupTimer);
     if (knowledgeRelayTimer) clearInterval(knowledgeRelayTimer);

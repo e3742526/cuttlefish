@@ -60,6 +60,11 @@ function LifecycleBadge({ lifecycle }: { lifecycle: string }) {
   );
 }
 
+function executionProfileLabel(tier: string | undefined, fallback: string | undefined): string {
+  if (tier === "mid_pair") return "Review profile"
+  return fallback || "Solo"
+}
+
 export function EmployeeDetail({
   name,
   prefetched,
@@ -217,7 +222,7 @@ export function EmployeeDetail({
         {employee.executionProfileSummary && (
           <div className="mt-[var(--space-4)] pt-[var(--space-4)] border-t border-[var(--separator)]">
             <p className="text-[length:var(--text-caption2)] font-[var(--weight-semibold)] uppercase tracking-[var(--tracking-wide)] text-[var(--text-tertiary)] mb-[var(--space-2)]">
-              Execution
+              Execution profile
             </p>
             <div className="flex flex-wrap items-center gap-[var(--space-2)]">
               <span
@@ -234,8 +239,13 @@ export function EmployeeDetail({
                       }
                 }
               >
-                {employee.executionProfileSummary.label}
+                {executionProfileLabel(employee.executionProfileSummary.tier, employee.executionProfileSummary.label)}
               </span>
+              {employee.executionProfileSummary.tier === "mid_pair" && (
+                <span className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+                  configuration only unless the gateway enables multi-role execution
+                </span>
+              )}
               {employee.executionProfileSummary.tier === "mid_pair" && employee.executionProfileSummary.reviewerLossPolicy && (
                 <span className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
                   on reviewer loss: {employee.executionProfileSummary.reviewerLossPolicy.replace(/_/g, " ")}

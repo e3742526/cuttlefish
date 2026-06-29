@@ -6,6 +6,7 @@ import {
   BoardConflictError,
   DEFAULT_RECYCLE_BIN_RETENTION_DAYS,
   boardTicketComplexity,
+  indexBoardTicketsById,
   mergeBoardTickets,
   parseBoardWritePayload,
   readBoardState,
@@ -127,6 +128,18 @@ describe("board-service mergeBoardTickets", () => {
   it("defaults missing complexity to medium", () => {
     expect(boardTicketComplexity(ticket("a"))).toBe("medium");
     expect(boardTicketComplexity({ ...ticket("b"), complexity: "low" })).toBe("low");
+  });
+
+  it("indexes tickets by id for O(1) lookup while preserving first-match behavior", () => {
+    const first = { ...ticket("duplicate"), title: "first" };
+    const second = { ...ticket("duplicate"), title: "second" };
+    const tickets = [ticket("a"), first, second, ticket("b")];
+
+    const index = indexBoardTicketsById(tickets);
+
+    expect(index.get("a")).toBe(tickets[0]);
+    expect(index.get("b")).toBe(tickets[3]);
+    expect(index.get("duplicate")).toBe(first);
   });
 
   it("moves deleted tickets into deletedTickets and preserves retention", () => {

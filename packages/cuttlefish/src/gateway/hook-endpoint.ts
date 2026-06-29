@@ -3,6 +3,11 @@ import type { HookRegistry, HookPayload } from "./hook-registry.js";
 import { evaluateCommandPolicy } from "../shared/command-policy.js";
 import type { SecurityReviewTrigger } from "../shared/types.js";
 
+export interface HookSecurityReviewResult {
+  action: "allow" | "checkpoint";
+  reason?: string;
+}
+
 export interface HookEndpointCtx {
   reg: HookRegistry;
   secret: string;
@@ -13,7 +18,7 @@ export interface HookEndpointCtx {
     command: string;
     triggers: SecurityReviewTrigger[];
     reason: string;
-  }) => void;
+  }) => HookSecurityReviewResult | void;
 }
 
 const HOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000;
@@ -89,13 +94,20 @@ export function handleHookPost(
       return { status: 451, body: decision.reason || "Command blocked by Cuttlefish security policy" };
     }
     if (decision.action === "review") {
-      ctx.onSecurityReview?.({
+      const reviewResult = ctx.onSecurityReview?.({
         sessionId: body.cuttlefishSessionId,
         command,
         triggers: decision.triggers ?? [],
         reason: decision.reason || "Security review required before executing this Bash command",
       });
-      return { status: 451, body: decision.reason || "Security review required before executing this Bash command" };
+      if (reviewResult?.action === "allow") {
+        ctx.reg.deliver(body.cuttlefishSessionId, body.hook);
+        return { status: 200, body: "ok" };
+      }
+      return {
+        status: 451,
+        body: reviewResult?.reason || decision.reason || "Security review required before executing this Bash command",
+      };
     }
   }
   ctx.reg.deliver(body.cuttlefishSessionId, body.hook);

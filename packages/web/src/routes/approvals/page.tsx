@@ -485,13 +485,9 @@ export default function ApprovalsPage() {
               </div>
             </div>
           ) : selectedApproval ? (
-            <div className="max-w-xl">
-              <ApprovalDetail approval={selectedApproval} readOnly={selectedIsResolved} />
-            </div>
+            <ApprovalDetail approval={selectedApproval} readOnly={selectedIsResolved} />
           ) : selectedCheckpoint ? (
-            <div className="max-w-xl">
-              <CheckpointDetail checkpoint={selectedCheckpoint} readOnly={selectedIsResolved} />
-            </div>
+            <CheckpointDetail checkpoint={selectedCheckpoint} readOnly={selectedIsResolved} />
           ) : null}
         </div>
 

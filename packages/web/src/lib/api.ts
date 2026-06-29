@@ -251,6 +251,18 @@ export interface UpdateDepartmentBoardPayload {
   retentionDays?: number
 }
 
+export interface RejectedBoardTicket {
+  index: number
+  id: string | null
+  title: string | null
+  error: string
+}
+
+export interface UpdateDepartmentBoardResponse {
+  status: 'ok' | 'partial'
+  rejectedTickets?: RejectedBoardTicket[]
+}
+
 export interface DispatchTicketResponse {
   status: string
   sessionId?: string
@@ -358,9 +370,11 @@ export const api = {
   getActivity: () =>
     get<Array<{ event: string; payload: unknown; ts: number }>>("/api/activity"),
   updateDepartmentBoard: (name: string, data: UpdateDepartmentBoardPayload) =>
-    put<Record<string, unknown>>(`/api/org/departments/${name}/board`, data),
+    put<UpdateDepartmentBoardResponse>(`/api/org/departments/${name}/board`, data),
   dispatchTicket: (department: string, ticketId: string) =>
     post<DispatchTicketResponse>(`/api/org/departments/${department}/tickets/${ticketId}/dispatch`, {}),
+  escalateToLead: (department: string, ticketId: string) =>
+    post<DispatchTicketResponse>(`/api/org/departments/${department}/tickets/${ticketId}/dispatch`, { routeToManager: true }),
   getTicketSession: (department: string, ticketId: string) =>
     get<TicketSessionResponse>(`/api/org/departments/${department}/tickets/${ticketId}/session`),
   sttStatus: () =>

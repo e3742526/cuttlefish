@@ -144,11 +144,11 @@ web org form; that is the manual override.)
 
 ### Risky Bash actions can hard-stop on security review
 
-Employees may declare `approvalPolicy: checkpoint`, `reviewTriggers`, and
-`securityReviewer` in their YAML. When a Claude Bash tool action matches an
-enabled risk trigger, the gateway opens a human checkpoint before the command is
-allowed to proceed and generates review context for the
-`senior-security-officer` (or the employee named in `securityReviewer`).
+Employees may declare `approvalPolicy`, `reviewTriggers`, and `securityReviewer`
+in their YAML. `approvalPolicy: checkpoint` opens a human checkpoint before a
+matching risky Bash action proceeds; `approvalPolicy: notify` allows it through
+but records a session notification; `none` disables the extra review layer. If
+the field is omitted, runtime defaults to `notify`.
 
 ### Delegation
 

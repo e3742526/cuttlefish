@@ -27,6 +27,7 @@ import { SessionQueue } from "./queue.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
 import { resolveEffort } from "../shared/effort.js";
+import { resolveEngineInvocation } from "../shared/engine-arg-resolver.js";
 import { effortLevelsForModel, engineAvailable, isKnownEngine, engineUnavailableMessage } from "../shared/models.js";
 import { detectRateLimit, isDeadSessionError } from "../shared/rateLimit.js";
 import { getClaudeExpectedResetAt, isLikelyNearClaudeUsageLimit } from "../shared/usageAwareness.js";
@@ -47,6 +48,7 @@ import {
 import { finalizeManagedSessionTurn, maybeRevertEngineOverride, mergeTransportMeta } from "./manager-helpers.js";
 import { isUntrustedSource, wrapUntrustedMessage } from "./untrusted-input.js";
 import { createScopedSessionToken } from "../gateway/auth.js";
+import type { ContentScreeningResult } from "../shared/types.js";
 export { mergeTransportMeta } from "./manager-helpers.js";
 
 export type RouteOptions = {
@@ -55,6 +57,10 @@ export type RouteOptions = {
   model?: string;
   title?: string;
 };
+
+type UntrustedContentGateResult =
+  | { action: "allow"; prompt: string; screening: ContentScreeningResult }
+  | { action: "checkpoint"; prompt: string; screening: ContentScreeningResult; notification: string };
 export class SessionManager {
   private config: CuttlefishConfig;
   private engines: Map<string, Engine>;
@@ -64,6 +70,12 @@ export class SessionManager {
   private notificationSink: SessionNotificationSink | undefined;
   private knowledgeSink: KnowledgeSink | undefined;
   private apiToken: string | undefined;
+  private untrustedContentGate?: (input: {
+    session: Session;
+    text: string;
+    user: string;
+    employee?: Employee;
+  }) => Promise<UntrustedContentGateResult>;
 
   constructor(
     config: CuttlefishConfig,
@@ -87,6 +99,11 @@ export class SessionManager {
   }
   setKnowledgeSink(sink: KnowledgeSink | undefined): void {
     this.knowledgeSink = sink;
+  }
+  setUntrustedContentGate(
+    gate: (input: { session: Session; text: string; user: string; employee?: Employee }) => Promise<UntrustedContentGateResult>,
+  ): void {
+    this.untrustedContentGate = gate;
   }
   getEngine(name: string): Engine | undefined {
     return this.engines.get(name);
@@ -289,6 +306,30 @@ export class SessionManager {
       let promptToRun = isUntrustedSource(session.source)
         ? wrapUntrustedMessage(msg.text, { source: session.source, user: msg.user })
         : msg.text;
+      if (isUntrustedSource(session.source) && this.untrustedContentGate) {
+        const gated = await this.untrustedContentGate({
+          session,
+          text: msg.text,
+          user: msg.user,
+          employee,
+        });
+        promptToRun = gated.prompt;
+        const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
+        nextMeta["latestUntrustedContentScreening"] = {
+          source: gated.screening.source,
+          verdict: gated.screening.verdict,
+          action: gated.screening.action,
+          summary: gated.screening.summary,
+          suspiciousSpans: gated.screening.suspiciousSpans,
+          screener: gated.screening.screener,
+          occurredAt: gated.screening.occurredAt,
+        };
+        session = updateSession(session.id, { transportMeta: nextMeta as any }) ?? session;
+        if (gated.action === "checkpoint") {
+          await connector.replyMessage(target, gated.notification).catch(() => {});
+          return;
+        }
+      }
       const syncSinceMs = typeof syncSinceIso === "string" ? new Date(syncSinceIso).getTime() : NaN;
       const syncRequested = session.engine === "claude" && typeof syncSinceIso === "string" && Number.isFinite(syncSinceMs);
       if (syncRequested) {
@@ -344,6 +385,13 @@ export class SessionManager {
         }
       }
 
+      // Reconcile explicit effort/cliFlags against the engine's implicit
+      // capabilities (e.g. strip effort flags for engines with no effort mechanism).
+      const invocation = resolveEngineInvocation(this.config, session.engine, {
+        effortLevel,
+        cliFlags: employee?.cliFlags,
+      });
+
       const result = await engine.run({
         prompt: promptToRun,
         resumeSessionId: session.engineSessionId ?? undefined,
@@ -351,8 +399,8 @@ export class SessionManager {
         cwd: session.cwd || CUTTLEFISH_HOME,
         bin: engineConfig.bin,
         model: session.model ?? engineConfig.model,
-        effortLevel,
-        cliFlags: employee?.cliFlags,
+        effortLevel: invocation.effortLevel,
+        cliFlags: invocation.cliFlags,
         mcpConfigPath,
         attachments: attachments.length > 0 ? attachments : undefined,
         sessionId: session.id,

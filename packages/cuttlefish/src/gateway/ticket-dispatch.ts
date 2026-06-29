@@ -66,6 +66,9 @@ function boardDispatchMeta(session: Session): Record<string, unknown> {
 }
 
 function isRecoverableBoardDispatchSession(session: Session): boolean {
+  // Don't reuse sessions that already failed: they carry stale error transcripts
+  // that pollute fresh dispatches with confusing context.
+  if (session.status === "error" || session.status === "interrupted") return false;
   const state = boardDispatchMeta(session).boardDispatchState;
   return state === "session_created" || state === "board_linked";
 }

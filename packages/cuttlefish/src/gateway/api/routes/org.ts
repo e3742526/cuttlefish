@@ -6,7 +6,7 @@ import { logger } from "../../../shared/logger.js";
 import { getSession, listSessions } from "../../../sessions/registry.js";
 import { readJsonBody } from "../../http-helpers.js";
 import { authorizeManagerScope } from "../../manager-auth.js";
-import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoard } from "../../board-service.js";
+import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
 import { RESERVED_ORG_DIRS, scanOrg } from "../../org.js";
@@ -579,10 +579,12 @@ export async function handleOrgRoutes(
 
   params = matchRoute("/api/org/departments/:name/tickets/:id/dispatch", pathname);
   if (method === "POST" && params) {
+    const body = req.method === "POST" ? await readJsonBody(req, res).then((r) => (r.ok ? r.body : {})) : {};
+    const routeToManager = (body as Record<string, unknown>).routeToManager === true;
     const result = await dispatchTicket(
       params.name,
       params.id,
-      { source: "manual", routeToManager: false },
+      { source: "manual", routeToManager },
       { context, orgDir: ORG_DIR },
     );
     if (!result.ok) {
@@ -636,7 +638,16 @@ export async function handleOrgRoutes(
         badRequest(res, assigneeError);
         return true;
       }
-      writeMergedBoard(ORG_DIR, params.name, parsed.body);
+      const { rejected } = writeMergedBoardPartial(ORG_DIR, params.name, parsed.body);
+      if (rejected.length > 0) {
+        logger.warn(
+          `PUT /api/org/departments/${params.name}/board: accepted valid tickets, rejected ${rejected.length} invalid: ` +
+          rejected.map((r) => `[${r.index}] ${r.error}`).join("; "),
+        );
+      }
+      context.emit("board:updated", { department: params.name });
+      json(res, rejected.length > 0 ? { status: "partial", rejectedTickets: rejected } : { status: "ok" });
+      return true;
     } catch (err) {
       logger.warn(`PUT /api/org/departments/${params.name}/board failed: ${err instanceof Error ? err.message : String(err)}`);
       if (err instanceof BoardConflictError) {
@@ -650,8 +661,6 @@ export async function handleOrgRoutes(
       badRequest(res, err instanceof Error ? err.message : "Invalid board payload");
       return true;
     }
-    context.emit("board:updated", { department: params.name });
-    json(res, { status: "ok" });
     return true;
   }
 

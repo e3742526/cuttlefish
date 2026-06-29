@@ -242,6 +242,7 @@ export default function KanbanPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [rejectedWarning, setRejectedWarning] = useState<string | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedTicket, setSelectedTicket] = useState<KanbanTicket | null>(null)
   const [filterEmployeeId, setFilterEmployeeId] = useState<string | null>(null)
@@ -338,10 +339,19 @@ export default function KanbanPage() {
       // Write affected department boards. Errors are surfaced to the UI and the
       // board is refetched from the gateway so optimistic local state does not
       // become the hidden source of truth.
-      await Promise.all(
+      const responses = await Promise.all(
         buildDepartmentBoardSaveRequests(store, targets, departmentRetentionDays)
           .map(({ department, payload }) => api.updateDepartmentBoard(department, payload)),
       )
+      const allRejected = responses.flatMap((r) => r.rejectedTickets ?? [])
+      if (allRejected.length > 0) {
+        const summary = allRejected
+          .map((r) => `"${r.title ?? r.id ?? `ticket[${r.index}]`}": ${r.error}`)
+          .join(' • ')
+        setRejectedWarning(`${allRejected.length} ticket${allRejected.length === 1 ? '' : 's'} skipped (invalid): ${summary}`)
+      } else {
+        setRejectedWarning(null)
+      }
     },
     [departmentRetentionDays],
   )
@@ -547,6 +557,23 @@ export default function KanbanPage() {
       })
   }
 
+  function handleEscalateToLead(ticketId: string) {
+    const ticket = tickets[ticketId]
+    const department = ticket?.departmentId ?? ticket?.department ?? ''
+    if (!ticket || !department) {
+      setSaveError('Ticket is missing its department.')
+      return
+    }
+
+    setSaveError(null)
+    setTickets((prev) => updateTicket(prev, ticketId, { workState: 'starting' }))
+    void api.escalateToLead(department, ticketId)
+      .catch((err) => {
+        setSaveError(err instanceof Error ? err.message : 'Failed to escalate ticket.')
+        loadData()
+      })
+  }
+
   function handleTicketClick(ticket: KanbanTicket) {
     setSelectedTicket(ticket)
   }
@@ -649,6 +676,18 @@ export default function KanbanPage() {
                 className="shrink-0 rounded-[var(--radius-sm)] border border-current bg-transparent px-[var(--space-2)] py-[2px] text-[length:var(--text-caption2)] font-semibold cursor-pointer"
               >
                 Reload
+              </button>
+            </div>
+          )}
+
+          {rejectedWarning && (
+            <div className="mx-[var(--space-5)] mt-[var(--space-3)] rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--system-orange)_35%,transparent)] bg-[color-mix(in_srgb,var(--system-orange)_10%,transparent)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--system-orange)] flex items-center justify-between gap-[var(--space-3)]">
+              <span className="min-w-0 break-words">{rejectedWarning}</span>
+              <button
+                onClick={() => setRejectedWarning(null)}
+                className="shrink-0 rounded-[var(--radius-sm)] border border-current bg-transparent px-[var(--space-2)] py-[2px] text-[length:var(--text-caption2)] font-semibold cursor-pointer"
+              >
+                Dismiss
               </button>
             </div>
           )}
@@ -780,6 +819,7 @@ export default function KanbanPage() {
               onDelete={() => setDeleteConfirm(selectedTicket)}
               onSaveDetails={(updates) => handleSaveTicketConfig(selectedTicket.id, updates)}
               onAppendNote={(updates) => handleAppendNote(selectedTicket.id, updates)}
+              onEscalateToLead={() => handleEscalateToLead(selectedTicket.id)}
             />
         )}
 

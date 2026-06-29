@@ -24,7 +24,7 @@ export interface EmployeeExecutionConfig {
 /** Static summary computed from execution config — used in org cards and detail panels. */
 export interface ExecutionProfileSummary {
   tier: ExecutionTier
-  /** Human-readable label, e.g. "Solo" or "Built-in review" */
+  /** Human-readable label from the org API. UI should avoid presenting non-solo profiles as active runtime execution unless a session exposes run state. */
   label: string
   reviewerLossPolicy?: ReviewerLossPolicy
   reviewerToolProfile?: ReviewerToolProfile

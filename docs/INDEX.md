@@ -44,6 +44,11 @@ artifacts unless explicitly published.
   commands, opt-in live run modes, git worktree execution, and orchestration
   HTTP routes.
 
+## Session and Audit Log Summaries
+
+- `docs/logs/session/062026-session-summary.md`: June 2026 durable session summary —
+  multi-role execution, security hardening, kanban improvements, Qdrant, email, orchestration.
+
 ## Historical Design And Planning Archives
 
 - `docs/plans/`: early Cuttlefish design, implementation, auth UX,
