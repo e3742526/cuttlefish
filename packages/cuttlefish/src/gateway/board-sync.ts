@@ -45,6 +45,13 @@ export interface BoardSyncDeps {
   now?: () => number;
 }
 
+function sessionBoardDepartment(session: Session | undefined): string | undefined {
+  const transport = session?.transportMeta;
+  if (!transport || typeof transport !== "object" || Array.isArray(transport)) return undefined;
+  const value = (transport as Record<string, unknown>).boardDepartment;
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
 function shorten(s: string, n: number): string {
   const one = s.replace(/\s+/g, " ").trim();
   return one.length > n ? one.slice(0, n - 1) + "…" : one;
@@ -93,7 +100,10 @@ export function syncBoardForEvent(event: string, payload: unknown, deps: BoardSy
   const employee = session?.employee ?? p.employee ?? null;
   if (!employee) return false; // not an employee/worker job — don't ticket it
 
-  const dept = deps.resolveDepartment(employee);
+  // Keep board updates anchored to the board that originally launched the work.
+  // Cross-department assignment is allowed, so the worker's home department is
+  // only a fallback when the session has no persisted boardDepartment.
+  const dept = sessionBoardDepartment(session) ?? deps.resolveDepartment(employee);
   if (!dept) return false;
 
   const boardPath = path.join(deps.orgDir, dept, "board.json");

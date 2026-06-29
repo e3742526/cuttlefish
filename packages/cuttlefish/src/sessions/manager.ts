@@ -722,7 +722,7 @@ export class SessionManager {
         ...(this.config.engines.antigravity ? [`Antigravity: ${this.config.engines.antigravity.model ?? "Gemini 3.5 Flash (Medium)"}`] : []),
         ...(this.config.engines.grok ? [`Grok: ${this.config.engines.grok.model ?? "grok-build"}`] : []),
         ...(this.config.engines.ollama ? [`Ollama: ${this.config.engines.ollama.model ?? "gemma4"}`] : []),
-        ...(this.config.engines.kilo ? [`Kilo: ${this.config.engines.kilo.model ?? "kilo-auto/free"}`] : []),
+        ...(this.config.engines.kilo ? [`Kilo: ${this.config.engines.kilo.model ?? "default"}`] : []),
         "Connectors:",
         ...connectorLines,
       ].join("\n");

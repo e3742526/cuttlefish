@@ -146,4 +146,76 @@ describe("ticket dispatch idempotency", () => {
     });
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
   }, 15_000);
+
+  it("redispatches a todo ticket that still points at a stopped prior session", async () => {
+    seedOrg();
+
+    const dispatchWebSessionRun = vi.fn(() => Promise.resolve());
+    vi.doMock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun }));
+
+    const { createSession, updateSession, getSession } = await import("../../sessions/registry.js");
+    const staleSession = createSession({
+      engine: "claude",
+      source: "board",
+      sourceRef: "board:software-delivery:ticket-1:stale",
+      connector: "board",
+      sessionKey: "board:software-delivery:ticket-1",
+      replyContext: { source: "board", department: "software-delivery", ticketId: "ticket-1" },
+      transportMeta: {
+        boardDepartment: "software-delivery",
+        boardTicketId: "ticket-1",
+        boardDispatchState: "board_linked",
+        dispatchSource: "board",
+      },
+      employee: "worker",
+      model: "opus",
+      title: "Repair dispatch",
+      prompt: "Ensure retry is idempotent",
+      promptExcerpt: "Repair dispatch",
+    });
+    updateSession(staleSession.id, {
+      status: "idle",
+      lastActivity: "2026-06-23T09:59:00.000Z",
+    });
+
+    fs.writeFileSync(boardPath(), JSON.stringify([
+      {
+        ...readBoard()[0],
+        status: "todo",
+        sessionId: staleSession.id,
+        source: "board",
+      },
+    ], null, 2));
+
+    const { dispatchTicket } = await import("../ticket-dispatch.js");
+    const context = {
+      getConfig: () => ({ gateway: {}, engines: { default: "claude", claude: { bin: "claude", model: "opus" } } }),
+      connectors: new Map(),
+      startTime: Date.now(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine: () => ({ run: vi.fn() }),
+        getQueue: () => ({ enqueue: vi.fn(), getPendingCount: () => 0, getTransportState: (_key: string, status: string) => status }),
+      },
+    } as any;
+
+    const result = await dispatchTicket(
+      "software-delivery",
+      "ticket-1",
+      { source: "board", routeToManager: false },
+      { context, orgDir: orgDir(), now: () => Date.parse("2026-06-23T10:00:00.000Z") },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.sessionId).not.toBe(staleSession.id);
+    expect(getSession(staleSession.id)?.status).toBe("idle");
+    expect(readBoard()[0]).toMatchObject({
+      status: "in_progress",
+      sessionId: result.sessionId,
+      assignee: "worker",
+      updatedAt: "2026-06-23T10:00:00.000Z",
+    });
+    expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
+  }, 15_000);
 });

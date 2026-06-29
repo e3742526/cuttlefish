@@ -516,10 +516,10 @@ export function EngineConfigurationSection({
       </FieldRow>
       <FieldRow label="Model">
         <SettingsSelect
-          value={config.engines?.kilo?.model ?? "kilo-auto/free"}
+          value={config.engines?.kilo?.model ?? "default"}
           onChange={(v) => updateConfig(["engines", "kilo", "model"], v)}
           options={modelOptions("kilo", [
-            { value: "kilo-auto/free", label: "Kilo Auto Free" },
+            { value: "default", label: "Kilo (auto)" },
           ])}
         />
       </FieldRow>

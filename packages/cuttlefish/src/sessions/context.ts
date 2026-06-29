@@ -493,7 +493,7 @@ function buildConfigContext(config: CuttlefishConfig, gatewayUrl: string, sessio
     lines.push(`- Ollama model: ${config.engines.ollama.model ?? "gemma4"}`);
   }
   if (config.engines.kilo) {
-    lines.push(`- Kilo model: ${config.engines.kilo.model ?? "kilo-auto/free"}`);
+    lines.push(`- Kilo model: ${config.engines.kilo.model ?? "default"}`);
   }
   if (config.logging) {
     lines.push(`- Log level: ${config.logging.level || "info"}`);

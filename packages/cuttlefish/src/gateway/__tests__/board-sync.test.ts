@@ -149,6 +149,38 @@ describe("syncBoardForEvent", () => {
     });
   });
 
+  it("uses the ticket boardDepartment for failure updates even when the worker belongs to another department", () => {
+    writeBoard("product", [{
+      id: "ticket-x",
+      title: "Cross-team task",
+      description: "Keep this description",
+      status: "in_progress",
+      priority: "high",
+      complexity: "low",
+      assignee: "code-reviewer",
+      sessionId: "s1",
+      createdAt: "2026-06-20T00:00:00.000Z",
+      updatedAt: "2026-06-20T00:00:00.000Z",
+    }]);
+    const ok = syncBoardForEvent("session:completed", { sessionId: "s1", error: "boom" }, deps({
+      getSession: () =>
+        makeSession({
+          status: "error",
+          transportMeta: { boardTicketId: "ticket-x", boardDepartment: "product" } as any,
+        }),
+    }));
+    expect(ok).toBe(true);
+    expect(readBoard("product")).toEqual([
+      expect.objectContaining({
+        id: "ticket-x",
+        status: "blocked",
+        description: "Keep this description",
+        sessionId: "s1",
+      }),
+    ]);
+    expect(fs.existsSync(path.join(orgDir, "software-delivery", "board.json"))).toBe(false);
+  });
+
   it("ignores sessions with no employee", () => {
     writeBoard("software-delivery", []);
     const ok = syncBoardForEvent("session:started", { sessionId: "s1" }, deps({

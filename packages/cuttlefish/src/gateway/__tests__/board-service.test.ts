@@ -92,6 +92,31 @@ describe("board-service mergeBoardTickets", () => {
     }]);
   });
 
+  it("clears stale terminal session metadata when a completed ticket is sent back to an actionable column", () => {
+    const current = [{
+      ...ticket("session-s1", "session"),
+      status: "done" as const,
+      updatedAt: "2026-06-22T01:00:00.000Z",
+    }];
+    const incoming = [{
+      ...ticket("session-s1", "session"),
+      status: "todo" as const,
+      baseUpdatedAt: current[0].updatedAt,
+      updatedAt: "2026-06-22T01:05:00.000Z",
+    }];
+
+    expect(mergeBoardTickets(current, incoming)).toEqual([{
+      id: "session-s1",
+      title: "session-s1",
+      description: "",
+      status: "todo",
+      priority: "medium",
+      assignee: "a",
+      createdAt: "2026-06-22T00:00:00.000Z",
+      updatedAt: "2026-06-22T01:05:00.000Z",
+    }]);
+  });
+
   it("accepts array payloads and object payloads with deletedIds", () => {
     expect(parseBoardWritePayload([ticket("a")]).tickets).toHaveLength(1);
     const parsed = parseBoardWritePayload({ tickets: [ticket("a")], deletedIds: ["session-s1"] });

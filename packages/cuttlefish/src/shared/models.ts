@@ -82,7 +82,7 @@ const SYNTH_DEFAULTS: Record<EngineName, { supportsEffort: boolean; effortLevels
   kiro: { supportsEffort: true, effortLevels: ["low", "medium", "high"], fallbackModel: "auto" },
   hermes: { supportsEffort: false, effortLevels: HERMES_EFFORT_LEVELS, fallbackModel: "openai-codex:gpt-5.5" },
   ollama: { supportsEffort: false, effortLevels: [], fallbackModel: "gemma4" },
-  kilo: { supportsEffort: false, effortLevels: [], fallbackModel: "kilo-auto/free" },
+  kilo: { supportsEffort: false, effortLevels: [], fallbackModel: "default" },
   // Aider auto-detects its model from whichever API key is in env; "default" is a
   // sentinel meaning "don't pass --model" (the engine omits the flag for it).
   aider: { supportsEffort: false, effortLevels: [], fallbackModel: "default" },

@@ -8,6 +8,7 @@ import { buildOllamaPrompt } from "./ollama.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
+const KILO_AUTO_MODEL = "kilo-auto/free";
 
 interface LiveProcess {
   proc: ChildProcess;
@@ -47,7 +48,7 @@ export class KiloEngine implements InterruptibleEngine {
   async run(opts: EngineRunOpts): Promise<EngineResult> {
     const trackingId = opts.sessionId || opts.resumeSessionId || `kilo-${Date.now()}`;
     const bin = resolveBin("kilo", opts.bin);
-    const model = opts.model || "kilo-auto/free";
+    const model = opts.model || KILO_AUTO_MODEL;
     const history = opts.sessionId ? getMessages(opts.sessionId) : [];
     const prompt = buildOllamaPrompt(opts, history);
     const args = [
@@ -56,17 +57,14 @@ export class KiloEngine implements InterruptibleEngine {
       "--dangerously-skip-permissions",
       "--dir",
       opts.cwd,
-      "--model",
-      model,
-      ...(opts.effortLevel && opts.effortLevel !== "default" ? ["--variant", opts.effortLevel] : []),
+      ...(model !== KILO_AUTO_MODEL ? ["--model", model] : []),
       ...(opts.attachments ?? []).flatMap((file) => ["--file", file]),
       ...(opts.cliFlags ?? []),
       prompt,
     ];
 
     logger.info(
-      `Kilo engine starting: ${bin} run --model ${model}` +
-        `${opts.effortLevel && opts.effortLevel !== "default" ? ` --variant ${opts.effortLevel}` : ""}` +
+      `Kilo engine starting: ${bin} run${model !== KILO_AUTO_MODEL ? ` --model ${model}` : " (default model)"}` +
         ` (history messages: ${history.length}, resume: ${opts.resumeSessionId || "synthetic"})`,
     );
 

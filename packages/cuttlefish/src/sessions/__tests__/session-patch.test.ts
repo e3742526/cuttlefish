@@ -99,10 +99,28 @@ describe("validateNewSessionSelection", () => {
     expect(r.error).toMatch(/invalid effortLevel/i);
   });
 
-  it("rejects effort for an engine/model with no effort support", () => {
+  it("drops stale effort for an engine/model with no effort support", () => {
     const r = validateNewSessionSelection(cfg(), { engine: "antigravity", model: "gemini-3-flash-preview", effortLevel: "high" });
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/does not support effort/i);
+    expect(r).toEqual({
+      ok: true,
+      engine: "antigravity",
+      model: "gemini-3-flash-preview",
+      effortLevel: undefined,
+    });
+  });
+
+  it("drops stale employee-default effort when the selected engine/model has no effort support", () => {
+    const r = validateNewSessionSelection(
+      cfg(),
+      {},
+      { engine: "antigravity", model: "gemini-3-flash-preview", effortLevel: "high" },
+    );
+    expect(r).toEqual({
+      ok: true,
+      engine: "antigravity",
+      model: "gemini-3-flash-preview",
+      effortLevel: undefined,
+    });
   });
 });
 

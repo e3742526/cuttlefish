@@ -116,7 +116,7 @@ Cuttlefish detects whichever agent CLIs are on your `PATH` and makes them interc
 | **pi** | Pi coding agent CLI | see Pi CLI docs | Chat | - |
 | **hermes** | NousResearch Hermes - open-source, model-agnostic agent | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash` | Chat (ACP streaming) · CLI (xterm view) | - |
 | **ollama** | Local Ollama CLI driving a pulled local model | install from [ollama.com](https://ollama.com/download), then `ollama pull <model>` | Chat | - |
-| **kilo** | Kilo Code CLI in autonomous terminal mode | `npm install -g @kilocode/cli` and run `kilo` once to `/connect` | Chat | provider-specific via `--variant` |
+| **kilo** | Kilo Code CLI in autonomous terminal mode | `npm install -g @kilocode/cli` and run `kilo` once to `/connect` | Chat | - |
 | **aider** | [Aider](https://aider.chat) AI pair-programmer | `python -m pip install aider-install && aider-install` (or `pipx install aider-chat`), then set a provider API key | Chat · CLI (xterm) | - |
 
 The picker shows real model names out of the box (Opus 4.8, GPT-5.5, Gemini 3.x…). Those labels live in your `config.yaml`, so a fresh install looks polished day one - while Grok, Pi, and Hermes report their model lists live at session start, and Aider surfaces the models for whichever provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) are present in the gateway env.
@@ -239,7 +239,7 @@ engines:
     model: gemma4
   kilo:
     bin: kilo
-    model: kilo-auto/free
+    model: default
 
 connectors:
   slack:

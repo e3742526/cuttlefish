@@ -346,12 +346,12 @@ describe("validateConfigShape", () => {
       engines: {
         default: "kilo",
         claude: { bin: "claude", model: "opus" },
-        kilo: { bin: "kilo", model: "kilo-auto/free" },
+        kilo: { bin: "kilo", model: "default" },
       },
       models: {
         kilo: {
-          default: "kilo-auto/free",
-          models: [{ id: "kilo-auto/free", label: "Kilo Auto Free" }],
+          default: "default",
+          models: [{ id: "default", label: "Kilo (auto)" }],
         },
       },
       sessions: { fallbackEngine: "kilo" },

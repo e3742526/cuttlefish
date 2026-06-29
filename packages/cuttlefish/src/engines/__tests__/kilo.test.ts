@@ -72,7 +72,7 @@ beforeEach(() => {
 });
 
 describe("KiloEngine", () => {
-  it("uses autonomous kilo run flags, model, variant, and attachments", async () => {
+  it("uses autonomous kilo run flags and attachments without sending the auto-model sentinel", async () => {
     const engine = new KiloEngine();
     const promise = engine.run({
       prompt: "implement feature",
@@ -87,10 +87,9 @@ describe("KiloEngine", () => {
     expect(args).toContain("run");
     expect(args).toContain("--auto");
     expect(args).toContain("--dangerously-skip-permissions");
-    expect(args).toContain("--model");
-    expect(args).toContain("kilo-auto/free");
-    expect(args).toContain("--variant");
-    expect(args).toContain("high");
+    expect(args).not.toContain("--model");
+    expect(args).not.toContain("kilo-auto/free");
+    expect(args).not.toContain("--variant");
     expect(args).toContain("--file");
     expect(args).toContain("/tmp/spec.md");
 
@@ -116,5 +115,22 @@ describe("KiloEngine", () => {
     spawnCalls[0]?.proc.emitStdout("answer");
     spawnCalls[0]?.proc.close(0);
     await expect(promise).resolves.toMatchObject({ sessionId: "sess-1", result: "answer" });
+  });
+
+  it("passes explicit Kilo model ids through unchanged", async () => {
+    const engine = new KiloEngine();
+    const promise = engine.run({
+      prompt: "test quoted model",
+      cwd: "/tmp/project",
+      model: "Qwen/Qwen3.6-35B-A3B",
+    });
+
+    await flush();
+    const args = spawnCalls[0]?.args ?? [];
+    expect(args[args.indexOf("--model") + 1]).toBe("Qwen/Qwen3.6-35B-A3B");
+
+    spawnCalls[0]?.proc.emitStdout("quoted");
+    spawnCalls[0]?.proc.close(0);
+    await expect(promise).resolves.toMatchObject({ result: "quoted" });
   });
 });

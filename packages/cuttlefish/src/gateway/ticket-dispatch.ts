@@ -147,7 +147,7 @@ function getTicket(board: BoardTicket[], ticketId: string): BoardTicket | undefi
 }
 
 function ticketIsAlreadyClaimed(ticket: BoardTicket, reusableSession: Session | undefined): boolean {
-  if (ticket.status !== "in_progress" && !ticket.sessionId) return false;
+  if (ticket.status !== "in_progress") return false;
   if (!reusableSession) return true;
   return ticket.sessionId !== reusableSession.id;
 }

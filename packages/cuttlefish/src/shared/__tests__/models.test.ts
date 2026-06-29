@@ -29,7 +29,7 @@ describe("synthesizeFromEngineConfig (backward-compat fallback)", () => {
     expect(reg.grok.models.map((m) => m.id)).toEqual(["grok-build", "grok-composer-2.5-fast"]);
     expect(reg.grok.models.map((m) => m.label)).toEqual(["Grok Build", "Grok Composer 2.5 Fast"]);
     expect(reg.ollama.models[0].id).toBe("gemma4");
-    expect(reg.kilo.models[0].id).toBe("kilo-auto/free");
+    expect(reg.kilo.models[0].id).toBe("default");
   });
 
   it("uses per-engine effort semantics: claude flag, codex config, grok flag, antigravity/ollama none", () => {

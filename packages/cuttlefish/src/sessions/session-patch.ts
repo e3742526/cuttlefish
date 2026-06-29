@@ -137,9 +137,11 @@ export function validateNewSessionSelection(
     const effectiveModel = model ?? undefined;
     const valid = effortLevelsForModel(config, engine, effectiveModel);
     if (valid.length === 0) {
-      return { ok: false, error: `engine "${engine}"${effectiveModel ? ` model "${effectiveModel}"` : ""} does not support effort levels` };
-    }
-    if (!valid.includes(effortLevel)) {
+      logger.warn(
+        `Ignoring effortLevel "${effortLevel}" for engine "${engine}"${effectiveModel ? ` model "${effectiveModel}"` : ""} because it does not support effort levels`,
+      );
+      effortLevel = undefined;
+    } else if (!valid.includes(effortLevel)) {
       return { ok: false, error: `invalid effortLevel "${effortLevel}" (valid: ${valid.join(", ")})` };
     }
   }

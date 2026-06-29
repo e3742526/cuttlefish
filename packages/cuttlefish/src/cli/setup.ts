@@ -281,7 +281,7 @@ engines:
     model: gemma4
   kilo:
     bin: kilo
-    model: kilo-auto/free
+    model: default
   aider:
     bin: aider
     model: default
@@ -315,10 +315,10 @@ models:
     models:
       - { id: gemma4, label: "Gemma 4", supportsEffort: false, effortLevels: [] }
   kilo:
-    default: kilo-auto/free
+    default: default
     effortMechanism: none
     models:
-      - { id: kilo-auto/free, label: "Kilo Auto Free", supportsEffort: false, effortLevels: [] }
+      - { id: default, label: "Kilo (auto)", supportsEffort: false, effortLevels: [] }
   aider:
     default: default
     effortMechanism: none

@@ -242,6 +242,12 @@ function isActiveSessionTicket(ticket: BoardTicket): boolean {
   );
 }
 
+function shouldClearTerminalSessionLink(current: BoardTicket | undefined, incoming: BoardTicket): boolean {
+  if (!current || isActiveSessionTicket(current)) return false;
+  if (typeof current.sessionId !== "string" || !current.sessionId.trim()) return false;
+  return incoming.status !== "done" && incoming.status !== "blocked";
+}
+
 function assertDoesNotReplaceActiveSession(current: BoardTicket | undefined, incoming: BoardTicket): void {
   if (!current || !isActiveSessionTicket(current)) return;
   const replacesSession = (
@@ -276,6 +282,9 @@ export function mergeBoardTickets(
     if (currentTicket && isActiveSessionTicket(currentTicket)) {
       stored.sessionId = currentTicket.sessionId;
       if (currentTicket.source != null) stored.source = currentTicket.source;
+    } else if (shouldClearTerminalSessionLink(currentTicket, stored as BoardTicket)) {
+      delete stored.sessionId;
+      delete stored.source;
     }
     return stored as BoardTicket;
   });
