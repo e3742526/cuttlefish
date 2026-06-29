@@ -25,7 +25,10 @@ governance/logs/
 docs/audits/
 docs/logs/
 state/
-logs/
+# Anchored to repo root: this ignores the top-level runtime telemetry dir
+# (logs/agent-activity.jsonl) without swallowing source dirs named "logs"
+# such as packages/web/src/routes/logs/.
+/logs/
 
 # Superpowers SDD scratch (briefs, reports, ledger, diffs)
 .superpowers/
