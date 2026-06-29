@@ -1,4 +1,5 @@
 import type { Employee, OrgNode, OrgWarning, OrgHierarchy } from "../shared/types.js";
+import { portalEmployeeSlug } from "../shared/portal-slug.js";
 
 const RANK_PRIORITY: Record<string, number> = {
   executive: 0,
@@ -21,6 +22,36 @@ export function getAllParents(
   if (reportsTo === undefined) return [];
   if (typeof reportsTo === "string") return [reportsTo];
   return [...reportsTo];
+}
+
+export function portalExecutiveEmployee(portalName: string | null | undefined): Employee {
+  const displayName = portalName?.trim() || "Cuttlefish";
+  return {
+    name: portalEmployeeSlug(displayName),
+    displayName,
+    department: "",
+    rank: "executive",
+    engine: "claude",
+    model: "opus",
+    persona: "COO and AI gateway daemon",
+    reportsTo: [],
+  };
+}
+
+export function withPortalExecutive(
+  registry: Map<string, Employee>,
+  portalName: string | null | undefined,
+): Map<string, Employee> {
+  if ([...registry.values()].some((employee) => employee.rank === "executive")) {
+    return registry;
+  }
+  const executive = portalExecutiveEmployee(portalName);
+  if (registry.has(executive.name)) return registry;
+  return new Map([[executive.name, executive], ...registry]);
+}
+
+function shouldReportToRoot(emp: Employee): boolean {
+  return emp.rank === "manager" || !emp.department;
 }
 
 export function resolveOrgHierarchy(
@@ -87,6 +118,17 @@ export function resolveOrgHierarchy(
       });
 
     parentMap.set(name, candidates.length > 0 ? candidates[0].name : null);
+  }
+
+  // Step 3b: Attach eligible top-level reports to the executive root. This is
+  // actual hierarchy (parentName/directReports/chain), not merely chart wiring.
+  if (rootName) {
+    for (const [name, emp] of registry) {
+      if (name === rootName) continue;
+      if (parentMap.get(name) === null && shouldReportToRoot(emp)) {
+        parentMap.set(name, rootName);
+      }
+    }
   }
 
   // Step 4: Cycle detection

@@ -132,7 +132,7 @@ export async function handleOrchestrationRoutes(
     }
     const workerIds = parseStringArray(body?.workerIds);
     const roles = parseStringArray(body?.roles);
-    const auth = authorizeHoldManager(managerName, workerIds);
+    const auth = authorizeHoldManager(managerName, workerIds, context);
     if (!auth.ok) {
       json(res, { error: auth.error }, 403);
       return true;
@@ -170,7 +170,7 @@ export async function handleOrchestrationRoutes(
       json(res, { error: "hold not found" }, 404);
       return true;
     }
-    const auth = authorizeHoldManager(managerName, current.workerIds);
+    const auth = authorizeHoldManager(managerName, current.workerIds, context);
     if (!auth.ok || current.managerName !== managerName) {
       json(res, { error: auth.ok ? "hold can only be changed by its manager" : auth.error }, 403);
       return true;
@@ -317,7 +317,7 @@ export async function handleOrchestrationRoutes(
       json(res, { error: "manifestPath, taskId, coordinatorId, and managerName are required" }, 400);
       return true;
     }
-    const auth = authorizeManagerScope(scanOrg(), body.managerName, []);
+    const auth = authorizeManagerScope(scanOrg(), body.managerName, [], context.getConfig().portal?.portalName);
     if (!auth.ok) {
       json(res, { error: auth.error }, 403);
       return true;
@@ -664,10 +664,10 @@ function parseArtifactKind(value: string): ArtifactKind | null {
   return value === "diff" || value === "prompt" || value === "output" || value === "patch_apply" ? value : null;
 }
 
-function authorizeHoldManager(managerName: string, workerIds: string[]): { ok: true } | { ok: false; error: string } {
+function authorizeHoldManager(managerName: string, workerIds: string[], context: ApiContext): { ok: true } | { ok: false; error: string } {
   const registry = scanOrg();
   const mapped = employeeNamesForOrgWorkerIds(registry, workerIds);
-  const auth = authorizeManagerScope(registry, managerName, mapped.employeeNames);
+  const auth = authorizeManagerScope(registry, managerName, mapped.employeeNames, context.getConfig().portal?.portalName);
   if (!auth.ok) return auth;
   if (mapped.unknownWorkerIds.length > 0 && auth.manager.rank !== "executive") {
     return {

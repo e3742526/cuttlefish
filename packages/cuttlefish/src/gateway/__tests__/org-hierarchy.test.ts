@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveOrgHierarchy, getPrimaryParent, getAllParents } from "../org-hierarchy.js";
+import { resolveOrgHierarchy, getPrimaryParent, getAllParents, portalExecutiveEmployee, withPortalExecutive } from "../org-hierarchy.js";
 import type { Employee } from "../../shared/types.js";
 
 function emp(name: string, opts: Partial<Employee> = {}): Employee {
@@ -166,6 +166,71 @@ describe("resolveOrgHierarchy", () => {
     expect(multiWarnings[0].employee).toBe("beta");
   });
 
+  it("creates an immutable virtual portal COO when no executive YAML exists", () => {
+    const registryWithCoo = withPortalExecutive(registry(emp("eng-lead", { rank: "manager", department: "eng" })), "Cuttlefish");
+    const coo = registryWithCoo.get("cuttlefish");
+
+    expect(portalExecutiveEmployee("Cuttlefish").model).toBe("opus");
+    expect(coo).toMatchObject({
+      name: "cuttlefish",
+      displayName: "Cuttlefish",
+      department: "",
+      rank: "executive",
+      engine: "claude",
+      model: "opus",
+      reportsTo: [],
+    });
+  });
+
+  it("does not replace a real executive YAML with the virtual portal COO", () => {
+    const real = emp("real-coo", { rank: "executive", department: "exec", model: "custom" });
+    const registryWithCoo = withPortalExecutive(registry(real), "Cuttlefish");
+
+    expect(registryWithCoo.get("real-coo")).toBe(real);
+    expect(registryWithCoo.has("cuttlefish")).toBe(false);
+  });
+
+  it("makes the virtual COO the actual parent for top-level department heads", () => {
+    const h = resolveOrgHierarchy(
+      withPortalExecutive(
+        registry(
+          emp("eng-lead", { rank: "manager", department: "eng" }),
+          emp("dev", { rank: "employee", department: "eng", reportsTo: "eng-lead" }),
+        ),
+        "Cuttlefish",
+      ),
+    );
+
+    expect(h.root).toBe("cuttlefish");
+    expect(h.nodes["eng-lead"].parentName).toBe("cuttlefish");
+    expect(h.nodes["cuttlefish"].directReports).toContain("eng-lead");
+    expect(h.nodes["eng-lead"].chain).toEqual(["cuttlefish", "eng-lead"]);
+    expect(h.nodes["dev"].chain).toEqual(["cuttlefish", "eng-lead", "dev"]);
+  });
+
+  it("makes unassigned non-managers actual COO reports", () => {
+    const h = resolveOrgHierarchy(
+      withPortalExecutive(
+        registry(emp("security", { rank: "senior", department: "", reportsTo: [] })),
+        "Cuttlefish",
+      ),
+    );
+
+    expect(h.nodes["security"].parentName).toBe("cuttlefish");
+    expect(h.nodes["security"].chain).toEqual(["cuttlefish", "security"]);
+  });
+
+  it("does not make ordinary department specialists direct COO reports", () => {
+    const h = resolveOrgHierarchy(
+      withPortalExecutive(
+        registry(emp("specialist", { rank: "senior", department: "eng", reportsTo: [] })),
+        "Cuttlefish",
+      ),
+    );
+
+    expect(h.nodes["specialist"].parentName).toBeNull();
+  });
+
   it("no executive → root is null", () => {
     const h = resolveOrgHierarchy(
       registry(
@@ -243,7 +308,7 @@ describe("resolveOrgHierarchy", () => {
     expect(h.nodes["eng-lead"].parentName).toBe("coo");
     expect(h.nodes["dev-a"].parentName).toBe("eng-lead");
     expect(h.nodes["dev-b"].parentName).toBe("eng-lead");
-    expect(h.nodes["mkt-lead"].parentName).toBeNull();
+    expect(h.nodes["mkt-lead"].parentName).toBe("coo");
     expect(h.nodes["writer"].parentName).toBe("mkt-lead");
   });
 

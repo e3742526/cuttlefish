@@ -23,6 +23,12 @@ const OrgMapFallback = (
 const ALL_DEPARTMENTS_TAB = "all";
 const UNASSIGNED_DEPARTMENT_TAB = "__unassigned__";
 
+function mergeDepartmentOption(departments: string[], department: string | undefined): string[] {
+  const next = department?.trim();
+  if (!next || departments.includes(next)) return departments;
+  return [...departments, next];
+}
+
 function buildVisibleOrgView(
   employees: Employee[],
   hierarchy: OrgHierarchy | undefined,
@@ -87,8 +93,11 @@ export default function OrgPage() {
           model: "opus",
           persona: "COO and AI gateway daemon",
         };
+        const employees = data.employees.some((employee) => employee.name === coo.name)
+          ? data.employees
+          : [coo, ...data.employees];
         setDepartments(data.departments);
-        setEmployees([coo, ...data.employees]);
+        setEmployees(employees);
         setHierarchy(data.hierarchy);
       })
       .catch((err) => setError(err.message))
@@ -136,6 +145,7 @@ export default function OrgPage() {
   // a reportsTo change) and refresh the open panel with the saved employee.
   const handleEmployeeUpdated = useCallback(
     (emp: Employee) => {
+      setDepartments((current) => mergeDepartmentOption(current, emp.department));
       loadData();
       setSelected(emp);
       setCreating(false);
@@ -291,6 +301,7 @@ export default function OrgPage() {
                   <EmployeeCreateForm
                     onCancel={() => setCreating(false)}
                     onCreated={(employee) => {
+                      setDepartments((current) => mergeDepartmentOption(current, employee.department))
                       loadData()
                       setCreating(false)
                       setSelected(employee)

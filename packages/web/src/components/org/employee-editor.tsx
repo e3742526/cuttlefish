@@ -53,6 +53,9 @@ function Field({ label, children, hint }: FieldProps) {
 const inputCls =
   "w-full rounded-[var(--radius-md)] bg-[var(--fill-quaternary)] border border-[var(--separator)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-subheadline)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
 
+const DEPARTMENT_NONE = "__department_none__"
+const DEPARTMENT_CUSTOM = "__department_custom__"
+
 export function EmployeeEditor({
   employee,
   onCancel,
@@ -66,6 +69,8 @@ export function EmployeeEditor({
 }) {
   const [displayName, setDisplayName] = useState(employee.displayName || employee.name)
   const [department, setDepartment] = useState(employee.department || "")
+  const [departmentMode, setDepartmentMode] = useState<"select" | "custom">("select")
+  const [departmentTouched, setDepartmentTouched] = useState(false)
   const [rank, setRank] = useState<Employee["rank"]>(employee.rank)
   const [reportsTo, setReportsTo] = useState(() => normalizeReportsTo(employee.reportsTo))
   const [persona, setPersona] = useState(employee.persona || "")
@@ -86,6 +91,7 @@ export function EmployeeEditor({
   // Department + reportsTo option lists come from the live org.
   const [departments, setDepartments] = useState<string[]>([])
   const [employeeNames, setEmployeeNames] = useState<string[]>([])
+  const [orgEmployees, setOrgEmployees] = useState<Employee[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -94,12 +100,72 @@ export function EmployeeEditor({
   useEffect(() => {
     api.getOrg().then((o) => {
       setDepartments(o.departments)
+      setOrgEmployees(o.employees)
       setEmployeeNames(buildSupervisorOptions(o.employees, {
         portalName: settings.portalName,
         excludeName: employee.name,
       }))
     }).catch(() => {})
   }, [employee.name, settings.portalName])
+
+  const employeeByName = useMemo(() => {
+    const map = new Map<string, Employee>()
+    for (const entry of orgEmployees) map.set(entry.name, entry)
+    return map
+  }, [orgEmployees])
+
+  const departmentOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const name of departments) {
+      const trimmed = name.trim()
+      if (trimmed) names.add(trimmed)
+    }
+    const original = (employee.department || "").trim()
+    if (original) names.add(original)
+    if (departmentMode !== "custom") {
+      const selected = department.trim()
+      if (selected) names.add(selected)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [departments, employee.department, department, departmentMode])
+
+  const originalPrimarySupervisor = useMemo(() => normalizeReportsTo(employee.reportsTo)[0] ?? "", [employee.reportsTo])
+  const primarySupervisor = reportsTo[0] ?? ""
+
+  useEffect(() => {
+    if (departmentTouched || primarySupervisor === originalPrimarySupervisor) return
+    const supervisorDepartment = employeeByName.get(primarySupervisor)?.department?.trim()
+    if (!supervisorDepartment || supervisorDepartment === department) return
+    setDepartment(supervisorDepartment)
+    setDepartmentMode("select")
+  }, [department, departmentTouched, employeeByName, originalPrimarySupervisor, primarySupervisor])
+
+  useEffect(() => {
+    if (!department || departments.length === 0 || departments.includes(department)) return
+    setDepartmentMode("custom")
+  }, [department, departments])
+
+  function chooseDepartment(next: string) {
+    setDepartmentTouched(true)
+    if (next === DEPARTMENT_NONE) {
+      setDepartment("")
+      setDepartmentMode("select")
+      return
+    }
+    if (next === DEPARTMENT_CUSTOM) {
+      setDepartmentMode("custom")
+      if (departmentOptions.includes(department)) setDepartment("")
+      return
+    }
+    setDepartment(next)
+    setDepartmentMode("select")
+  }
+
+  function typeCustomDepartment(next: string) {
+    setDepartmentTouched(true)
+    setDepartment(next)
+    setDepartmentMode("custom")
+  }
 
   const personaInvalid = persona.trim().length === 0
   const displayNameInvalid = displayName.trim().length === 0
@@ -234,20 +300,34 @@ export function EmployeeEditor({
         </Field>
 
         <Field label="Department">
-          <input
-            className={inputCls}
-            value={department}
-            onChange={(event) => setDepartment(event.target.value)}
-            placeholder="None"
-            list="employee-editor-departments"
-          />
-          <datalist id="employee-editor-departments">
-            {departments.map((d) => (
-              <option key={d} value={d} />
-            ))}
-          </datalist>
+          <Select
+            value={departmentMode === "custom" ? DEPARTMENT_CUSTOM : department || DEPARTMENT_NONE}
+            onValueChange={chooseDepartment}
+          >
+            <SelectTrigger aria-label="Department">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEPARTMENT_NONE}>Unassigned</SelectItem>
+              {departmentOptions.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+              <SelectItem value={DEPARTMENT_CUSTOM}>New department…</SelectItem>
+            </SelectContent>
+          </Select>
+          {departmentMode === "custom" && (
+            <input
+              className={inputCls}
+              value={department}
+              onChange={(event) => typeCustomDepartment(event.target.value)}
+              placeholder="New department name"
+              aria-label="New department name"
+            />
+          )}
           <span className="text-[length:var(--text-caption2)] text-[var(--text-quaternary)]">
-            Leave blank for Unassigned, or type a new department name.
+            Pick an existing department, choose Unassigned, or create a new department.
           </span>
         </Field>
       </div>

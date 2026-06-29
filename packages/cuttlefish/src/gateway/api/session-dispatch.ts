@@ -9,9 +9,11 @@ import {
   getFile,
   getSession,
   insertMessage,
+  listPendingQueueItems,
   listAllPendingQueueItems,
   listSessions,
   updateSession,
+  type QueueItem,
 } from "../../sessions/registry.js";
 import { FILES_DIR } from "../../shared/paths.js";
 import { logger } from "../../shared/logger.js";
@@ -127,41 +129,53 @@ export function redispatchPendingWebQueueItemsForSessionKey(
   sessionKey: string,
 ): number {
   if (!sessionKey || context.sessionManager.getQueue().isPaused(sessionKey)) return 0;
-  if (context.sessionManager.getQueue().isRunning(sessionKey)) return 0;
+  if (queueHasScheduled(context, sessionKey)) return 0;
 
-  const pending = listAllPendingQueueItems().filter((item) => item.sessionKey === sessionKey);
+  const pending = listPendingQueueItems(sessionKey);
   if (pending.length === 0) return 0;
 
-  let resumed = 0;
-  for (const item of pending) {
-    const existingSession = getSession(item.sessionId);
-    if (!existingSession) {
-      cancelQueueItem(item.id);
-      continue;
-    }
-    let session = existingSession;
-    if (session.source !== "web") continue;
-    session = maybeRevertEngineOverride(session);
+  return dispatchPendingQueueItem(context, pending[0]) ? 1 : 0;
+}
 
-    const config = context.getConfig();
-    const engine = context.sessionManager.getEngine(session.engine);
-    if (!engine) {
-      cancelQueueItem(item.id);
-      updateSession(session.id, {
-        status: "error",
-        lastActivity: new Date().toISOString(),
-        lastError: `Engine "${session.engine}" not available`,
-      });
-      continue;
-    }
+export function dispatchPendingWebQueueHeadForSessionKey(
+  context: ApiContext,
+  sessionKey: string,
+): number {
+  return redispatchPendingWebQueueItemsForSessionKey(context, sessionKey);
+}
 
-    updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
-    dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
-    resumed++;
-    break;
+function queueHasScheduled(context: ApiContext, sessionKey: string): boolean {
+  const queue = context.sessionManager.getQueue();
+  return typeof queue.hasScheduled === "function"
+    ? queue.hasScheduled(sessionKey)
+    : queue.isRunning(sessionKey);
+}
+
+function dispatchPendingQueueItem(context: ApiContext, item: QueueItem): boolean {
+  const existingSession = getSession(item.sessionId);
+  if (!existingSession) {
+    cancelQueueItem(item.id);
+    return false;
+  }
+  let session = existingSession;
+  if (session.source !== "web") return false;
+  session = maybeRevertEngineOverride(session);
+
+  const config = context.getConfig();
+  const engine = context.sessionManager.getEngine(session.engine);
+  if (!engine) {
+    cancelQueueItem(item.id);
+    updateSession(session.id, {
+      status: "error",
+      lastActivity: new Date().toISOString(),
+      lastError: `Engine "${session.engine}" not available`,
+    });
+    return false;
   }
 
-  return resumed;
+  updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
+  dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
+  return true;
 }
 
 export function maybeRevertEngineOverride(session: Session): Session {
@@ -224,6 +238,7 @@ export function dispatchWebSessionRun(
       }, opts?.queueItemId);
     } finally {
       if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
+      if (opts?.queueItemId) dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);
     }
   };
 

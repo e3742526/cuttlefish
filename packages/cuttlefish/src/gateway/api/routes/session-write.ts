@@ -12,6 +12,7 @@ import {
   enqueueQueueItem,
   getQueueItems,
   getSession,
+  hasPendingQueueItemBefore,
   insertMessage,
   type UpdateSessionFields,
   updateSession,
@@ -41,6 +42,7 @@ import { badRequest, json, notFound, serverError } from "../responses.js";
 import { serializeSession } from "../serialize-session.js";
 import {
   dispatchWebSessionRun,
+  dispatchPendingWebQueueHeadForSessionKey,
   killSessionEngines,
   maybeRevertEngineOverride,
   redispatchPendingWebQueueItemsForSessionKey,
@@ -526,11 +528,15 @@ export async function handleSessionWriteRoutes(
     if (singletonWasRunning) {
       context.emit("session:queued", { sessionId: session.id, message: prompt });
     }
-    dispatchWebSessionRun(session, prompt, engine, config, context, {
-      queueItemId,
-      attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
-      resourceContext: attached.promptBlock,
-    });
+    if (hasPendingQueueItemBefore(queueSessionKey, queueItemId)) {
+      dispatchPendingWebQueueHeadForSessionKey(context, queueSessionKey);
+    } else {
+      dispatchWebSessionRun(session, prompt, engine, config, context, {
+        queueItemId,
+        attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
+        resourceContext: attached.promptBlock,
+      });
+    }
 
     json(res, serializeSession(session, context), 201);
     return true;
@@ -646,11 +652,15 @@ export async function handleSessionWriteRoutes(
       queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
       context.emit("queue:updated", { sessionId: session.id, sessionKey });
     }
-    dispatchWebSessionRun(session, prompt, engine, config, context, {
-      queueItemId,
-      attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
-      resourceContext: attached.promptBlock,
-    });
+    if (queueItemId && hasPendingQueueItemBefore(sessionKey, queueItemId)) {
+      dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);
+    } else {
+      dispatchWebSessionRun(session, prompt, engine, config, context, {
+        queueItemId,
+        attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
+        resourceContext: attached.promptBlock,
+      });
+    }
 
     json(res, { status: "queued", sessionId: session.id });
     return true;

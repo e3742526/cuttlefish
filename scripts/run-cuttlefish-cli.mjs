@@ -8,9 +8,17 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cliEntry = path.join(repoRoot, "packages", "cuttlefish", "dist", "bin", "cuttlefish.js");
 const srcDir = path.join(repoRoot, "packages", "cuttlefish", "src");
+const servedWebIndex = path.join(repoRoot, "packages", "cuttlefish", "dist", "web", "index.html");
+const webOutIndex = path.join(repoRoot, "packages", "web", "out", "index.html");
+const webInputs = [
+  path.join(repoRoot, "packages", "web", "src"),
+  path.join(repoRoot, "packages", "web", "index.html"),
+  path.join(repoRoot, "packages", "web", "package.json"),
+  path.join(repoRoot, "packages", "web", "vite.config.ts"),
+];
 
 if (needsBuild()) {
-  const build = spawnSync(pnpmBin(), ["--filter", "cuttlefish-cli", "build"], {
+  const build = spawnSync(pnpmBin(), ["build"], {
     cwd: repoRoot,
     stdio: "inherit",
   });
@@ -38,8 +46,22 @@ function pnpmBin() {
  */
 function needsBuild() {
   if (!existsSync(cliEntry)) return true;
-  if (!existsSync(srcDir)) return false;
-  return hasFileNewerThan(srcDir, statSync(cliEntry).mtimeMs);
+  const cliMtime = statSync(cliEntry).mtimeMs;
+  if (existsSync(srcDir) && hasFileNewerThan(srcDir, cliMtime)) return true;
+
+  if (!existsSync(servedWebIndex)) return true;
+  const servedWebMtime = statSync(servedWebIndex).mtimeMs;
+  if (existsSync(webOutIndex) && statSync(webOutIndex).mtimeMs > servedWebMtime) return true;
+  return hasAnyFileNewerThan(webInputs, servedWebMtime);
+}
+
+function hasAnyFileNewerThan(paths, thresholdMs) {
+  return paths.some((item) => {
+    if (!existsSync(item)) return false;
+    const stat = statSync(item);
+    if (stat.isDirectory()) return hasFileNewerThan(item, thresholdMs);
+    return stat.isFile() && stat.mtimeMs > thresholdMs;
+  });
 }
 
 /** Early-exit recursive walk: true on the first non-symlinked file newer than thresholdMs. */

@@ -1,6 +1,6 @@
 import type { Employee } from "../shared/types.js";
 import { orgWorkerIdForName } from "./org-worker-bridge.js";
-import { resolveOrgHierarchy } from "./org-hierarchy.js";
+import { resolveOrgHierarchy, withPortalExecutive } from "./org-hierarchy.js";
 
 export type ManagerAuthorizationResult =
   | { ok: true; manager: Employee }
@@ -10,15 +10,17 @@ export function authorizeManagerScope(
   registry: Map<string, Employee>,
   managerName: string,
   affectedEmployeeNames: string[],
+  portalName?: string | null,
 ): ManagerAuthorizationResult {
-  const manager = registry.get(managerName);
+  const effectiveRegistry = withPortalExecutive(registry, portalName);
+  const manager = effectiveRegistry.get(managerName);
   if (!manager) return { ok: false, error: `managerName does not resolve to an employee: ${managerName}` };
   if (manager.rank !== "manager" && manager.rank !== "executive") {
     return { ok: false, error: `${managerName} is ${manager.rank}; manager or executive rank is required` };
   }
   if (manager.rank === "executive") return { ok: true, manager };
 
-  const hierarchy = resolveOrgHierarchy(registry);
+  const hierarchy = resolveOrgHierarchy(effectiveRegistry);
   for (const employeeName of unique(affectedEmployeeNames)) {
     if (employeeName === manager.name) continue;
     const node = hierarchy.nodes[employeeName];

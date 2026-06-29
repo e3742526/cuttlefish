@@ -30,6 +30,54 @@ vi.mock("@/components/org/employee-fallback-model-select", () => ({
     </>
   ),
 }))
+vi.mock("@/components/ui/select", async () => {
+  const React = await vi.importActual<typeof import("react")>("react")
+  const SelectContext = React.createContext<{
+    disabled?: boolean
+    onValueChange: (value: string) => void
+    value?: string
+  }>({ onValueChange: () => {} })
+
+  return {
+    Select: ({
+      children,
+      disabled,
+      onValueChange,
+      value,
+    }: {
+      children: React.ReactNode
+      disabled?: boolean
+      onValueChange: (value: string) => void
+      value?: string
+    }) => (
+      <SelectContext.Provider value={{ disabled, onValueChange, value }}>
+        <div>{children}</div>
+      </SelectContext.Provider>
+    ),
+    SelectTrigger: ({ children: _children, ...props }: React.HTMLAttributes<HTMLInputElement>) => {
+      const ctx = React.useContext(SelectContext)
+      return (
+        <input
+          {...props}
+          role="combobox"
+          value={ctx.value ?? ""}
+          disabled={ctx.disabled}
+          onChange={(event) => ctx.onValueChange(event.currentTarget.value)}
+        />
+      )
+    },
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => {
+      const ctx = React.useContext(SelectContext)
+      return (
+        <button type="button" role="option" onClick={() => ctx.onValueChange(value)}>
+          {children}
+        </button>
+      )
+    },
+  }
+})
 
 vi.mock("@/components/org/reports-to-field", async () => {
   const actual = await vi.importActual<typeof import("@/components/org/reports-to-field")>("@/components/org/reports-to-field")
@@ -59,23 +107,31 @@ vi.mock("@/lib/api", () => ({
 import { EmployeeCreateForm } from "./employee-create-form"
 
 const createBtn = () => screen.getByRole("button", { name: /Create agent|Creating/ }) as HTMLButtonElement
+async function chooseSelect(label: string, option: string) {
+  expect(screen.getByRole("combobox", { name: label })).toBeTruthy()
+  fireEvent.click(await screen.findByRole("option", { name: option }))
+}
 
 beforeEach(() => {
   createEmployee.mockReset()
   getOrg.mockReset()
   getOrg.mockResolvedValue({
     departments: ["platform"],
-    employees: [{ name: "cuttlefish" }, { name: "lead-a" }, { name: "lead-b" }],
+    employees: [
+      { name: "cuttlefish", department: "" },
+      { name: "lead-a", department: "platform" },
+      { name: "lead-b", department: "platform" },
+    ],
   })
 })
 
 describe("EmployeeCreateForm", () => {
-  it("disables create until required fields are present", () => {
+  it("disables create until required fields are present", async () => {
     render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
     expect(createBtn().disabled).toBe(true)
 
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
-    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "platform" } })
+    await chooseSelect("Department", "platform")
     fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Lead platform work." } })
 
     expect(createBtn().disabled).toBe(false)
@@ -99,7 +155,7 @@ describe("EmployeeCreateForm", () => {
     render(<EmployeeCreateForm onCancel={() => {}} onCreated={onCreated} />)
 
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
-    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "platform" } })
+    await chooseSelect("Department", "platform")
     fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Lead platform work." } })
     fireEvent.click(createBtn())
 
@@ -130,17 +186,47 @@ describe("EmployeeCreateForm", () => {
     render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
 
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
-    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "platform" } })
     fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Lead platform work." } })
 
     fireEvent.click(screen.getByRole("button", { name: "Add matrix supervisors" }))
+    await waitFor(() =>
+      expect((screen.getByRole("combobox", { name: "Department" }) as HTMLInputElement).value).toBe("platform"),
+    )
 
     fireEvent.click(createBtn())
 
     await waitFor(() => expect(createEmployee).toHaveBeenCalledTimes(1))
     expect(createEmployee).toHaveBeenCalledWith(expect.objectContaining({
+      department: "platform",
       reportsTo: ["lead-a", "lead-b"],
     }))
+  })
+
+  it("allows creating a custom department", async () => {
+    createEmployee.mockResolvedValue({
+      status: "ok",
+      employee: {
+        name: "security-reviewer",
+        displayName: "Security Reviewer",
+        department: "security",
+        rank: "employee",
+        engine: "claude",
+        model: "sonnet",
+        persona: "Review security.",
+      },
+    })
+
+    render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
+
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Security Reviewer" } })
+    await chooseSelect("Department", "New department…")
+    fireEvent.change(screen.getByLabelText("New department name"), { target: { value: "security" } })
+    fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Review security." } })
+    fireEvent.click(createBtn())
+
+    await waitFor(() => expect(createEmployee).toHaveBeenCalledWith(expect.objectContaining({
+      department: "security",
+    })))
   })
 
   it("creates an agent with a cross-provider fallback target", async () => {
@@ -161,7 +247,7 @@ describe("EmployeeCreateForm", () => {
     render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
 
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
-    fireEvent.change(screen.getByLabelText("Department"), { target: { value: "platform" } })
+    await chooseSelect("Department", "platform")
     fireEvent.change(screen.getByLabelText("Persona / instructions"), { target: { value: "Lead platform work." } })
     fireEvent.change(screen.getByRole("combobox", { name: "Fallback engine" }), {
       target: { value: "antigravity" },

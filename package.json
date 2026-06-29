@@ -7,7 +7,7 @@
   },
   "scripts": {
     "postinstall": "node scripts/fix-node-pty-spawn-helper.mjs",
-    "build": "turbo build && rm -rf packages/cuttlefish/dist/web && cp -r packages/web/out packages/cuttlefish/dist/web",
+    "build": "turbo run build --filter=@cuttlefish/web && turbo run build --filter=cuttlefish-cli && rm -rf packages/cuttlefish/dist/web && cp -r packages/web/out packages/cuttlefish/dist/web",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "typecheck": "turbo typecheck",

@@ -232,8 +232,8 @@ export class SessionManager {
     let hierarchy: import("../shared/types.js").OrgHierarchy | undefined;
     try {
       const { scanOrg } = await import("../gateway/org.js");
-      const { resolveOrgHierarchy } = await import("../gateway/org-hierarchy.js");
-      hierarchy = resolveOrgHierarchy(scanOrg());
+      const { resolveOrgHierarchy, withPortalExecutive } = await import("../gateway/org-hierarchy.js");
+      hierarchy = resolveOrgHierarchy(withPortalExecutive(scanOrg(), this.config.portal?.portalName));
     } catch { /* fallback to filesystem scan in context builder */ }
 
     try {

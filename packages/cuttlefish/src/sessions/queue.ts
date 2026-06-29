@@ -31,6 +31,10 @@ export class SessionQueue {
     return this.running.has(sessionKey);
   }
 
+  hasScheduled(sessionKey: string): boolean {
+    return this.running.has(sessionKey) || this.queues.has(sessionKey);
+  }
+
   getPendingCount(sessionKey: string): number {
     const total = this.pending.get(sessionKey) || 0;
     return this.running.has(sessionKey) ? Math.max(0, total - 1) : total;

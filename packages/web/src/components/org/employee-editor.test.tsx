@@ -41,6 +41,54 @@ vi.mock("@/components/org/employee-fallback-model-select", () => ({
     </>
   ),
 }))
+vi.mock("@/components/ui/select", async () => {
+  const React = await vi.importActual<typeof import("react")>("react")
+  const SelectContext = React.createContext<{
+    disabled?: boolean
+    onValueChange: (value: string) => void
+    value?: string
+  }>({ onValueChange: () => {} })
+
+  return {
+    Select: ({
+      children,
+      disabled,
+      onValueChange,
+      value,
+    }: {
+      children: React.ReactNode
+      disabled?: boolean
+      onValueChange: (value: string) => void
+      value?: string
+    }) => (
+      <SelectContext.Provider value={{ disabled, onValueChange, value }}>
+        <div>{children}</div>
+      </SelectContext.Provider>
+    ),
+    SelectTrigger: ({ children: _children, ...props }: React.HTMLAttributes<HTMLInputElement>) => {
+      const ctx = React.useContext(SelectContext)
+      return (
+        <input
+          {...props}
+          role="combobox"
+          value={ctx.value ?? ""}
+          disabled={ctx.disabled}
+          onChange={(event) => ctx.onValueChange(event.currentTarget.value)}
+        />
+      )
+    },
+    SelectValue: () => null,
+    SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => {
+      const ctx = React.useContext(SelectContext)
+      return (
+        <button type="button" role="option" onClick={() => ctx.onValueChange(value)}>
+          {children}
+        </button>
+      )
+    },
+  }
+})
 
 const updateEmployee = vi.fn()
 const deleteEmployee = vi.fn()
@@ -66,14 +114,21 @@ const EMP: Employee = {
 }
 
 const saveBtn = () => screen.getByRole("button", { name: /^(Save|Saving)/ }) as HTMLButtonElement
+async function chooseSelect(label: string, option: string) {
+  expect(screen.getByRole("combobox", { name: label })).toBeTruthy()
+  fireEvent.click(await screen.findByRole("option", { name: option }))
+}
 
 beforeEach(() => {
   updateEmployee.mockReset()
   deleteEmployee.mockReset()
   getOrg.mockReset()
   getOrg.mockResolvedValue({
-    departments: ["content"],
-    employees: [{ name: "content-lead" }, { name: "review-lead" }],
+    departments: ["content", "engineering"],
+    employees: [
+      { name: "content-lead", department: "content" },
+      { name: "review-lead", department: "engineering" },
+    ],
   })
 })
 
@@ -121,7 +176,7 @@ describe("EmployeeEditor", () => {
     updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, department: "" } })
     render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
 
-    fireEvent.change(screen.getByDisplayValue("content"), { target: { value: "" } })
+    await chooseSelect("Department", "Unassigned")
     fireEvent.click(saveBtn())
 
     await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
@@ -129,15 +184,29 @@ describe("EmployeeEditor", () => {
     }))
   })
 
-  it("allows typing a new department name from the editor", async () => {
+  it("allows creating a new department name from the editor", async () => {
     updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, department: "security" } })
     render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
 
-    fireEvent.change(screen.getByDisplayValue("content"), { target: { value: "security" } })
+    await chooseSelect("Department", "New department…")
+    fireEvent.change(screen.getByLabelText("New department name"), { target: { value: "security" } })
     fireEvent.click(saveBtn())
 
     await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
       department: "security",
+    }))
+  })
+
+  it("prepopulates the department from the newly assigned primary supervisor", async () => {
+    updateEmployee.mockResolvedValue({ status: "ok", employee: { ...EMP, department: "engineering", reportsTo: "review-lead" } })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    await chooseSelect("Add supervisor", "review-lead")
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledWith("content-writer", {
+      department: "engineering",
+      reportsTo: "review-lead",
     }))
   })
 

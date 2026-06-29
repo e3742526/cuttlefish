@@ -103,11 +103,19 @@ export async function handleOrgRoutes(
       return true;
     }
     const entries = fs.readdirSync(ORG_DIR, { withFileTypes: true });
-    const departments = entries
+    const directoryDepartments = entries
       .filter((entry) => entry.isDirectory() && !RESERVED_ORG_DIRS.has(entry.name))
       .map((entry) => entry.name);
-    const { resolveOrgHierarchy } = await import("../../org-hierarchy.js");
-    const orgRegistry = scanOrg();
+    const { resolveOrgHierarchy, withPortalExecutive } = await import("../../org-hierarchy.js");
+    const orgRegistry = withPortalExecutive(scanOrg(), context.getConfig().portal?.portalName);
+    const departments = [
+      ...new Set([
+        ...directoryDepartments,
+        ...[...orgRegistry.values()]
+          .map((employee) => employee.department.trim())
+          .filter(Boolean),
+      ]),
+    ];
     const hierarchy = resolveOrgHierarchy(orgRegistry);
     const employees = hierarchy.sorted.map((name) => {
       const node = hierarchy.nodes[name];
@@ -135,13 +143,14 @@ export async function handleOrgRoutes(
 
   if (method === "GET" && params) {
     const orgRegistry = scanOrg();
-    const emp = orgRegistry.get(params.name);
+    const { resolveOrgHierarchy, withPortalExecutive } = await import("../../org-hierarchy.js");
+    const hierarchyRegistry = withPortalExecutive(orgRegistry, context.getConfig().portal?.portalName);
+    const emp = orgRegistry.get(params.name) ?? hierarchyRegistry.get(params.name);
     if (!emp) {
       notFound(res);
       return true;
     }
-    const { resolveOrgHierarchy } = await import("../../org-hierarchy.js");
-    const hierarchy = resolveOrgHierarchy(orgRegistry);
+    const hierarchy = resolveOrgHierarchy(hierarchyRegistry);
     const node = hierarchy.nodes[params.name];
     json(res, {
       ...emp,
@@ -198,7 +207,7 @@ export async function handleOrgRoutes(
     }
     const managerName = typeof body.managerName === "string" ? body.managerName.trim() : "";
     if (managerName) {
-      const auth = authorizeManagerScope(registry, managerName, [params.name]);
+      const auth = authorizeManagerScope(registry, managerName, [params.name], context.getConfig().portal?.portalName);
       if (!auth.ok) {
         json(res, { error: auth.error }, 403);
         return true;

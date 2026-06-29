@@ -10,11 +10,13 @@ const hoisted = vi.hoisted(() => ({
   scheduleTranscriptBackfill: vi.fn(),
   loadRawTranscript: vi.fn(),
   dispatchWebSessionRun: vi.fn(async () => {}),
+  dispatchPendingWebQueueHeadForSessionKey: vi.fn(() => 0),
 }));
 const scheduleOnLoadTailSync = hoisted.scheduleOnLoadTailSync;
 const scheduleTranscriptBackfill = hoisted.scheduleTranscriptBackfill;
 const loadRawTranscript = hoisted.loadRawTranscript;
 const dispatchWebSessionRun = hoisted.dispatchWebSessionRun;
+const dispatchPendingWebQueueHeadForSessionKey = hoisted.dispatchPendingWebQueueHeadForSessionKey;
 
 vi.mock("../external-turns.js", () => ({
   scheduleOnLoadTailSync,
@@ -27,6 +29,7 @@ vi.mock("../transcript-backfill.js", () => ({
 
 vi.mock("../api/session-dispatch.js", () => ({
   dispatchWebSessionRun,
+  dispatchPendingWebQueueHeadForSessionKey,
   killSessionEngines: vi.fn(),
   maybeRevertEngineOverride: <T>(session: T) => session,
   redispatchPendingWebQueueItemsForSessionKey: vi.fn(() => 0),
@@ -223,7 +226,59 @@ describe("session query routes", () => {
       "first",
       "second",
     ]);
-    expect(dispatchWebSessionRun).toHaveBeenCalledTimes(2);
+    expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
+    expect(dispatchPendingWebQueueHeadForSessionKey).toHaveBeenCalledWith(expect.anything(), "employee:hr-manager");
+  });
+
+  it("does not dispatch a new HR message ahead of an older durable pending queue item", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    const config = {
+      gateway: {},
+      engines: {
+        default: "claude",
+        claude: { bin: "claude", model: "sonnet" },
+      },
+      portal: {},
+      models: {
+        claude: {
+          default: "sonnet",
+          models: [{ id: "sonnet", supportsEffort: true, effortLevels: ["low", "medium", "high"] }],
+        },
+      },
+    };
+    ctx.getConfig = () => config as any;
+    ctx.sessionManager = {
+      ...ctx.sessionManager,
+      getEngine: () => ({ isAlive: () => false }),
+    } as any;
+
+    const session = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "employee:hr-manager",
+      sessionKey: "employee:hr-manager",
+      employee: "hr-manager",
+      prompt: "older",
+    });
+    reg.enqueueQueueItem(session.id, session.sessionKey, "older pending work");
+    dispatchWebSessionRun.mockClear();
+    dispatchPendingWebQueueHeadForSessionKey.mockClear();
+
+    const cap = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", { prompt: "newer", employee: "hr-manager" }),
+      cap.res,
+      ctx,
+    );
+
+    expect(cap.status).toBe(201);
+    expect(dispatchWebSessionRun).not.toHaveBeenCalled();
+    expect(dispatchPendingWebQueueHeadForSessionKey).toHaveBeenCalledWith(ctx, "employee:hr-manager");
+    expect(reg.getQueueItems(session.sessionKey).filter((item) => item.status === "pending").map((item) => item.prompt)).toEqual([
+      "older pending work",
+      "newer",
+    ]);
   });
 
   it("reuses a legacy hr-manager web session when the singleton session key is absent", async () => {

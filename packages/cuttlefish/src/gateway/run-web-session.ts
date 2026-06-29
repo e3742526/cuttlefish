@@ -113,8 +113,8 @@ export async function runWebSession(
   }
 
   const { scanOrg: scanOrgForHierarchy } = await import("./org.js");
-  const { resolveOrgHierarchy } = await import("./org-hierarchy.js");
-  const orgHierarchy = resolveOrgHierarchy(scanOrgForHierarchy());
+  const { resolveOrgHierarchy, withPortalExecutive } = await import("./org-hierarchy.js");
+  const orgHierarchy = resolveOrgHierarchy(withPortalExecutive(scanOrgForHierarchy(), config.portal?.portalName));
 
   try {
 

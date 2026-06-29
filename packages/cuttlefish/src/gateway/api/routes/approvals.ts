@@ -44,6 +44,56 @@ export async function handleApprovalRoutes(
       return true;
     }
 
+    if (approval.type === "org-change") {
+      const changeRequestId =
+        typeof approval.payload.changeRequestId === "string" && approval.payload.changeRequestId.trim()
+          ? approval.payload.changeRequestId.trim()
+          : null;
+      if (!changeRequestId) {
+        badRequest(res, "approval payload missing changeRequestId");
+        return true;
+      }
+      const { getChangeRequest, updateChangeRequestStatus } = await import("../../org-changes.js");
+      const { applyOrgChange, recordHrDecisionMessage } = await import("../../hr-steward.js");
+      const request = getChangeRequest(changeRequestId);
+      if (!request) {
+        notFound(res);
+        return true;
+      }
+      if (request.status === "applied") {
+        const resolved = approval.state === "approved"
+          ? approval
+          : resolveApproval(approval.id, "approved", actor);
+        context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: "approved" });
+        json(res, { approval: resolved, changeRequest: request, status: "ok" });
+        return true;
+      }
+      if (!["pending_approval", "approved"].includes(request.status)) {
+        json(res, { error: `change is ${request.status}, not awaiting approval` }, 409);
+        return true;
+      }
+      if (approval.state !== "pending" && approval.state !== "approved") {
+        json(res, { error: `approval already ${approval.state}` }, 409);
+        return true;
+      }
+
+      const resolved = approval.state === "approved"
+        ? approval
+        : resolveApproval(approval.id, "approved", actor);
+      context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: "approved" });
+      recordHrDecisionMessage(resolved.sessionId, request, { action: "approved", actor }, context);
+      updateChangeRequestStatus(changeRequestId, "approved");
+      const applied = await applyOrgChange(request, context);
+      if (!applied.ok) {
+        recordHrDecisionMessage(resolved.sessionId, request, { action: "failed", actor, error: applied.error ?? null }, context);
+        json(res, { status: "error", error: applied.error, approval: resolved, changeRequest: getChangeRequest(changeRequestId) }, 400);
+        return true;
+      }
+      recordHrDecisionMessage(resolved.sessionId, request, { action: "applied", actor }, context);
+      json(res, { approval: resolved, changeRequest: getChangeRequest(changeRequestId), status: "ok" });
+      return true;
+    }
+
     if (approval.type !== "fallback") {
       if (approval.state !== "pending") {
         json(res, { error: `approval already ${approval.state}` }, 409);
@@ -162,6 +212,41 @@ export async function handleApprovalRoutes(
       json(res, { error: "checkpoint approvals must be resolved via POST /api/checkpoints/:id/decision" }, 409);
       return true;
     }
+    if (approval.type === "org-change") {
+      const changeRequestId =
+        typeof approval.payload.changeRequestId === "string" && approval.payload.changeRequestId.trim()
+          ? approval.payload.changeRequestId.trim()
+          : null;
+      if (!changeRequestId) {
+        badRequest(res, "approval payload missing changeRequestId");
+        return true;
+      }
+      const { getChangeRequest, updateChangeRequestStatus } = await import("../../org-changes.js");
+      const { recordHrDecisionMessage } = await import("../../hr-steward.js");
+      const request = getChangeRequest(changeRequestId);
+      if (!request) {
+        notFound(res);
+        return true;
+      }
+      if (approval.state !== "pending" && approval.state !== "rejected") {
+        json(res, { error: `approval already ${approval.state}` }, 409);
+        return true;
+      }
+      const config = context.getConfig();
+      const actor = resolveUserHeader(req.headers, config.gateway.userHeader) ?? null;
+      const resolved = approval.state === "rejected"
+        ? approval
+        : resolveApproval(approval.id, "rejected", actor);
+      const updated = request.status === "rejected"
+        ? request
+        : updateChangeRequestStatus(changeRequestId, "rejected");
+      recordHrDecisionMessage(resolved.sessionId, request, { action: "rejected", actor }, context);
+      context.emit("approval:resolved", { approvalId: resolved.id, sessionId: resolved.sessionId, state: "rejected" });
+      context.emit("org-change:updated", { id: changeRequestId, status: "rejected" });
+      json(res, { approval: resolved, changeRequest: updated, status: "ok" });
+      return true;
+    }
+
     if (approval.state !== "pending") {
       json(res, { error: `approval already ${approval.state}` }, 409);
       return true;

@@ -4,7 +4,7 @@ import { buildSupervisorOptions, portalSupervisorName } from "./supervisor-optio
 describe("supervisor options", () => {
   it("only returns real org employees as supervisor options", () => {
     expect(buildSupervisorOptions(
-      [{ name: "parliamentarian" }, { name: "worker" }] as Array<{ name: string }>,
+      [{ name: "cuttlefish" }, { name: "parliamentarian" }, { name: "worker" }] as Array<{ name: string }>,
       { portalName: "Cuttlefish" },
     )).toEqual(["parliamentarian", "worker"])
   })

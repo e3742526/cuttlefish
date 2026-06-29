@@ -101,4 +101,41 @@ describe("resumePendingWebQueueItems", () => {
     expect(getEngine).toHaveBeenCalledWith("claude");
     expect(reg.getQueueItem(itemId)?.status).toBe("completed");
   });
+
+  it("drains durable pending web queue items in FIFO order", async () => {
+    const { dispatch, reg, SessionQueue } = await setup();
+    const { runWebSession } = await import("../run-web-session.js");
+    const session = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "employee:hr-manager",
+      sessionKey: "employee:hr-manager",
+      prompt: "queued work",
+    });
+    const first = reg.enqueueQueueItem(session.id, session.sessionKey, "first pending");
+    const second = reg.enqueueQueueItem(session.id, session.sessionKey, "second pending");
+
+    const queue = new SessionQueue();
+    const getEngine = vi.fn(() => ({}) as any);
+    const ctx = {
+      getConfig: () => ({ gateway: {}, engines: { default: "claude" }, sessions: { autoResumeOnBoot: true } }),
+      connectors: new Map(),
+      startTime: Date.now(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine,
+        getQueue: () => queue,
+      },
+    } as any;
+
+    expect(dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey)).toBe(1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(vi.mocked(runWebSession).mock.calls.map((call) => call[1])).toEqual([
+      "first pending",
+      "second pending",
+    ]);
+    expect(reg.getQueueItem(first)?.status).toBe("completed");
+    expect(reg.getQueueItem(second)?.status).toBe("completed");
+  });
 });

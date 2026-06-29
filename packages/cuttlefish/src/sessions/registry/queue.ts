@@ -17,7 +17,7 @@ export function enqueueQueueItem(sessionId: string, sessionKey: string, prompt: 
   const db = initDb();
   const id = randomUUID();
   const position = (db.prepare(
-    "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status = 'pending'"
+    "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status IN ('pending', 'running')"
   ).get(sessionKey) as { pos: number }).pos;
   db.prepare(
     "INSERT INTO queue_items (id, session_id, session_key, prompt, status, position, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)"
@@ -63,8 +63,21 @@ export function cancelQueueItemForSession(itemId: string, sessionId: string, ses
 export function getQueueItems(sessionKey: string): QueueItem[] {
   const db = initDb();
   return db.prepare(
-    "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt FROM queue_items WHERE session_key = ? AND status IN ('pending', 'running') ORDER BY position ASC"
+    "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt FROM queue_items WHERE session_key = ? AND status IN ('pending', 'running') ORDER BY position ASC, created_at ASC"
   ).all(sessionKey) as QueueItem[];
+}
+
+export function listPendingQueueItems(sessionKey: string): QueueItem[] {
+  const db = initDb();
+  return db.prepare(
+    "SELECT id, session_id as sessionId, session_key as sessionKey, prompt, status, position, created_at as createdAt, started_at as startedAt, completed_at as completedAt FROM queue_items WHERE session_key = ? AND status = 'pending' ORDER BY position ASC, created_at ASC"
+  ).all(sessionKey) as QueueItem[];
+}
+
+export function hasPendingQueueItemBefore(sessionKey: string, itemId: string): boolean {
+  const items = listPendingQueueItems(sessionKey);
+  const index = items.findIndex((item) => item.id === itemId);
+  return index > 0;
 }
 
 export function cancelAllPendingQueueItems(sessionKey: string): number {

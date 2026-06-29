@@ -1,6 +1,6 @@
 import { getSession, insertMessage, listSessions } from "../sessions/registry.js";
 import { HR_EMPLOYEE_NAME } from "./org-policy.js";
-import { resolveOrgHierarchy } from "./org-hierarchy.js";
+import { resolveOrgHierarchy, withPortalExecutive } from "./org-hierarchy.js";
 import { scanOrg } from "./org.js";
 import { logger } from "../shared/logger.js";
 import type { CuttlefishConfig, Employee, Session } from "../shared/types.js";
@@ -33,8 +33,8 @@ function formatDurationMinutes(ms: number): number {
   return Math.max(1, Math.round(ms / 60_000));
 }
 
-function escalationRecipientFor(child: Session): Employee | null {
-  const registry = scanOrg();
+function escalationRecipientFor(child: Session, config: CuttlefishConfig): Employee | null {
+  const registry = withPortalExecutive(scanOrg(), config.portal?.portalName);
   const hierarchy = resolveOrgHierarchy(registry);
   const hr = registry.get(HR_EMPLOYEE_NAME) ?? null;
   const currentLeader = child.parentSessionId ? getSession(child.parentSessionId)?.employee ?? null : null;
@@ -86,7 +86,7 @@ export function sweepLeaderAcknowledgements(deps: LeaderAckReconcilerDeps): numb
     const reportedAt = Date.parse(ack.reportedAt);
     if (!Number.isFinite(reportedAt) || now - reportedAt < timeoutMs) continue;
 
-    const recipient = escalationRecipientFor(session);
+    const recipient = escalationRecipientFor(session, deps.getConfig());
     const recipientName = recipient?.name ?? "manual-review";
     if (!markLeaderAckEscalated(session.id, session, {
       escalatedTo: recipientName,

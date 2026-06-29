@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { api } from "@/lib/api"
 import type { Employee, EmployeeCreate } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -47,6 +47,9 @@ function Field({ label, children, hint }: FieldProps) {
 const inputCls =
   "w-full rounded-[var(--radius-md)] bg-[var(--fill-quaternary)] border border-[var(--separator)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-subheadline)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)] focus:ring-1 focus:ring-[var(--accent)]"
 
+const DEPARTMENT_PLACEHOLDER = "__department_placeholder__"
+const DEPARTMENT_CUSTOM = "__department_custom__"
+
 function suggestSlug(value: string): string {
   return value
     .trim()
@@ -65,6 +68,8 @@ export function EmployeeCreateForm({
   const [name, setName] = useState("")
   const [displayName, setDisplayName] = useState("")
   const [department, setDepartment] = useState("")
+  const [departmentMode, setDepartmentMode] = useState<"select" | "custom">("select")
+  const [departmentTouched, setDepartmentTouched] = useState(false)
   const [rank, setRank] = useState<EmployeeCreate["rank"]>("employee")
   const [reportsTo, setReportsTo] = useState<string[]>([])
   const [persona, setPersona] = useState("")
@@ -82,17 +87,71 @@ export function EmployeeCreateForm({
   const { settings } = useSettings()
   const [departments, setDepartments] = useState<string[]>([])
   const [employeeNames, setEmployeeNames] = useState<string[]>([])
+  const [orgEmployees, setOrgEmployees] = useState<Employee[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     api.getOrg().then((org) => {
       setDepartments(org.departments)
+      setOrgEmployees(org.employees)
       setEmployeeNames(buildSupervisorOptions(org.employees, {
         portalName: settings.portalName,
       }))
     }).catch(() => {})
   }, [settings.portalName])
+
+  const employeeByName = useMemo(() => {
+    const map = new Map<string, Employee>()
+    for (const entry of orgEmployees) map.set(entry.name, entry)
+    return map
+  }, [orgEmployees])
+
+  const departmentOptions = useMemo(() => {
+    const names = new Set<string>()
+    for (const name of departments) {
+      const trimmed = name.trim()
+      if (trimmed) names.add(trimmed)
+    }
+    if (departmentMode !== "custom") {
+      const selected = department.trim()
+      if (selected) names.add(selected)
+    }
+    return [...names].sort((a, b) => a.localeCompare(b))
+  }, [departments, department, departmentMode])
+
+  const primarySupervisor = reportsTo[0] ?? ""
+
+  useEffect(() => {
+    if (departmentTouched || !primarySupervisor) return
+    const supervisorDepartment = employeeByName.get(primarySupervisor)?.department?.trim()
+    if (!supervisorDepartment || supervisorDepartment === department) return
+    setDepartment(supervisorDepartment)
+    setDepartmentMode("select")
+  }, [department, departmentTouched, employeeByName, primarySupervisor])
+
+  useEffect(() => {
+    if (!department || departments.length === 0 || departments.includes(department)) return
+    setDepartmentMode("custom")
+  }, [department, departments])
+
+  function chooseDepartment(next: string) {
+    setDepartmentTouched(true)
+    if (next === DEPARTMENT_PLACEHOLDER) return
+    if (next === DEPARTMENT_CUSTOM) {
+      setDepartmentMode("custom")
+      if (departmentOptions.includes(department)) setDepartment("")
+      return
+    }
+    setDepartment(next)
+    setDepartmentMode("select")
+  }
+
+  function typeCustomDepartment(next: string) {
+    setDepartmentTouched(true)
+    setDepartment(next)
+    setDepartmentMode("custom")
+  }
 
   const nameInvalid = !name.trim() || !/^[a-z0-9][a-z0-9._-]*$/i.test(name.trim())
   const displayNameInvalid = displayName.trim().length === 0
@@ -214,15 +273,34 @@ export function EmployeeCreateForm({
           </Select>
         </Field>
 
-        <Field label="Department" hint={departments.length ? `Known: ${departments.join(", ")}` : undefined}>
-          <input
-            className={inputCls}
-            value={department}
-            aria-label="Department"
-            onChange={(e) => setDepartment(e.target.value)}
-            aria-invalid={departmentInvalid}
-            placeholder="platform"
-          />
+        <Field label="Department" hint="Pick an existing department, or create a new one.">
+          <Select
+            value={departmentMode === "custom" ? DEPARTMENT_CUSTOM : department || DEPARTMENT_PLACEHOLDER}
+            onValueChange={chooseDepartment}
+          >
+            <SelectTrigger aria-label="Department" aria-invalid={departmentInvalid}>
+              <SelectValue placeholder="Choose department" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={DEPARTMENT_PLACEHOLDER}>Choose department</SelectItem>
+              {departmentOptions.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+              <SelectItem value={DEPARTMENT_CUSTOM}>New department…</SelectItem>
+            </SelectContent>
+          </Select>
+          {departmentMode === "custom" && (
+            <input
+              className={inputCls}
+              value={department}
+              aria-label="New department name"
+              onChange={(e) => typeCustomDepartment(e.target.value)}
+              aria-invalid={departmentInvalid}
+              placeholder="platform"
+            />
+          )}
         </Field>
       </div>
 

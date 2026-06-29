@@ -148,6 +148,60 @@ describe("approvals endpoints", () => {
     }));
   });
 
+  it("approve applies an org-change approval from the generic approvals dashboard route", async () => {
+    const { createChangeRequest, getChangeRequest, updateChangeRequest } = await import("../org-changes.js");
+    const employeeName = `approval-route-agent-${Date.now()}`;
+    const request = createChangeRequest({
+      changeType: "create_agent",
+      employeeName,
+      status: "pending_approval",
+      riskLevel: "high",
+      requiresHumanApproval: true,
+      proposed: {
+        displayName: "Approval Route Agent",
+        department: "engineering",
+        rank: "employee",
+        engine: "claude",
+        model: "sonnet",
+        persona: "Created through the generic approvals route.",
+      },
+    });
+    const session = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "employee:hr-manager",
+      sessionKey: "employee:hr-manager",
+      employee: "hr-manager",
+      prompt: "approve org change",
+    });
+    const approval = store.createApproval({
+      sessionId: session.id,
+      type: "org-change",
+      payload: { changeRequestId: request.id, changeType: request.changeType, employeeName, riskLevel: "high" },
+    });
+    updateChangeRequest(request.id, { approvalId: approval.id });
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("POST", `/api/approvals/${approval.id}/approve`), cap.res, makeCtx({
+      getConfig: () => ({
+        gateway: {},
+        engines: { default: "claude" },
+        models: {
+          claude: {
+            default: "sonnet",
+            models: [{ id: "sonnet", supportsEffort: true, effortLevels: ["low", "medium", "high"] }],
+          },
+        },
+      }),
+      reloadOrg: vi.fn(),
+    }));
+
+    expect(cap.status).toBe(200);
+    expect(store.getApproval(approval.id)?.state).toBe("approved");
+    expect(getChangeRequest(request.id)?.status).toBe("applied");
+    expect(fs.existsSync(path.join(tmp, "org", "engineering", `${employeeName}.yaml`))).toBe(true);
+  });
+
   it("approve a fallback whose target engine is unavailable → 422", async () => {
     const s = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:e1", prompt: "x" });
     const a = store.createApproval({

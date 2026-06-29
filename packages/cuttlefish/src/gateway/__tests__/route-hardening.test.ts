@@ -174,6 +174,25 @@ persona: Keeps order.
     expect(cap.status).toBe(200);
     expect((cap.body as { departments: string[] }).departments).toEqual(["general"]);
   });
+
+  it("includes departments declared in employee YAML even when the folder name differs", async () => {
+    fs.mkdirSync(path.join(orgDir, "general"), { recursive: true });
+    fs.writeFileSync(path.join(orgDir, "general", "safety.yaml"), `
+name: safety
+displayName: Safety
+department: mission-systems
+rank: senior
+engine: claude
+model: sonnet
+persona: Reviews mission systems.
+`);
+
+    const cap = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/org"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect((cap.body as { departments: string[] }).departments).toEqual(["general", "mission-systems"]);
+  });
 });
 
 describe("GET /api/org/departments/:name/board — corrupt board.json", () => {

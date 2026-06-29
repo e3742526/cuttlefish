@@ -243,8 +243,6 @@ export function buildTreeLayout(
     for (const m of members) {
       if (m.parentName && set.has(m.parentName)) pushEdge(m.parentName, m.name)
     }
-    // Only render real COO relationships. The synthetic COO root is still used
-    // for layout validation, but root-level employees should not look assigned.
     if (executive) {
       for (const r of b.rootNames) {
         if (empByName.get(r)?.parentName === executive.name) pushEdge(executive.name, r)
