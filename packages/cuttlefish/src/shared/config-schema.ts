@@ -551,6 +551,17 @@ function validateSessions(
   if (value.autoResumeOnBoot !== undefined) validateBoolean(problems, "sessions.autoResumeOnBoot", value.autoResumeOnBoot);
 }
 
+function validateFeatures(problems: string[], value: unknown): void {
+  if (!isPlainObject(value)) {
+    problems.push("features must be a mapping");
+    return;
+  }
+  pushUnknownKeys(problems, value, ["multiRoleEmployeeExecution"], "features");
+  if (value.multiRoleEmployeeExecution !== undefined) {
+    validateBoolean(problems, "features.multiRoleEmployeeExecution", value.multiRoleEmployeeExecution);
+  }
+}
+
 function validateBoardWorker(problems: string[], value: unknown): void {
   if (!isPlainObject(value)) {
     problems.push("boardWorker must be a mapping");
@@ -813,6 +824,7 @@ export function validateConfigShape(config: unknown): string[] {
     "modelFallback",
     "orchestration",
     "sessions",
+    "features",
     "boardWorker",
     "cron",
     "notifications",
@@ -844,6 +856,7 @@ export function validateConfigShape(config: unknown): string[] {
   if (c.modelFallback !== undefined) validateModelFallback(problems, c.modelFallback);
   if (c.orchestration !== undefined) validateOrchestration(problems, c.orchestration);
   if (c.sessions !== undefined) validateSessions(problems, c.sessions);
+  if (c.features !== undefined) validateFeatures(problems, c.features);
   if (c.boardWorker !== undefined) validateBoardWorker(problems, c.boardWorker);
   if (c.cron !== undefined) validateCron(problems, c.cron);
   if (c.notifications !== undefined) validateNotifications(problems, c.notifications);
