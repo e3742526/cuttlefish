@@ -62,6 +62,49 @@ describe("board-service mergeBoardTickets", () => {
     expect(() => mergeBoardTickets(current, staleIncoming)).toThrow(BoardConflictError);
   });
 
+  it("does not let a bundled, unedited ticket block an unrelated delete", () => {
+    // The client bundles the whole department board on every save. Ticket "a"
+    // was edited server-side after the browser loaded, but the user only wants
+    // to delete "b". An unedited "a" carries no baseUpdatedAt, so it must not
+    // trigger a stale-update conflict for the delete the user actually intends.
+    const current = [
+      { ...ticket("a"), updatedAt: "2026-06-22T05:00:00.000Z" },
+      { ...ticket("b") },
+    ];
+    const incoming = [
+      // "a" bundled with no baseUpdatedAt (unchanged by the user)
+      { ...ticket("a"), updatedAt: "2026-06-22T00:00:00.000Z" },
+    ];
+
+    const merged = mergeBoardTickets(
+      current,
+      incoming,
+      new Set(["b"]),
+      new Map([["b", "2026-06-22T00:00:00.000Z"]]),
+    );
+    expect(merged.map((t) => t.id)).toEqual(["a"]);
+  });
+
+  it("keeps the server's newer copy of a bundled, unedited ticket", () => {
+    // Same bundling scenario: the unedited "a" the client echoes back is stale.
+    // Without a freshness assertion we must still not clobber the concurrent
+    // server-side edit — the server's newer version wins.
+    const current = [{
+      ...ticket("a"),
+      title: "server-edit",
+      updatedAt: "2026-06-22T05:00:00.000Z",
+    }];
+    const incoming = [{
+      ...ticket("a"),
+      title: "stale-client-copy",
+      updatedAt: "2026-06-22T00:00:00.000Z",
+    }];
+
+    const merged = mergeBoardTickets(current, incoming);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].title).toBe("server-edit");
+  });
+
   it("rejects deleting an active session ticket without a delete version", () => {
     const current = [{
       ...ticket("session-s1", "session"),

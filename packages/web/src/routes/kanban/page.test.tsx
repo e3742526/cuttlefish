@@ -74,6 +74,37 @@ describe('buildDepartmentBoardSaveRequests', () => {
     })
   })
 
+  it('omits baseUpdatedAt for tickets the user did not edit', () => {
+    // An untouched ticket has updatedAt === baseUpdatedAt; it should be bundled
+    // without a freshness claim so a concurrent agent write to it can't block
+    // an unrelated save. An edited ticket (updatedAt advanced past baseUpdatedAt)
+    // still asserts its base version.
+    const requests = buildDepartmentBoardSaveRequests(
+      {
+        'unchanged': {
+          ...store['ticket-1'],
+          id: 'unchanged',
+          updatedAt: Date.parse('2026-06-25T10:00:00.000Z'),
+          baseUpdatedAt: Date.parse('2026-06-25T10:00:00.000Z'),
+        },
+        'edited': {
+          ...store['ticket-1'],
+          id: 'edited',
+          updatedAt: Date.parse('2026-06-25T10:05:00.000Z'),
+          baseUpdatedAt: Date.parse('2026-06-25T10:00:00.000Z'),
+        },
+      },
+      [{ department: 'engineering' }],
+      { engineering: 3, marketing: 5 },
+    )
+
+    const tickets = requests[0].payload.tickets
+    const unchanged = tickets.find((t) => t.id === 'unchanged')
+    const edited = tickets.find((t) => t.id === 'edited')
+    expect(unchanged?.baseUpdatedAt).toBeUndefined()
+    expect(edited?.baseUpdatedAt).toBe('2026-06-25T10:00:00.000Z')
+  })
+
   it('serializes ticket resource context and manual-only flags', () => {
     const requests = buildDepartmentBoardSaveRequests(
       {

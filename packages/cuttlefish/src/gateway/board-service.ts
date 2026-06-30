@@ -313,11 +313,30 @@ export function mergeBoardTickets(
   const validIncoming = incoming.filter((ticket) => ticket && ticket.id && !deletedIds.has(ticket.id));
   for (const ticket of validIncoming) {
     const currentTicket = currentById.get(ticket.id);
-    assertFreshBoardTicket(currentTicket, ticket.baseUpdatedAt ?? ticket.updatedAt, "update");
+    // Only enforce optimistic-concurrency freshness when the client explicitly
+    // claims a base version. An omitted `baseUpdatedAt` means the client is not
+    // asserting freshness for this ticket (it bundled it only because a save
+    // sends the whole department board), so a concurrent write to it must not
+    // reject the unrelated edit/delete the client actually intends. Do NOT fall
+    // back to `updatedAt` here — that would make every untouched ticket conflict.
+    if (ticket.baseUpdatedAt != null) {
+      assertFreshBoardTicket(currentTicket, ticket.baseUpdatedAt, "update");
+    }
     assertDoesNotReplaceActiveSession(currentTicket, ticket, options.activeSessionIds);
   }
   const filteredIncoming = validIncoming.map((ticket) => {
     const currentTicket = currentById.get(ticket.id);
+    // A ticket sent without `baseUpdatedAt` isn't being edited by the client —
+    // it was bundled only because saves carry the whole department board. Don't
+    // let its stale snapshot clobber a concurrent agent write: if the server's
+    // copy is strictly newer, keep the server's version verbatim.
+    if (ticket.baseUpdatedAt == null && currentTicket) {
+      const currentTime = ticketTime(currentTicket.updatedAt);
+      const incomingTime = ticketTime(ticket.updatedAt);
+      if (currentTime != null && (incomingTime == null || currentTime > incomingTime)) {
+        return currentTicket;
+      }
+    }
     const { baseUpdatedAt: _baseUpdatedAt, ...stored } = ticket;
     if (currentTicket && isActiveSessionTicket(currentTicket, options.activeSessionIds)) {
       stored.sessionId = currentTicket.sessionId;

@@ -143,23 +143,35 @@ export function buildDepartmentBoardSaveRequests(
   return [...mergedTargets.values()].map((target) => {
     const boardData: DepartmentBoardTicket[] = Object.values(store)
       .filter((ticket) => ticket.departmentId === target.department)
-      .map((t) => ({
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        resourcePath: t.resourcePath,
-        resourceUrl: t.resourceUrl,
-        manualOnly: t.manualOnly === true,
-        status: BOARD_STATUS_BY_KANBAN_STATUS[t.status],
-        priority: t.priority,
-        complexity: t.complexity,
-        assignee: t.assigneeId ?? undefined,
-        source: t.source,
-        sessionId: t.sessionId,
-        createdAt: new Date(t.createdAt || Date.now()).toISOString(),
-        updatedAt: new Date(t.updatedAt || Date.now()).toISOString(),
-        baseUpdatedAt: new Date(t.baseUpdatedAt ?? t.updatedAt ?? Date.now()).toISOString(),
-      }))
+      .map((t) => {
+        // Only assert optimistic-concurrency freshness for tickets the user
+        // actually edited. `updateTicket` advances `updatedAt` but leaves
+        // `baseUpdatedAt` at the loaded snapshot, so a ticket is "dirty" when
+        // those differ (or when it has no snapshot, i.e. newly created).
+        // Untouched tickets — bundled only because a save sends the whole
+        // department board — omit `baseUpdatedAt` so a concurrent agent write
+        // to one of them can't block an unrelated delete/move/edit.
+        const changed = t.baseUpdatedAt == null || t.baseUpdatedAt !== t.updatedAt
+        return {
+          id: t.id,
+          title: t.title,
+          description: t.description,
+          resourcePath: t.resourcePath,
+          resourceUrl: t.resourceUrl,
+          manualOnly: t.manualOnly === true,
+          status: BOARD_STATUS_BY_KANBAN_STATUS[t.status],
+          priority: t.priority,
+          complexity: t.complexity,
+          assignee: t.assigneeId ?? undefined,
+          source: t.source,
+          sessionId: t.sessionId,
+          createdAt: new Date(t.createdAt || Date.now()).toISOString(),
+          updatedAt: new Date(t.updatedAt || Date.now()).toISOString(),
+          ...(changed
+            ? { baseUpdatedAt: new Date(t.baseUpdatedAt ?? t.updatedAt ?? Date.now()).toISOString() }
+            : {}),
+        }
+      })
     return {
       department: target.department,
       payload: {
