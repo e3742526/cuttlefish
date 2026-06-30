@@ -709,12 +709,19 @@ export function validateEmployeeCreate(
     return { ok: false, error: `unknown field(s): ${unknownKeys.join(", ")}` };
   }
 
+  // Materialize the known-names iterable exactly once. Callers pass a live Map
+  // iterator (`registry.keys()`); the duplicate-name guard below consumes it, and
+  // passing the now-exhausted iterator on to validateEmployeeUpdate would leave its
+  // reportsTo check with an empty set — silently rejecting every valid manager
+  // ("reportsTo references unknown employee(s): …"). An array is safely re-iterable.
+  const knownNames = Array.from(existingNames);
+
   const name = typeof body.name === "string" ? body.name.trim() : "";
   if (!name) return { ok: false, error: "name must be a non-empty string" };
   if (!/^[a-z0-9][a-z0-9._-]*$/i.test(name)) {
     return { ok: false, error: "name must use only letters, numbers, dot, underscore, or hyphen" };
   }
-  if (Array.from(existingNames).some((candidate) => candidate === name)) {
+  if (knownNames.some((candidate) => candidate === name)) {
     return { ok: false, error: `employee "${name}" already exists` };
   }
 
@@ -769,7 +776,7 @@ export function validateEmployeeCreate(
     avatar: body.avatar,
     emoji: body.emoji,
     execution: body.execution,
-  }, existingNames);
+  }, knownNames);
   if (!updates.ok || !updates.updates) {
     return { ok: false, error: updates.error || "invalid employee body" };
   }
