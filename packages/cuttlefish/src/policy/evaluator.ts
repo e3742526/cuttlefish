@@ -2,10 +2,17 @@ import type { PolicyAction, PolicyArtifactDescriptor, PolicyRule, PolicyVerdict 
 
 const DEFAULT_ALLOW_ACTIONS = new Set<PolicyAction>(["retain", "register"]);
 
+const _globRegexpCache = new Map<string, RegExp>();
+
 function matchesGlob(pattern: string, value: string): boolean {
   if (pattern === "*") return true;
-  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`).test(value);
+  let re = _globRegexpCache.get(pattern);
+  if (!re) {
+    const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+    re = new RegExp(`^${escaped}$`);
+    _globRegexpCache.set(pattern, re);
+  }
+  return re.test(value);
 }
 
 function ruleMatches(rule: PolicyRule, descriptor: PolicyArtifactDescriptor, action: PolicyAction): boolean {

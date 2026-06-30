@@ -123,17 +123,22 @@ export function interruptOrchestrationRun(runId: string | undefined, reason: str
 
 /**
  * Boot-time sweep: finds orchestration runs in non-terminal states with no
- * matching live continuation (allocationId-keyed) and transitions them to
- * `dead_lettered`. Called after `recoverStaleDispatchingContinuations()`.
- * Returns the count of runs swept.
+ * matching live continuation and transitions them to `dead_lettered`. Called
+ * after `recoverStaleDispatchingContinuations()`. Returns the count of runs swept.
+ *
+ * Running runs use allocationId as sourceRef; blocked (queued) runs use
+ * `${taskId}:${coordinatorId}` as sourceRef. Both sets must be passed.
  */
-export function sweepOrphanedOrchestrationRuns(liveAllocationIds: Set<string>): number {
+export function sweepOrphanedOrchestrationRuns(
+  liveAllocationIds: Set<string>,
+  liveContinuationKeys: Set<string>,
+): number {
   const ledger = getRunLedger();
   const nonTerminal = ledger.listRuns({ states: ["created", "running", "blocked"], engine: "orchestration" });
   let swept = 0;
   const at = new Date().toISOString();
   for (const run of nonTerminal) {
-    if (run.sourceRef && liveAllocationIds.has(run.sourceRef)) continue;
+    if (run.sourceRef && (liveAllocationIds.has(run.sourceRef) || liveContinuationKeys.has(run.sourceRef))) continue;
     try {
       ledger.transitionRun({
         runId: run.runId,

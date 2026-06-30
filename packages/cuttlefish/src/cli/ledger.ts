@@ -73,10 +73,17 @@ export async function runLedgerReset(opts: { force?: boolean }): Promise<void> {
 
   const stamp = new Date().toISOString().replace(/[^0-9A-Za-z]+/g, "-").replace(/-$/, "");
   const quarantinePath = `${dbPath}.quarantine.${stamp}`;
-  fs.renameSync(dbPath, quarantinePath);
-  for (const ext of ["-wal", "-shm"]) {
-    const src = `${dbPath}${ext}`;
-    if (fs.existsSync(src)) fs.renameSync(src, `${quarantinePath}${ext}`);
+  try {
+    fs.renameSync(dbPath, quarantinePath);
+    for (const ext of ["-wal", "-shm"]) {
+      const src = `${dbPath}${ext}`;
+      if (fs.existsSync(src)) fs.renameSync(src, `${quarantinePath}${ext}`);
+    }
+  } catch (err) {
+    console.error(`${RED}Failed to quarantine run ledger: ${err instanceof Error ? err.message : err}${RESET}`);
+    console.error("The gateway may be running and holding a lock on the database.");
+    process.exitCode = 1;
+    return;
   }
   console.log(`${GREEN}Quarantined run ledger to:${RESET} ${quarantinePath}`);
   console.log(`${DIM}The gateway will create a fresh run-ledger.db on next start.${RESET}`);

@@ -12,8 +12,13 @@ function parseRule(raw: unknown, index: number): PolicyRule | null {
   const id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : `rule-${index}`;
   if (typeof raw.allow !== "boolean") return null;
   const rule: PolicyRule = { id, allow: raw.allow };
-  if (raw.action === "export" || raw.action === "retain" || raw.action === "quarantine" || raw.action === "register") {
-    rule.action = raw.action;
+  if (raw.action !== undefined) {
+    if (raw.action === "export" || raw.action === "retain" || raw.action === "quarantine" || raw.action === "register") {
+      rule.action = raw.action;
+    } else {
+      // Unknown action: reject the rule rather than silently dropping the constraint.
+      return null;
+    }
   }
   if (typeof raw.kindPattern === "string" && raw.kindPattern) rule.kindPattern = raw.kindPattern;
   if (typeof raw.locatorPattern === "string" && raw.locatorPattern) rule.locatorPattern = raw.locatorPattern;
@@ -21,13 +26,8 @@ function parseRule(raw: unknown, index: number): PolicyRule | null {
 }
 
 function parseProfileFile(filePath: string): PolicyProfile {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(fs.readFileSync(filePath, "utf-8"));
-  } catch {
-    return buildDefaultProfile();
-  }
-  if (!isPlainObject(raw)) return buildDefaultProfile();
+  const raw: unknown = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+  if (!isPlainObject(raw)) throw new Error(`policy: ${filePath} is not a JSON object`);
   const rulesRaw = Array.isArray(raw.rules) ? raw.rules : [];
   const rules: PolicyRule[] = rulesRaw
     .map((r, i) => parseRule(r, i))
@@ -36,7 +36,7 @@ function parseProfileFile(filePath: string): PolicyProfile {
 }
 
 export function loadPolicyProfile(policyDir: string): PolicyProfile {
-  if (!fs.existsSync(policyDir)) return buildDefaultProfile();
+  if (!fs.existsSync(policyDir) || !fs.statSync(policyDir).isDirectory()) return buildDefaultProfile();
   const entries = (fs.readdirSync(policyDir) as string[]).filter((name: string) => name.endsWith(".json")).sort();
   if (entries.length === 0) return buildDefaultProfile();
   const allRules: PolicyRule[] = [];

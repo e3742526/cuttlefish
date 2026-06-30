@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS run_artifact_xref (
   run_id TEXT NOT NULL,
   artifact_id TEXT NOT NULL,
   relation TEXT NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  UNIQUE (run_id, artifact_id, relation)
 );
 CREATE INDEX IF NOT EXISTS idx_lineage_xref_run ON run_artifact_xref (run_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_lineage_xref_artifact ON run_artifact_xref (artifact_id, created_at);
@@ -241,7 +242,7 @@ export class ArtifactLineageStore {
   }
 
   private hasCycle(fromId: string, toId: string): boolean {
-    // DFS from toId looking for fromId (would create a cycle)
+    // DFS forward from toId following outgoing edges, looking for fromId (would close a cycle)
     const visited = new Set<string>();
     const stack = [toId];
     while (stack.length > 0) {
@@ -249,9 +250,9 @@ export class ArtifactLineageStore {
       if (current === fromId) return true;
       if (visited.has(current)) continue;
       visited.add(current);
-      const rows = this.db.prepare("SELECT from_artifact_id FROM lineage_edges WHERE to_artifact_id = ?").all(current) as Array<{ from_artifact_id: string }>;
+      const rows = this.db.prepare("SELECT to_artifact_id FROM lineage_edges WHERE from_artifact_id = ?").all(current) as Array<{ to_artifact_id: string }>;
       for (const row of rows) {
-        stack.push(row.from_artifact_id);
+        stack.push(row.to_artifact_id);
       }
     }
     return false;

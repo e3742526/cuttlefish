@@ -2,28 +2,29 @@ import { logger } from "./logger.js";
 import { getRunLedger } from "../run-ledger/index.js";
 
 /**
- * Boot-time scan for orphaned run-ledger entries in non-terminal states.
- * Any run that has no corresponding live owner (session or orchestration allocation)
- * is transitioned to `interrupted` with a recovery notice.
+ * Boot-time scan for orphaned session-engine run-ledger entries in non-terminal
+ * states. Any session-engine run with no corresponding live session is transitioned
+ * to `interrupted`. Orchestration-engine runs are intentionally skipped here;
+ * they are handled by the orchestration runtime's own boot-time sweep after it
+ * initialises.
  *
  * Recovery NEVER maps to `completed`; fail-closed rule.
  *
  * @param liveSessionIds Set of session IDs that are actively running (post-recovery).
- * @param liveAllocationIds Set of allocationIds that are live in orchestration.
  * @returns Count of runs swept.
  */
 export function recoverOrphanedRunsAtStartup(
   liveSessionIds: Set<string>,
-  liveAllocationIds: Set<string>,
 ): number {
   const ledger = getRunLedger();
   const nonTerminal = ledger.listRuns({ states: ["created", "running", "blocked"] });
   let swept = 0;
   const at = new Date().toISOString();
   for (const run of nonTerminal) {
+    // Orchestration runs are handled by the runtime's own boot-time sweep.
+    if (run.engine === "orchestration") continue;
     const isLiveSession = run.sessionId !== null && liveSessionIds.has(run.sessionId);
-    const isLiveAllocation = run.engine === "orchestration" && run.sourceRef !== null && liveAllocationIds.has(run.sourceRef);
-    if (isLiveSession || isLiveAllocation) continue;
+    if (isLiveSession) continue;
     try {
       ledger.transitionRun({
         runId: run.runId,
