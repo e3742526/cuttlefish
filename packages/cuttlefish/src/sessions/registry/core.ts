@@ -67,19 +67,27 @@ export function setMeta(database: Database.Database, key: string, value: string)
     .run(key, value);
 }
 
+function applyConnectionPragmas(database: Database.Database): void {
+  database.pragma('journal_mode = WAL');
+  database.pragma('synchronous = NORMAL');
+  // Enforce foreign keys (OFF by default in SQLite). The only declared FK is
+  // approvals.session_id -> sessions.id ON DELETE CASCADE, so this backs the
+  // app-level orphan cleanup (deleteSession) with DB-level integrity. The
+  // approvals-table rebuild migration toggles this OFF/ON around itself.
+  database.pragma('foreign_keys = ON');
+}
+
 function openDb(): Database.Database {
   mkdirSync(path.dirname(SESSIONS_DB), { recursive: true });
   try {
     const database = new Database(SESSIONS_DB, { timeout: 5000 });
-    database.pragma('journal_mode = WAL');
-    database.pragma('synchronous = NORMAL');
+    applyConnectionPragmas(database);
     return database;
   } catch (err) {
     if (isSqliteCorruptionError(err)) {
       quarantineCorruptDb(SESSIONS_DB);
       const fresh = new Database(SESSIONS_DB, { timeout: 5000 });
-      fresh.pragma('journal_mode = WAL');
-      fresh.pragma('synchronous = NORMAL');
+      applyConnectionPragmas(fresh);
       return fresh;
     }
     throw err;

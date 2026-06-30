@@ -143,4 +143,22 @@ describe("deleteSession approvals + email cleanup (orphan regression)", () => {
     expect(approvalCount(b.id)).toBe(0);
     expect(emailRow("email-a").sessionId).toBeNull();
   });
+
+  it("enforces the approvals.session_id foreign key (RDC-R01)", () => {
+    const db = reg.initDb();
+    // foreign_keys pragma is ON for the connection.
+    expect(db.pragma("foreign_keys", { simple: true })).toBe(1);
+    // Inserting an approval for a non-existent session is rejected.
+    expect(() => insertApproval("appr-orphan", "no-such-session")).toThrow(/FOREIGN KEY/i);
+  });
+
+  it("cascades approval deletion when the session row is deleted directly (ON DELETE CASCADE)", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cascade" });
+    insertApproval("appr-cascade", session.id);
+    expect(approvalCount(session.id)).toBe(1);
+    // Delete the session row directly (bypassing deleteSession's explicit cleanup)
+    // — the FK cascade must remove the approval.
+    reg.initDb().prepare("DELETE FROM sessions WHERE id = ?").run(session.id);
+    expect(approvalCount(session.id)).toBe(0);
+  });
 });

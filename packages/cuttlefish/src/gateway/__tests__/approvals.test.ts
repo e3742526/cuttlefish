@@ -23,6 +23,16 @@ beforeAll(async () => {
   store = await import("../approvals.js");
   reg = await import("../../sessions/registry.js");
   reg.initDb();
+  // approvals.session_id now carries an enforced FOREIGN KEY to sessions(id), so
+  // the referenced sessions must exist before an approval can be created.
+  for (const id of ["s1", "s-hr", "s-other"]) {
+    const db = reg.initDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT OR IGNORE INTO sessions (id, engine, source, source_ref, status, created_at, last_activity)
+       VALUES (?, 'claude', 'web', ?, 'idle', ?, ?)`,
+    ).run(id, `web:${id}`, now, now);
+  }
 });
 
 beforeEach(() => {
@@ -119,10 +129,18 @@ describe("approvals endpoints", () => {
   });
 
   it("approve on a non-pending approval → 409", async () => {
-    const a = store.createApproval({ sessionId: "s1", type: "fallback", payload: {} });
-    store.resolveApproval(a.id, "approved");
+    // Payload carries a target engine so the route reaches the real state check
+    // (a resolved, non-resumable fallback approval) rather than the earlier
+    // "missing target engine" 400. The session s1 exists (FK-required), so the
+    // route no longer short-circuits via the session-not-found branch.
+    const a = store.createApproval({ sessionId: "s1", type: "fallback", payload: { to: { engine: "codex" } } });
+    store.resolveApproval(a.id, "rejected");
     const cap = makeRes();
-    await api.handleApiRequest(makeReq("POST", `/api/approvals/${a.id}/approve`), cap.res, makeCtx());
+    // Provide the target engine so the route passes the availability (422) check
+    // and reaches the real "already rejected" state check (409).
+    await api.handleApiRequest(makeReq("POST", `/api/approvals/${a.id}/approve`), cap.res, makeCtx({
+      sessionManager: { getEngine: () => ({}) },
+    }));
     expect(cap.status).toBe(409);
   });
 

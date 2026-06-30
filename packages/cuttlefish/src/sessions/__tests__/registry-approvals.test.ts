@@ -20,9 +20,26 @@ type Reg = typeof import("../registry.js");
 let reg: Reg;
 let deps: ApprovalRegistryDeps;
 
+/**
+ * Seed a minimal session row with an explicit id. Approvals now carry a FOREIGN
+ * KEY to sessions(id) (enforced via PRAGMA foreign_keys=ON), so a referenced
+ * session must exist before an approval can be inserted.
+ */
+function seedSession(id: string): void {
+  const db = reg.initDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT OR IGNORE INTO sessions (id, engine, source, source_ref, status, created_at, last_activity)
+     VALUES (?, 'claude', 'web', ?, 'idle', ?, ?)`,
+  ).run(id, `web:${id}`, now, now);
+}
+
 beforeAll(async () => {
   reg = await import("../registry.js");
   reg.initDb();
+  // FK target rows for the approvals used across this suite.
+  seedSession("sess-1");
+  seedSession("sess-legacy");
   deps = {
     getDb: reg.initDb,
     getMeta: (database, key) => {

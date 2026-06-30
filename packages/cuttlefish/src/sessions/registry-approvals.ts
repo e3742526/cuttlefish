@@ -57,6 +57,10 @@ export function importApprovalsJsonIfNeededFromRegistry(filePath: string, deps: 
         (id, session_id, type, payload, state, created_at, resolved_at, actor, decision_notes, resulting_action)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  // With the approvals.session_id FK enforced, an imported approval whose session
+  // no longer exists would violate the constraint and abort the whole import. Such
+  // an approval is already orphaned and unusable, so skip it during legacy import.
+  const sessionExists = db.prepare("SELECT 1 FROM sessions WHERE id = ? LIMIT 1");
   const txn = db.transaction((items: unknown[]) => {
     for (const item of items) {
       if (!item || typeof item !== "object") continue;
@@ -72,6 +76,9 @@ export function importApprovalsJsonIfNeededFromRegistry(filePath: string, deps: 
         Array.isArray(approval.payload)
       ) {
         continue;
+      }
+      if (!sessionExists.get(approval.sessionId)) {
+        continue; // orphaned legacy approval — its session is gone
       }
       insert.run(
         approval.id,

@@ -109,6 +109,9 @@ export function migrateFilesSchema(database: Database.Database): void {
 
 export function migrateApprovalsSchema(database: Database.Database): void {
   const cols = database.prepare('PRAGMA table_info(approvals)').all() as Array<{ name: string }>;
+  // Fresh DB: the approvals table is created (with its FK) by installPostMigrationSchema,
+  // which runs after this migration — nothing to upgrade here.
+  if (cols.length === 0) return;
   const colNames = new Set(cols.map((c) => c.name));
   const missingColumns: Array<[string, string]> = [
     ['decision_notes', 'TEXT'],
@@ -117,6 +120,46 @@ export function migrateApprovalsSchema(database: Database.Database): void {
   for (const [name, type] of missingColumns) {
     if (!colNames.has(name)) {
       database.exec(`ALTER TABLE approvals ADD COLUMN ${name} ${type}`);
+    }
+  }
+
+  // Add the FOREIGN KEY (session_id -> sessions.id, ON DELETE CASCADE) on upgraded
+  // homes whose approvals table predates it. SQLite cannot ALTER-ADD a constraint,
+  // so the table is rebuilt. PRAGMA foreign_keys must be toggled OUTSIDE any
+  // transaction (better-sqlite3 throws otherwise), and the rebuild runs with FKs
+  // OFF so copying rows can't trip the constraint being added.
+  const hasForeignKey = (database.prepare('PRAGMA foreign_key_list(approvals)').all() as unknown[]).length > 0;
+  if (!hasForeignKey) {
+    // Pre-flight: remove any orphaned approvals (no matching session) so the
+    // rebuild and subsequent FK enforcement can't fail on pre-existing dangling rows.
+    database.prepare('DELETE FROM approvals WHERE session_id NOT IN (SELECT id FROM sessions)').run();
+
+    const fkWasOn = (database.pragma('foreign_keys', { simple: true }) as number) === 1;
+    database.pragma('foreign_keys = OFF');
+    try {
+      database.exec(`
+        CREATE TABLE approvals_new (
+          id TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          state TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          resolved_at TEXT,
+          actor TEXT,
+          decision_notes TEXT,
+          resulting_action TEXT,
+          FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+        );
+        INSERT INTO approvals_new
+          (id, session_id, type, payload, state, created_at, resolved_at, actor, decision_notes, resulting_action)
+          SELECT id, session_id, type, payload, state, created_at, resolved_at, actor, decision_notes, resulting_action
+          FROM approvals;
+        DROP TABLE approvals;
+        ALTER TABLE approvals_new RENAME TO approvals;
+      `);
+    } finally {
+      if (fkWasOn) database.pragma('foreign_keys = ON');
     }
   }
 }
