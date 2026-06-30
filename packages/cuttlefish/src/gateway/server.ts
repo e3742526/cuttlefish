@@ -123,10 +123,10 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
 
   // Sweep orphaned run-ledger entries: any run in non-terminal state with no
   // live session or orchestration allocation gets marked `interrupted`.
-  // Orchestration-engine runs are covered by the orchestration runtime's own
-  // boot-time sweep; this pass handles session-engine runs only at this point.
+  // Orchestration-engine runs are skipped only when the orchestration runtime
+  // is enabled, because it performs its own finer-grained boot-time sweep.
   const liveSessionIds = new Set(listSessions({ status: 'running' }).map((s) => s.id));
-  recoverOrphanedRunsAtStartup(liveSessionIds, new Set());
+  recoverOrphanedRunsAtStartup(liveSessionIds, config.orchestration?.enabled === true);
   if (sweptPartials > 0) {
     logger.info(`Swept ${sweptPartials} stranded mid-turn partial message(s) from previous run`);
   }

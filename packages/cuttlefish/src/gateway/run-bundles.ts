@@ -263,7 +263,6 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
   const now = new Date().toISOString();
   const bundleId = `${safeSegment(sessionId)}-${Date.now().toString(36)}`;
   const bundlePath = path.join(RUN_BUNDLES_DIR, safeSegment(sessionId), bundleId);
-  fs.mkdirSync(bundlePath, { recursive: true });
 
   const exportVerdict = gateExternalEmit({
     kind: "cuttlefish.run_bundle",
@@ -275,6 +274,8 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
   if (!exportVerdict.allowed) {
     throw new Error(`run bundle export denied by policy: ${exportVerdict.reason}`);
   }
+
+  fs.mkdirSync(bundlePath, { recursive: true });
 
   const manifestFiles: BundleManifestFile[] = [];
   const { copied, skipped } = copyArtifacts(bundlePath, producedArtifacts, attachments, manifestFiles);

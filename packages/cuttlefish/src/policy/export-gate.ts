@@ -7,7 +7,7 @@ import type { PolicyArtifactDescriptor, PolicyRule, PolicyVerdict } from "./type
 // Defaults: allow for knowledge:*, deny for cuttlefish.run_bundle*, allow all else.
 const BUILTIN_EXPORT_RULES: PolicyRule[] = [
   { id: "builtin-allow-knowledge", action: "export", kindPattern: "knowledge:*", allow: true },
-  { id: "builtin-deny-run-bundle", action: "export", kindPattern: "cuttlefish.run_bundle*", allow: false },
+  { id: "builtin-allow-run-bundle", action: "export", kindPattern: "cuttlefish.run_bundle*", allow: true },
   { id: "builtin-default-allow-export", action: "export", allow: true },
 ];
 

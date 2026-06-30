@@ -157,9 +157,8 @@ describe("checkpoint routes", () => {
         resumePrompt: "Continue by incorporating the operator's comments.",
       },
     });
-    const enqueue = vi.fn(async (_key: string, job: () => Promise<void>) => {
-      // do not execute the job; we only need to observe dispatch intent
-      return Promise.resolve(job()).catch(() => {});
+    const enqueue = vi.fn(async (_key: string, _job: () => Promise<void>) => {
+      // intentionally not running _job; we only verify dispatch intent
     });
     const cap = makeRes();
     await api.handleApiRequest(

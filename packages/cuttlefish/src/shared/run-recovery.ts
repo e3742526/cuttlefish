@@ -3,27 +3,32 @@ import { getRunLedger } from "../run-ledger/index.js";
 
 /**
  * Boot-time scan for orphaned run-ledger entries in non-terminal states.
- * Any run that has no corresponding live owner (session or orchestration allocation)
- * is transitioned to `interrupted` with a recovery notice.
+ * Any run with no corresponding live session is transitioned to `interrupted`.
+ * When orchestration is enabled, orchestration-engine runs are intentionally
+ * skipped here because the orchestration runtime's own boot-time sweep handles
+ * them with finer-grained logic (blocked-run continuation keys, etc.).
+ * When orchestration is disabled, the runtime sweep never runs, so this
+ * function recovers orchestration-engine runs too.
  *
  * Recovery NEVER maps to `completed`; fail-closed rule.
  *
- * @param liveSessionIds Set of session IDs that are actively running (post-recovery).
- * @param liveAllocationIds Set of allocationIds that are live in orchestration.
+ * @param liveSessionIds Set of session IDs that are actively running.
+ * @param orchestrationEnabled Whether the orchestration runtime will sweep its own runs.
  * @returns Count of runs swept.
  */
 export function recoverOrphanedRunsAtStartup(
   liveSessionIds: Set<string>,
-  liveAllocationIds: Set<string>,
+  orchestrationEnabled = true,
 ): number {
   const ledger = getRunLedger();
   const nonTerminal = ledger.listRuns({ states: ["created", "running", "blocked"] });
   let swept = 0;
   const at = new Date().toISOString();
   for (const run of nonTerminal) {
+    // Orchestration runs are handled by the runtime's own boot-time sweep when enabled.
+    if (run.engine === "orchestration" && orchestrationEnabled) continue;
     const isLiveSession = run.sessionId !== null && liveSessionIds.has(run.sessionId);
-    const isLiveAllocation = run.engine === "orchestration" && run.sourceRef !== null && liveAllocationIds.has(run.sourceRef);
-    if (isLiveSession || isLiveAllocation) continue;
+    if (isLiveSession) continue;
     try {
       ledger.transitionRun({
         runId: run.runId,
