@@ -33,3 +33,4 @@ state/
 # Superpowers SDD scratch (briefs, reports, ledger, diffs)
 .superpowers/
 .aider*
+.dory/
