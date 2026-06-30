@@ -14,7 +14,7 @@
 
 **Summary:** The codebase is architecturally well-suited for forking. Runtime config is broadly externalized via a validated YAML schema, all filesystem paths derive from an overridable home directory, there is no phone-home telemetry, SQLite persistence is local and portable, the engine adapter model is genuinely pluggable, and the license is MIT with clear upstream attribution.
 
-The primary obstacles are: (1) the product identity (`cuttlefish`, `~/.cuttlefish`, `cuttlefish-cli`) is deeply embedded in code — not just docs — including a hard assertion in `instance-home.ts` that rejects any other instance name at startup; (2) the WhatsApp connector depends on a GPL-3.0 library that would constrain a proprietary fork; (3) an active prefork-substrate campaign was merged just before this assessment, leaving the repo in a transitional state.
+The primary obstacles are: (1) the product identity (`cuttlefish`, `~/.cuttlefish`, `cuttlefish-cli`) is deeply embedded in code — not just docs — including a hard assertion in `instance-home.ts` that rejects any other instance name at startup; (2) an active prefork-substrate campaign was merged just before this assessment, leaving the repo in a transitional state.
 
 None of these are architectural dead-ends — they are all bounded, addressable tasks. With roughly one to two days of rename/cleanup work plus a decision on the WhatsApp connector, this codebase would be cleanly forkable at 85+.
 
@@ -26,7 +26,7 @@ These items must be resolved before cutting a meaningful fork. They are not cosm
 
 1. **Product identity is deeply embedded.** The npm package name is `cuttlefish-cli`, the binary name is `cuttlefish`, and the instance home defaults to `~/.cuttlefish`. `instance-home.ts:8` contains a hard assertion that rejects any instance name other than the string `"cuttlefish"` at startup. This blocks filesystem isolation between the upstream and any fork.
 
-2. **`@whiskeysockets/baileys` (WhatsApp connector) is GPL-3.0.** A proprietary fork that ships this dependency would be license-encumbered. Either drop the WhatsApp connector before forking or ensure the fork adopts a GPL-compatible license.
+2. **`@whiskeysockets/baileys` (WhatsApp connector) is MIT-licensed** — no license encumbrance for proprietary forks. The remaining concern is it is pinned to an RC (`7.0.0-rc13`); track stable 7.x release before the fork ships.
 
 3. **The prefork-substrate work is mid-campaign.** The most recent merge (`9af11d8`: "prefork-substrate stages 1B-7") was completed just before this assessment, but the README and governance files still reflect pre-hardening state. The fork baseline should not be cut mid-campaign.
 
@@ -84,7 +84,7 @@ Auth is entirely self-contained: a random token is generated and stored in `~/.c
 | Telemetry and logging | Ready | No phone-home telemetry, no third-party analytics SDK. Logging is local structured JSONL configurable in `config.yaml`. Knowledge sink webhook points anywhere the operator chooses — no default endpoint hardcoded. |
 | Connector abstraction | Ready | Connectors (Slack, WhatsApp, email/IMAP) are well-modularized under `src/connectors/`. Credentials live in `config.yaml`. Removing unused connectors is straightforward. |
 | Environment coupling | Ready with notes | `CUTTLEFISH_HOME` env var overrides home directory for containerized use. The `caffeinate` call is guarded by platform check. `docker-compose.yml` provides a containerization starting point. Node 24 is a hard ABI requirement — pin the same Node 24.x in any fork's container base image. |
-| License | Ready with one caveat | MIT licensed. Copyright line reads "Cuttlefish Contributors" with a note for upstream Jinn contributors. All runtime dependencies are permissively licensed except `@whiskeysockets/baileys` (GPL-3.0). If the fork is open-source MIT, no action needed. If proprietary, drop the WhatsApp connector. |
+| License | Ready | MIT licensed. Copyright line reads "Cuttlefish Contributors" with a note for upstream Jinn contributors. All runtime dependencies are permissively licensed — `@whiskeysockets/baileys` is MIT, not GPL-3.0 (verified via npm registry). No license blocker for proprietary or open-source forks. |
 | Runtime config schema | Ready | Broadly externalized via validated YAML. Covers gateway, engines, models, connectors, email, logging, MCP, orchestration, sessions, cron, notifications, portal, knowledge sinks. |
 | Engine adapter pattern | Ready | Clear extension pattern: add a file in `src/engines/`, register in `server.ts`, add config in `config-schema.ts`. Minor Claude-as-primary coupling in PTY pool sizing is addressable. |
 
@@ -100,7 +100,7 @@ Auth is entirely self-contained: a random token is generated and stored in `~/.c
 - [ ] Update `package.json` `repository.url` and `bugs.url` from `github.com/e3742526/cuttlefish` to the fork's repo
 
 ### License and dependencies
-- [ ] Remove or replace `@whiskeysockets/baileys` if the fork is proprietary (GPL-3.0 conflict)
+- [ ] Track stable `@whiskeysockets/baileys` 7.x release (currently RC-pinned); assess WhatsApp TOS risk for fork's use case
 - [ ] Audit and remove or document `@qdrant/js-client-rest` — no usage found in scanned source; either wire it up or drop it
 - [ ] Retain Jinn contributor attribution in the `LICENSE` file per MIT requirements
 

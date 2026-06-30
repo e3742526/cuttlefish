@@ -26,7 +26,7 @@ Against that strong foundation, the audit surfaces twelve release-blocking or pr
 
 Three complete modules (the entire policy subsystem, the orchestration run-ledger integration bridge, both new CLI commands) have zero dedicated test coverage. Documentation health is at 42/100 — six substantial feature sets shipped on 2026-06-30 with no CHANGELOG entries, no ARCHITECTURE.md updates, and missing Giles ledger files.
 
-The fork-readiness score is 62/100, blocked primarily by deeply embedded product identity (the instance-home assertion rejects any name other than `cuttlefish` at startup), a GPL-3.0 production dependency in the WhatsApp connector, and the still-in-flight prefork-substrate campaign.
+The fork-readiness score is 62/100, blocked primarily by deeply embedded product identity (the instance-home assertion rejects any name other than `cuttlefish` at startup) and the still-in-flight prefork-substrate campaign.
 
 ---
 
@@ -65,8 +65,8 @@ Severity definitions follow standard practice: **CRITICAL** = exploitable immedi
 | **Test Coverage** | 58 / 100 | 7 security-critical or operationally-critical new modules have zero test coverage. |
 | **API Surface** | 60 / 100 | No rate limiting anywhere. Connector proxy lacks auth. No versioning. No OpenAPI schema. |
 | **Docs & Governance** | 42 / 100 | CHANGELOG stops at v0.23.3. Architecture, feature inventory, Giles ledger all out of date. |
-| **Dependencies** | 65 / 100 | GPL-3.0 production dep. Unused native addon. No automated CVE scanning in CI. |
-| **Fork Readiness** | 62 / 100 | Product identity hard-coded in startup enforcement. GPL blocker. Mid-campaign baseline. |
+| **Dependencies** | 65 / 100 | Unused native addon. RC-pinned WhatsApp dep. No automated CVE scanning in CI. |
+| **Fork Readiness** | 62 / 100 | Product identity hard-coded in startup enforcement. Mid-campaign baseline. |
 
 ---
 
@@ -1021,12 +1021,10 @@ Open items (run-ledger integration tests, run-recovery unit tests, documentation
 
 ### HIGH
 
-#### DEP-HIGH-001: `@whiskeysockets/baileys@7.0.0-rc13` — GPL-3.0 License in MIT-Licensed Binary
+#### DEP-HIGH-001: ~~`@whiskeysockets/baileys@7.0.0-rc13` — GPL-3.0 License~~ — **RETRACTED (false positive)**
 **Category:** License Compliance
 
-Baileys is GPL-3.0 and is a production runtime dependency in `packages/cuttlefish/package.json`, actively imported in the WhatsApp connector. Distributing `cuttlefish-cli` (MIT) as a compiled artifact that links GPL-3.0 code at runtime creates a license compatibility conflict. GPL-3.0 requires derivative works to be distributed under GPL-3.0.
-
-**Recommendation:** (1) Quarantine the WhatsApp connector into an optional plugin users install separately and accept GPL-3.0 for; (2) replace Baileys with a WhatsApp Business API client under a permissive license; or (3) obtain a commercial license from the Baileys maintainers. Document the GPL-3.0 dependency explicitly in `SECURITY.md` regardless.
+**Post-publication correction:** npm registry metadata for `@whiskeysockets/baileys@7.0.0-rc13` declares **MIT** license, confirmed via `https://registry.npmjs.org/@whiskeysockets/baileys/7.0.0-rc13`. The upstream Baileys repository also carries an MIT `LICENSE` file. The original finding incorrectly classified this as GPL-3.0. There is no license conflict with the MIT-licensed `cuttlefish-cli`. This finding is retracted; no action required on license grounds. See DEP-HIGH-002 for the remaining concern (RC pin).
 
 ---
 
@@ -1068,12 +1066,12 @@ RC packages carry known bugs, undocumented API changes, and may be abandoned wit
 
 ---
 
-#### DEP-MED-003: `sharp@0.35.2` — Transitive GPL Peer Dependency via Baileys
+#### DEP-MED-003: `sharp@0.35.2` — Transitive Native Peer Dependency via Baileys
 **Category:** Native Modules — Portability
 
-`sharp` is pulled in as a resolved optional peer dependency of Baileys, adding 27 platform-specific prebuilt binaries and a native libvips dependency with its own CVE history.
+`sharp` is pulled in as a resolved optional peer dependency of Baileys, adding 27 platform-specific prebuilt binaries and a native libvips dependency with its own CVE history. `sharp` itself is Apache-2.0 licensed (no GPL concern).
 
-**Recommendation:** If WhatsApp media thumbnails are not a required feature, opt out of the `sharp` peer dependency. If Baileys is removed, `sharp` goes away automatically.
+**Recommendation:** If WhatsApp media thumbnails are not a required feature, opt out of the `sharp` peer dependency in the workspace configuration.
 
 ---
 
@@ -1137,9 +1135,7 @@ All 1,008 packages in `pnpm-lock.yaml` have sha512 integrity hashes. CI uses `pn
 
 1. **Product identity is hard-coded in startup enforcement.** `instance-home.ts` line 8 asserts that the instance name must be `'cuttlefish'` and rejects any other value at startup. The npm package name is `cuttlefish-cli`, the binary is `cuttlefish`, the home directory is `~/.cuttlefish`, and auth cookies are named `cuttlefish_auth`/`cuttlefish_device`. These are not cosmetic — they affect filesystem isolation and must be changed before meaningful forking.
 
-2. **GPL-3.0 production dependency.** `@whiskeysockets/baileys` (WhatsApp connector) is GPL-3.0. A proprietary fork that ships this dependency would be encumbered.
-
-3. **Prefork-substrate campaign is mid-flight.** The merge `9af11d8` lands stages 1–7, but the governance documentation, test coverage, and ARCHITECTURE.md have not been updated to match. The fork baseline should not be cut mid-campaign.
+2. **Prefork-substrate campaign is mid-flight.** The merge `9af11d8` lands stages 1–7, but the governance documentation, test coverage, and ARCHITECTURE.md have not been updated to match. The fork baseline should not be cut mid-campaign.
 
 ### Fork Readiness Checklist
 
@@ -1148,7 +1144,7 @@ All 1,008 packages in `pnpm-lock.yaml` have sha512 integrity hashes. CI uses `pn
 - [ ] Update `CUTTLEFISH_HOME` default, `CUTTLEFISH_INSTANCES_REGISTRY` default, and all `CUTTLEFISH_*` env var names if fully rebranding
 - [ ] Rename auth cookie constants `AUTH_COOKIE` and `AUTH_DEVICE_COOKIE` in `auth.ts`
 - [ ] Update `package.json` `repository.url` and `bugs.url` from `github.com/e3742526/cuttlefish` to the fork's repo
-- [ ] Remove or replace `@whiskeysockets/baileys` if the fork is proprietary (GPL-3.0 conflict)
+- [ ] Evaluate `@whiskeysockets/baileys` (MIT licensed, RC pin) — track stable 7.x release; assess WhatsApp TOS risk for the fork's use case
 - [ ] Audit and remove or document `@qdrant/js-client-rest` — no usage found in scanned source; wire it up or drop it
 - [ ] Checkpoint all SQLite WAL files before forking live data: `PRAGMA wal_checkpoint(TRUNCATE)` on `registry.db`, `orchestration.db`, `run-ledger.db`, `artifact-lineage.db`
 - [ ] Reset `config.yaml cuttlefish.version` to `0.0.0` (or the fork's initial version) so the migration runner does not skip migrations
@@ -1226,7 +1222,7 @@ Ten findings were selected for adversarial verification by reading primary sourc
 
 | Priority | Finding(s) | Action |
 |---|---|---|
-| P2 | DEP-HIGH-001 / DEP-HIGH-002 | Resolve Baileys GPL-3.0 conflict: isolate as optional plugin, replace, or relicense. |
+| P2 | DEP-HIGH-002 | ~~DEP-HIGH-001 retracted (Baileys is MIT).~~ Track stable Baileys 7.x release; assess WhatsApp TOS risk. |
 | P2 | DEP-HIGH-003 | Remove unused `classic-level` from root `package.json` and `onlyBuiltDependencies`. |
 | P2 | Fork identity (all) | Rename package, binary, instance home, cookie names, env vars per fork checklist. |
 | P2 | ARCH-MED-005 | Rename or parameterize `CLAUDE_LIMITS_DIR`, `CLAUDE_SETTINGS_DIR`, `CLAUDE_SKILLS_DIR` in `paths.ts`. |

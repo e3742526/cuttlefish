@@ -184,14 +184,22 @@ Additionally, if the master token is rotated during a security incident, all exi
 
 #### Recommended Fix
 
-Derive scoped token signing keys from the master secret plus a session-specific salt using HKDF, or maintain a separate signing key for scoped tokens that can be rotated independently of the master token. Example:
+Introduce a completely separate, independently-generated server-side signing key for scoped tokens. This key must not be derivable from the master token in any way.
+
+**What does NOT fix this:** Deriving a per-session key via HKDF from `(masterToken, sessionId)` does not help — the attacker who already has `masterToken` also knows `sessionId` (it is in the token payload), so they can reproduce the identical HKDF derivation and still forge tokens for any session.
+
+**Correct approach:** Generate a distinct 32-byte random `SCOPED_TOKEN_SIGNING_KEY` at gateway initialization and store it independently of the master token. Use it as the sole HMAC secret for scoped tokens:
 
 ```typescript
-import { hkdfSync } from "crypto";
-const signingKey = hkdfSync("sha256", masterToken, sessionId, "cuttlefish-scoped-token-v1", 32);
+// At startup: generate or load from a separate secret store
+const SCOPED_TOKEN_SIGNING_KEY = process.env.CUTTLEFISH_SCOPED_TOKEN_KEY
+  ?? crypto.randomBytes(32).toString("hex");
+
+// Sign with the independent key, not the master token
+const sig = createHmac("sha256", SCOPED_TOKEN_SIGNING_KEY).update(payload).digest("hex");
 ```
 
-This way, possession of the master token does not immediately grant token forgery capability — an attacker would need to reproduce the HKDF derivation per session, and the signing key can be rotated independently. Additionally consider reducing the TTL significantly (e.g. 24 hours) since these are ephemeral agent credentials, not long-lived user sessions.
+This ensures that compromising the master token grants operator-plane access but does not allow forging session-scoped credentials. Additionally reduce the TTL significantly (e.g. 24 hours) since these are ephemeral agent credentials, not long-lived user sessions.
 
 ---
 
