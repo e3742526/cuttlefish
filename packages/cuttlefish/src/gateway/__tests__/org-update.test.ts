@@ -26,7 +26,7 @@ vi.mock("../../shared/logger.js", () => ({
   },
 }));
 
-import { createEmployeeYaml, deleteEmployeeYaml, updateEmployeeYaml, validateEmployeeCreate, validateEmployeeUpdate, scanOrg } from "../org.js";
+import { createEmployeeYaml, deleteEmployeeYaml, updateEmployeeYaml, validateEmployeeCreate, validateEmployeeUpdate, scanOrg, mergeEmployeeUpdateData, buildEmployeeCreateData } from "../org.js";
 import { invalidateModelRegistry } from "../../shared/models.js";
 
 function writeYaml(subdir: string, filename: string, content: string) {
@@ -735,5 +735,55 @@ describe("validateEmployeeUpdate", () => {
       fallbackEngine: "claude",
       fallbackModel: "sonnet",
     });
+  });
+
+  it("carries the execution profile through create so it actually persists (regression)", () => {
+    const result = validateEmployeeCreate(testConfig, {
+      name: "pairer",
+      displayName: "Pairer",
+      department: "platform",
+      rank: "senior",
+      engine: "claude",
+      model: "sonnet",
+      persona: "Pair on changes.",
+      execution: {
+        tier: "mid_pair",
+        reviewerLossPolicy: "replace_then_degrade",
+        reviewerToolProfile: "read_only",
+        maxInternalPasses: 2,
+      },
+    }, []);
+    expect(result.ok).toBe(true);
+    // Before the fix the returned employee object omitted `execution`, so the
+    // create path silently dropped the operator's reviewer config.
+    expect(result.employee?.execution).toMatchObject({ tier: "mid_pair", maxInternalPasses: 2 });
+    // And it must survive into the persisted YAML data.
+    const data = buildEmployeeCreateData(result.employee!);
+    expect(data.execution).toMatchObject({ tier: "mid_pair", reviewerToolProfile: "read_only" });
+  });
+
+  it("replaces the execution block wholesale on mid_pair → solo downgrade (regression)", () => {
+    // Existing YAML carries a full mid_pair reviewer config.
+    const existing = {
+      name: "pairer",
+      engine: "claude",
+      execution: {
+        tier: "mid_pair",
+        reviewerLossPolicy: "replace_then_degrade",
+        reviewerToolProfile: "read_only",
+        maxInternalPasses: 3,
+        maxChildSessions: 3,
+      },
+    };
+    // Operator downgrades to solo — the editor sends only { tier: "solo" }.
+    const merged = mergeEmployeeUpdateData(existing, { execution: { tier: "solo" } });
+    // The stale reviewer-only fields must be gone, not deep-merged through.
+    expect(merged.execution).toEqual({ tier: "solo" });
+  });
+
+  it("clears the execution block when execution is null", () => {
+    const existing = { name: "pairer", engine: "claude", execution: { tier: "mid_pair" } };
+    const merged = mergeEmployeeUpdateData(existing, { execution: null });
+    expect(merged.execution).toBeUndefined();
   });
 });

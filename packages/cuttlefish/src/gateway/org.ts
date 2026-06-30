@@ -796,6 +796,11 @@ export function validateEmployeeCreate(
       fallbackModel: updates.updates.fallbackModel,
       avatar: updates.updates.avatar,
       emoji: updates.updates.emoji,
+      // Carry the validated execution profile through to persistence. Without
+      // this the create path silently drops the mid_pair/reviewer config the
+      // operator configured in the editor (buildEmployeeCreateData writes it,
+      // but only if it survives to the returned employee object).
+      execution: updates.updates.execution ?? undefined,
     },
   };
 }
@@ -926,14 +931,17 @@ export function mergeEmployeeUpdateData(
     delete next.model_policy;
   }
   // --- execution block ---
+  // The execution profile is REPLACED wholesale (see EmployeeUpdate.execution
+  // docstring), not deep-merged. A shallow `{ ...existing, ...incoming }` left
+  // reviewer-only fields (reviewerLossPolicy, reviewerToolProfile, maxInternalPasses,
+  // …) behind when an operator downgraded mid_pair → solo, persisting a stale
+  // reviewer config under a solo tier. Writing the incoming block verbatim drops
+  // any field the new tier no longer carries.
   if (Object.prototype.hasOwnProperty.call(updates, "execution")) {
     if (updates.execution === null) {
       delete next.execution;
     } else if (updates.execution !== undefined) {
-      const existing = (typeof next.execution === "object" && next.execution !== null && !Array.isArray(next.execution))
-        ? next.execution as Record<string, unknown>
-        : {};
-      next.execution = { ...existing, ...updates.execution };
+      next.execution = { ...updates.execution };
     }
   }
 
