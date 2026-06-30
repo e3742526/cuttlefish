@@ -4,21 +4,48 @@ import type { Employee, CuttlefishConfig } from "../shared/types.js";
 import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
 import { logger } from "../shared/logger.js";
 
-/** Short model aliases accepted by the API, resolved before registry lookup. */
+/**
+ * Short model aliases accepted by the API as a convenience input.
+ *
+ * These are a *fallback* mapping only: the registry's own model ids are the
+ * contract. A deployment is free to register a model under the literal id
+ * `opus` or `haiku` (the shipped `cuttlefish setup` template does exactly this —
+ * see cli/setup.ts), in which case the requested id is already valid and must
+ * NOT be rewritten. The date-suffixed targets below are only used when the
+ * literal alias is not itself a registered id.
+ */
 const CLAUDE_MODEL_ALIASES: Record<string, string> = {
   sonnet: "claude-sonnet-4-6",
   opus: "claude-opus-4-8",
-  haiku: "claude-haiku-4-5-20251001",
+  haiku: "claude-haiku-4-5",
 };
 
 /**
- * Expand a short model alias to its canonical registry ID.
- * Only applies to the "claude" engine; other engines pass through unchanged.
+ * Resolve a requested model id, expanding a short alias only when needed.
+ *
+ * Registry-aware precedence (fixes the opus/haiku "unknown model" 400):
+ *  1. If the requested id is already a known registry id, return it unchanged —
+ *     never rewrite a valid id into a different one.
+ *  2. Otherwise, if it is a known claude alias whose expansion IS a registry id,
+ *     expand it.
+ *  3. Otherwise return it unchanged and let the caller's registry check reject it
+ *     with an accurate "unknown model" error.
+ *
+ * `knownModelIds` is the set of ids the resolved engine actually exposes. When it
+ * is omitted (engine not in the registry), claude aliases still expand by the bare
+ * map so behavior is unchanged for that path.
  */
-function resolveModelAlias(engine: string, model: string): string {
-  if (engine === "claude") {
-    return CLAUDE_MODEL_ALIASES[model.toLowerCase()] ?? model;
-  }
+function resolveModelAlias(engine: string, model: string, knownModelIds?: ReadonlySet<string>): string {
+  if (engine !== "claude") return model;
+  // (1) An id the registry already knows wins — aliases never override a real id.
+  if (knownModelIds?.has(model)) return model;
+  const expanded = CLAUDE_MODEL_ALIASES[model.toLowerCase()];
+  if (expanded === undefined) return model;
+  // (2) Only expand when the expansion is itself a registry id (or we have no
+  // registry to check against — preserve legacy behavior).
+  if (!knownModelIds || knownModelIds.has(expanded)) return expanded;
+  // (3) Expansion isn't registered either — keep the literal so the registry
+  // check reports the id the operator actually requested.
   return model;
 }
 
@@ -132,8 +159,9 @@ export function validateNewSessionSelection(
     if (typeof requestedModel !== "string" || !requestedModel.trim()) {
       return { ok: false, error: "model must be a non-empty string" };
     }
-    model = resolveModelAlias(engine, requestedModel.trim());
-    if (!entry.models.some((m) => m.id === model)) {
+    const knownModelIds = new Set(entry.models.map((m) => m.id));
+    model = resolveModelAlias(engine, requestedModel.trim(), knownModelIds);
+    if (!knownModelIds.has(model)) {
       if (engine === "pi") {
         // Pi models are discovered dynamically; tolerate an id the snapshot hasn't
         // caught yet (e.g. just after a restart, before discovery completes).
@@ -183,8 +211,9 @@ export function validateSessionPatch(
     if (typeof body.model !== "string" || !body.model.trim()) {
       return { ok: false, error: "model must be a non-empty string" };
     }
-    const modelId = resolveModelAlias(engine, body.model.trim());
-    if (entry && !entry.models.some((m) => m.id === modelId)) {
+    const knownModelIds = entry ? new Set(entry.models.map((m) => m.id)) : undefined;
+    const modelId = resolveModelAlias(engine, body.model.trim(), knownModelIds);
+    if (entry && !knownModelIds!.has(modelId)) {
       if (engine === "pi") {
         // Pi models are discovered dynamically; tolerate an id the snapshot hasn't
         // caught yet (e.g. just after a restart, before discovery completes).

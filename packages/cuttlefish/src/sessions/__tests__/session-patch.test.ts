@@ -36,7 +36,65 @@ function cfg(): CuttlefishConfig {
   } as unknown as CuttlefishConfig;
 }
 
+/**
+ * Registry that mirrors the SHIPPED `cuttlefish setup` template (cli/setup.ts):
+ * claude models are registered under the literal ids `opus` and `claude-haiku-4-5`
+ * (NOT the date-suffixed alias targets). This is the configuration most real
+ * deployments run, and the one that surfaced the opus/haiku "unknown model" 400.
+ */
+function shippedCfg(): CuttlefishConfig {
+  return {
+    gateway: { port: 8888, host: "127.0.0.1" },
+    engines: {
+      default: "claude",
+      claude: { bin: "claude", model: "opus" },
+      codex: { bin: "codex", model: "gpt-5.5" },
+    },
+    models: {
+      claude: {
+        default: "opus",
+        models: [
+          { id: "claude-fable-5", label: "Fable 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+          { id: "opus", label: "Opus 4.8", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+          { id: "claude-sonnet-4-6", label: "Sonnet 4.6", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+          { id: "claude-haiku-4-5", label: "Haiku 4.5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+        ],
+      },
+      codex: { default: "gpt-5.5", models: [{ id: "gpt-5.5", supportsEffort: true, effortLevels: ["low", "medium", "high", "xhigh"] }] },
+    },
+    connectors: {},
+  } as unknown as CuttlefishConfig;
+}
+
 beforeEach(() => invalidateModelRegistry());
+
+describe("model alias resolution against the shipped registry (opus/haiku 400 regression)", () => {
+  it("accepts model 'opus' when the registry registers it under the literal id 'opus'", () => {
+    const r = validateNewSessionSelection(shippedCfg(), { engine: "claude", model: "opus" });
+    // Must NOT be rewritten to claude-opus-4-8 (which is not a registered id here).
+    expect(r).toMatchObject({ ok: true, engine: "claude", model: "opus" });
+  });
+
+  it("expands model 'haiku' to the shipped registry id 'claude-haiku-4-5'", () => {
+    const r = validateNewSessionSelection(shippedCfg(), { engine: "claude", model: "haiku" });
+    expect(r).toMatchObject({ ok: true, model: "claude-haiku-4-5" });
+  });
+
+  it("accepts the registered id 'claude-haiku-4-5' directly", () => {
+    const r = validateNewSessionSelection(shippedCfg(), { engine: "claude", model: "claude-haiku-4-5" });
+    expect(r).toMatchObject({ ok: true, model: "claude-haiku-4-5" });
+  });
+
+  it("still expands 'opus' to claude-opus-4-8 when THAT is the registered id", () => {
+    const r = validateNewSessionSelection(cfg(), { engine: "claude", model: "opus" });
+    expect(r).toMatchObject({ ok: true, model: "claude-opus-4-8" });
+  });
+
+  it("patches model to 'opus' against the shipped registry without rewriting it", () => {
+    const r = validateSessionPatch(shippedCfg(), "claude", "claude-sonnet-4-6", { model: "opus" });
+    expect(r).toMatchObject({ ok: true, updates: { model: "opus" } });
+  });
+});
 
 describe("validateNewSessionSelection", () => {
   it("accepts a valid engine/model/effort selection", () => {
