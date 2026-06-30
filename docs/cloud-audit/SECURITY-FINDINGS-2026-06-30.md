@@ -40,7 +40,7 @@ HIGH findings marked as false positive or unverified are retained below for comp
 
 **Severity:** CRITICAL
 **File:** `packages/cuttlefish/src/gateway/auth.ts`
-**Line:** 503
+**Line:** 507
 **Category:** Authentication
 **Verification Status:** CONFIRMED (latent — handler is dead code, not wired to live router)
 
@@ -463,7 +463,7 @@ Apply `redactText` to user-supplied string values before logging, or avoid loggi
 
 **Severity:** MEDIUM
 **File:** `packages/cuttlefish/src/gateway/content-screening.ts`
-**Line:** 95
+**Line:** 99–107
 **Category:** Content Screening
 
 #### Description

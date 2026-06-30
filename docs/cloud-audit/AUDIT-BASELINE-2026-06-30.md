@@ -75,7 +75,7 @@ Severity definitions follow standard practice: **CRITICAL** = exploitable immedi
 ### CRITICAL
 
 #### SEC-CRIT-001: Raw Gateway Master Token Stored in Browser Cookie on `/api/auth/login`
-**File:** `packages/cuttlefish/src/gateway/auth.ts` **Line:** 503
+**File:** `packages/cuttlefish/src/gateway/auth.ts` **Line:** 507
 **Category:** Authentication
 
 The `handleAuthApiRequest` function — the handler for the `/api/auth/login` path — calls `authCookieHeader(expectedToken)` and sets the result as a `Set-Cookie` header. This embeds the raw gateway master bearer token directly into the browser's cookie jar. Any XSS, compromised cookie store, or network-level cookie interception yields the master credential in its raw form rather than a revocable session secret.
@@ -1183,7 +1183,7 @@ Ten findings were selected for adversarial verification by reading primary sourc
 
 | Finding | Verdict | Key Evidence |
 |---|---|---|
-| **SEC-CRIT-001**: Raw master token in login cookie | **CONFIRMED (dead code)** | `handleAuthApiRequest` at `auth.ts:503` sets `authCookieHeader(expectedToken)` directly. Function is exported but not wired into live dispatcher (`api.ts`). Appears only in test files. Pattern is dangerous and must be removed. |
+| **SEC-CRIT-001**: Raw master token in login cookie | **CONFIRMED (dead code)** | `handleAuthApiRequest` at `auth.ts:507` sets `authCookieHeader(expectedToken)` directly. Function is exported but not wired into live dispatcher (`api.ts`). Appears only in test files. Pattern is dangerous and must be removed. |
 | **SEC-HIGH-001**: Auth cookies missing `Secure` flag | **CONFIRMED** | All four cookie functions (`authCookieHeader`, `authDeviceCookieHeader`, `clearAuthCookieHeader`, `clearAuthDeviceCookieHeader`) verified missing `; Secure`. |
 | **SEC-HIGH-002**: Scoped tokens HMAC-signed with master token | **CONFIRMED** | 30-day TTL at line 18. Master token as HMAC key verified in `run-web-session.ts:153` and `sessions/manager.ts:286`. Full forgeability with master token confirmed. |
 | **SEC-HIGH-003**: Content screening fails open to heuristic | **CONFIRMED** | `reviewer ?? heuristic` at line 317. Four null-return paths verified. Full attack chain confirmed: example-context downgrade, `sanitize` mapping, minimal redaction. |
