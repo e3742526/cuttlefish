@@ -451,6 +451,14 @@ export function deleteSession(id: string): boolean {
     db.prepare('DELETE FROM messages WHERE session_id = ?').run(id);
     db.prepare('DELETE FROM queue_items WHERE session_id = ?').run(id);
     if (session.sessionKey) db.prepare('DELETE FROM queue_pauses WHERE session_key = ?').run(session.sessionKey);
+    // approvals are owned by the session (session_id NOT NULL) — delete them so a
+    // removed session leaves no dangling approval rows.
+    db.prepare('DELETE FROM approvals WHERE session_id = ?').run(id);
+    // Cached emails outlive the session that processed them: their session_id is a
+    // soft annotation. Unlink (set NULL) instead of deleting so the email record is
+    // preserved but no longer points at a removed session.
+    db.prepare('UPDATE email_messages SET session_id = NULL WHERE session_id = ?').run(id);
+    db.prepare('UPDATE email_ingest_state SET session_id = NULL WHERE session_id = ?').run(id);
     const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -472,6 +480,10 @@ export function deleteSessions(ids: string[]): number {
       db.prepare(`DELETE FROM queue_pauses WHERE session_key IN (${keyPlaceholders})`)
         .run(...sessionKeys.map((row) => row.sessionKey));
     }
+    // See deleteSession: owned approvals are deleted; soft email links are unlinked.
+    db.prepare(`DELETE FROM approvals WHERE session_id IN (${placeholders})`).run(...ids);
+    db.prepare(`UPDATE email_messages SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
+    db.prepare(`UPDATE email_ingest_state SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
     return db.prepare(`DELETE FROM sessions WHERE id IN (${placeholders})`).run(...ids).changes;
   });
   return txn();

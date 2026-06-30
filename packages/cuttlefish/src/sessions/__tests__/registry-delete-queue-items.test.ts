@@ -85,3 +85,62 @@ describe("deleteSession/deleteSessions queue_items cleanup", () => {
     expect(queueRowCount(session.id)).toBe(1);
   });
 });
+
+describe("deleteSession approvals + email cleanup (orphan regression)", () => {
+  function insertApproval(id: string, sessionId: string): void {
+    const db = reg.initDb();
+    db.prepare(
+      "INSERT INTO approvals (id, session_id, type, payload, state, created_at) VALUES (?, ?, 'checkpoint', '{}', 'pending', ?)",
+    ).run(id, sessionId, new Date().toISOString());
+  }
+  function approvalCount(sessionId: string): number {
+    const db = reg.initDb();
+    return (db.prepare("SELECT COUNT(*) c FROM approvals WHERE session_id = ?").get(sessionId) as { c: number }).c;
+  }
+  function insertEmail(id: string, sessionId: string): void {
+    const db = reg.initDb();
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO email_messages (id, inbox_id, provider_message_id, thread_key, to_addresses,
+        cc_addresses, text_body, headers_json, attachments_json, status, session_id, created_at, updated_at)
+       VALUES (?, 'inbox', ?, 'thread', '[]', '[]', 'body', '{}', '[]', 'processed', ?, ?, ?)`,
+    ).run(id, id, sessionId, now, now);
+  }
+  function emailRow(id: string): { exists: boolean; sessionId: string | null } {
+    const db = reg.initDb();
+    const row = db.prepare("SELECT session_id as s FROM email_messages WHERE id = ?").get(id) as { s: string | null } | undefined;
+    return { exists: Boolean(row), sessionId: row ? row.s : null };
+  }
+
+  it("deletes owned approvals so the session leaves no orphans", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:del-appr" });
+    insertApproval("appr-1", session.id);
+    expect(approvalCount(session.id)).toBe(1);
+
+    expect(reg.deleteSession(session.id)).toBe(true);
+    expect(approvalCount(session.id)).toBe(0);
+  });
+
+  it("unlinks (does not delete) cached emails when their session is deleted", () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:del-email" });
+    insertEmail("email-1", session.id);
+
+    expect(reg.deleteSession(session.id)).toBe(true);
+    const row = emailRow("email-1");
+    expect(row.exists).toBe(true);      // email record preserved
+    expect(row.sessionId).toBeNull();   // but unlinked from the removed session
+  });
+
+  it("deleteSessions also cleans approvals and unlinks emails for every id", () => {
+    const a = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:del-bulk-a" });
+    const b = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:del-bulk-b" });
+    insertApproval("appr-a", a.id);
+    insertApproval("appr-b", b.id);
+    insertEmail("email-a", a.id);
+
+    expect(reg.deleteSessions([a.id, b.id])).toBe(2);
+    expect(approvalCount(a.id)).toBe(0);
+    expect(approvalCount(b.id)).toBe(0);
+    expect(emailRow("email-a").sessionId).toBeNull();
+  });
+});
