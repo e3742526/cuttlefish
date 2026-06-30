@@ -147,7 +147,12 @@ function rowToContinuation(row: LiveRunContinuationRow, nowIso: string): LiveRun
     task,
     enqueuedAt: row.enqueued_at || nowIso,
     updatedAt: nowIso,
-    retryCount: 0,
+    // Preserve the accumulated retry count across recovery cycles. Resetting to 0
+    // let a fundamentally-broken continuation (dead worker, invalid payload) fail →
+    // be recovered → fail → be recovered forever, because the retry cap
+    // (claimNextLiveRunContinuation: retry_count >= maxRetryCount) only ever saw a
+    // freshly-zeroed count and never tripped.
+    retryCount: row.retry_count,
     lastDispatchedAt: undefined,
     allocationId: undefined,
     lastError: undefined,

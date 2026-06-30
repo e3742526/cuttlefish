@@ -107,7 +107,9 @@ describe("requeueRecoveredContinuation", () => {
     expect(result.paused).toBe(true);
     // continuation upserted in live state as queued
     const stored = store.getLiveContinuation("task-recovered", "coord-recovered");
-    expect(stored).toMatchObject({ taskId: "task-recovered", state: "queued", retryCount: 0 });
+    // retryCount is PRESERVED across recovery (inserted as 2), not reset to 0 —
+    // resetting let a broken continuation bypass the retry cap across recovery cycles.
+    expect(stored).toMatchObject({ taskId: "task-recovered", state: "queued", retryCount: 2 });
     // task pause set
     expect(store.listTaskPauses()).toMatchObject([{
       taskId: "task-recovered",
@@ -151,8 +153,9 @@ describe("requeueRecoveredContinuation", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // retryCount reset to 0, allocationId cleared
-    expect(result.continuation.retryCount).toBe(0);
+    // retryCount PRESERVED (inserted as 5) so the retry cap survives recovery;
+    // allocationId cleared and state reset to queued.
+    expect(result.continuation.retryCount).toBe(5);
     expect(result.continuation.allocationId).toBeUndefined();
     expect(result.continuation.state).toBe("queued");
     store.close();
