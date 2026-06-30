@@ -153,6 +153,29 @@ describe("validateConfigShape", () => {
     })).toEqual([]);
   });
 
+  it("accepts the features block and validates its shape (regression: F4)", () => {
+    // The `features` block gates mid_pair / multi-role employee execution and is read
+    // at runtime, but was missing from the top-level allow-list — so any PUT /api/config
+    // carrying it was rejected ("unknown config keys: features"), making the feature
+    // unreachable via the settings API.
+    expect(validateConfigShape({
+      engines: { claude: {} },
+      features: { multiRoleEmployeeExecution: true },
+    })).toEqual([]);
+    // unknown nested key is still rejected
+    const unknownNested = validateConfigShape({
+      engines: { claude: {} },
+      features: { multiRoleEmployeeExecution: true, bogus: 1 },
+    });
+    expect(unknownNested.join("\n")).toContain("features");
+    // non-boolean flag is rejected
+    const badType = validateConfigShape({
+      engines: { claude: {} },
+      features: { multiRoleEmployeeExecution: "yes" },
+    });
+    expect(badType.join("\n")).toContain("features.multiRoleEmployeeExecution");
+  });
+
   it("rejects null / empty files", () => {
     expect(validateConfigShape(null)).toHaveLength(1);
     expect(validateConfigShape(undefined)).toHaveLength(1);

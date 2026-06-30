@@ -74,6 +74,10 @@ export async function runWebSession(
     transportMeta: currentSession.transportMeta,
   }) ?? currentSession;
   config = context.getConfig();
+  // Role sessions (mid_pair reviewer / revision-implementer, executionDepth ≥ 1)
+  // are internal/silent — see the notifyParentSession suppression note below.
+  // Computed this early so it also covers the engine-unavailable early return.
+  const isRoleChildSession = isExecutionDepthBlocked(currentSession.transportMeta as Record<string, unknown> | undefined);
   const preferredPtyView = context.ptyViewEngines?.[session.engine] === engine;
   const runtimeEngine =
     (preferredPtyView ? context.ptyViewEngines?.[currentSession.engine] : undefined)
@@ -89,7 +93,7 @@ export async function runWebSession(
     });
     context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
     maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
-    if (erroredSession) notifyParentSession(erroredSession, { error: errMsg }, { sink: context.notificationSink });
+    if (erroredSession) notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: isRoleChildSession ? false : undefined, sink: context.notificationSink });
     return;
   }
   engine = runtimeEngine;
@@ -113,10 +117,19 @@ export async function runWebSession(
 
   // Recursion guard: child role sessions (executionDepth ≥ 1) must not expand
   // into fresh execution profiles. Log if triggered — indicates a dispatch bug.
-  if (isExecutionDepthBlocked(currentSession.transportMeta as Record<string, unknown> | undefined)) {
+  if (isRoleChildSession) {
     const role = (currentSession.transportMeta as Record<string, unknown>)?.["internalRole"] ?? "unknown";
     logger.warn(`[execution] Session ${currentSession.id} has executionDepth ≥ 1 (role: ${String(role)}) — execution profile expansion suppressed`);
   }
+  // Role sessions are internal/silent (see employee-execution.ts): when a reviewer
+  // or revision-implementer child completes, its parent must NOT receive a
+  // notifyParentSession callback — that callback dispatches a brand-new turn on
+  // the parent session (treating the child's report as an inbound chat message),
+  // which would race with the mid_pair orchestrator still driving that same
+  // parent session and double-run it. `employee` is intentionally unset on role
+  // sessions, so `employee?.alwaysNotify` is undefined (not false) and would
+  // otherwise pass the "notify" default — explicitly force it off here instead.
+  const parentNotifyAlwaysNotify = isRoleChildSession ? false : employee?.alwaysNotify;
 
   if (isKnownEngine(currentSession.engine) && !engineAvailable(config, currentSession.engine)) {
     const errMsg = engineUnavailableMessage(config, currentSession.engine);
@@ -130,7 +143,7 @@ export async function runWebSession(
     context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg });
     maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
     if (erroredSession) {
-      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
     }
     return;
   }
@@ -519,7 +532,7 @@ export async function runWebSession(
         });
         const labelled = `(recovered — this supersedes the earlier reported failure)\n\n${lateText}`;
         if (recovered) {
-          notifyParentSession(recovered, { result: labelled, error: null }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+          notifyParentSession(recovered, { result: labelled, error: null }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
           void deliverConnectorReply(recovered, labelled, context.connectors, { emit: context.emit }).catch((err) => {
             logger.warn(`Failed to deliver connector reply for session ${recovered.id}: ${err instanceof Error ? err.message : String(err)}`);
           });
@@ -572,7 +585,7 @@ export async function runWebSession(
       context.emit("session:completed", { sessionId: currentSession.id, result: null, error: errMsg, stalled: true });
       maybeEmitTalkGraph(currentSession.id, "completed", { getSession, emit: context.emit });
       if (stalledSession) {
-        notifyParentSession(stalledSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+        notifyParentSession(stalledSession, { error: errMsg }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
         void deliverConnectorReply(stalledSession, `⛔ ${errMsg}`, context.connectors, { emit: context.emit }).catch((err) => {
           logger.warn(`Failed to deliver connector reply for session ${stalledSession.id}: ${err instanceof Error ? err.message : String(err)}`);
         });
@@ -654,7 +667,7 @@ export async function runWebSession(
               lastError: fallbackResult.error ?? null,
             });
             if (completedFallback) {
-              notifyParentSession(completedFallback, { result: fallbackResult.result, error: fallbackResult.error ?? null, cost: fallbackResult.cost, durationMs: fallbackResult.durationMs }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+              notifyParentSession(completedFallback, { result: fallbackResult.result, error: fallbackResult.error ?? null, cost: fallbackResult.cost, durationMs: fallbackResult.durationMs }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
               if (fallbackResult.result) {
                 void deliverConnectorReply(completedFallback, fallbackResult.result, context.connectors, { emit: context.emit }).catch((err) => {
                   logger.warn(`Failed to deliver connector reply for session ${completedFallback.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -724,7 +737,7 @@ export async function runWebSession(
                 `✅ ${rateLimitSummary(sourceEngine)} cleared. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} resumed.`,
                 { sink: context.notificationSink },
               );
-              notifyParentSession(completedAfterRetry, { result: retryResult.result, error: retryResult.error ?? null, cost: retryResult.cost, durationMs: retryResult.durationMs }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+              notifyParentSession(completedAfterRetry, { result: retryResult.result, error: retryResult.error ?? null, cost: retryResult.cost, durationMs: retryResult.durationMs }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
               if (retryResult.result) {
                 void deliverConnectorReply(completedAfterRetry, retryResult.result, context.connectors, { emit: context.emit }).catch((err) => {
                   logger.warn(`Failed to deliver connector reply for session ${completedAfterRetry.id}: ${err instanceof Error ? err.message : String(err)}`);
@@ -756,7 +769,7 @@ export async function runWebSession(
               lastError: timeoutError,
             });
             if (erroredSession) {
-              notifyParentSession(erroredSession, { error: timeoutError }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+              notifyParentSession(erroredSession, { error: timeoutError }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
             }
             context.emit("session:completed", {
               sessionId: currentSession.id,
@@ -801,7 +814,7 @@ export async function runWebSession(
     clearSupersededTurnMeta(currentSession.id);
     const reportedError = quietPreempted ? null : (result.error ?? null);
     if (completedSession && !quietPreempted) {
-      notifyParentSession(completedSession, { result: result.result, error: reportedError, cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+      notifyParentSession(completedSession, { result: result.result, error: reportedError, cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
     }
 
     if (completedSession && !quietPreempted && result.result) {
@@ -849,7 +862,7 @@ export async function runWebSession(
       lastError: errMsg,
     });
     if (erroredSession) {
-      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: employee?.alwaysNotify, sink: context.notificationSink });
+      notifyParentSession(erroredSession, { error: errMsg }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
     }
     context.emit("session:completed", {
       sessionId: currentSession.id,

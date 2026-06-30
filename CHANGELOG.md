@@ -1,5 +1,84 @@
 # Changelog
 
+## [Unreleased]
+
+> Defect repairs surfaced by a workflow playtest of the org/HR/kanban/cron/dispatch
+> machinery (onboarding → multi-tier org → dispatch → escalation → team deletion).
+
+### Bug Fixes
+- **Creating an employee with a manager now works via the API and CLI.** `validateEmployeeCreate`
+  received the known-employee roster as a live `registry.keys()` iterator and consumed it in the
+  duplicate-name guard (`Array.from(existingNames)`) before the `reportsTo` check ran. The reportsTo
+  check then built `new Set()` from the now-exhausted iterator, so **every** `reportsTo` reference —
+  even to an employee that existed since boot — was rejected as `reportsTo references unknown
+  employee(s): …`. This silently broke building any org hierarchy through `POST /api/org/employees`
+  and `cuttlefish create`; only setup/hand-edited YAML could wire up managers. The iterable is now
+  materialized once into an array and reused by both checks (F1).
+- **The `features` config block can now be set via `PUT /api/config`.** `features` (which gates the
+  `mid_pair` / multi-role embedded-reviewer execution tier and is read at runtime via
+  `config.features.multiRoleEmployeeExecution`) was missing from the `validateConfigShape` top-level
+  allow-list, so any settings write carrying it was rejected with `unknown config keys: features`
+  (and the whole merged config was dropped, taking co-submitted valid keys with it). Added a
+  `validateFeatures` shape validator and the allow-list entry, making the feature reachable from the
+  settings API (F4).
+
+### Tests
+- Regression tests covering `validateEmployeeCreate` with an iterator-shaped roster (accept a valid
+  manager, still reject an unknown one) and `validateConfigShape` accepting/validating the `features`
+  block. Both fail against the pre-fix code.
+
+### Added
+- **The `mid_pair` (implementer → reviewer) execution loop is now implemented.** `employee-execution.ts`
+  defined the building blocks (verdict parsing, loss-policy resolution, prompt builders) but nothing
+  ever called them: the chat dispatch path only tagged a session's `transportMeta` as
+  `executionTier:"mid_pair"` and left it there forever (`executionPhase` never advanced past
+  `"implementing"`), and the kanban dispatch path didn't even do that — board-dispatched work for a
+  `mid_pair` employee ran solo regardless of tier (F5).
+  - New `gateway/mid-pair-orchestrator.ts` spawns a depth-1 reviewer child session after the
+    implementer's turn, parses its structured JSON verdict, loops revision passes up to
+    `maxInternalPasses`, and applies `reviewerLossPolicy` (block / degrade / replace-with-fallback)
+    when the reviewer is unavailable or its output is unparseable. Bounded by `maxChildSessions` and
+    `maxWallClockMs`.
+  - `dispatchEmployeeSessionRun` is a drop-in wrapper around `dispatchWebSessionRun`; both the chat
+    path (`api/routes/session-write.ts`, new top-level message) and the kanban path
+    (`ticket-dispatch.ts`) now call it, so the loop runs identically for both. Solo employees (or
+    `features.multiRoleEmployeeExecution` off) pass straight through with byte-for-byte unchanged
+    behavior.
+  - A reviewer `blocked` verdict re-syncs the kanban card to `blocked` (not a silent `done`) even
+    though the implementer's own turn technically succeeded — adversarial review failures are now
+    visible on the board, not swallowed.
+  - Role child sessions (reviewer / revision-implementer) are created without `employee` set, per
+    `employee-execution.ts`'s own contract that internal roles are "never org members" — this also
+    keeps `board-sync.ts` from ticketing them as phantom new work.
+- **Fixed a same-session double-dispatch this surfaced in `run-web-session.ts`.** Any child session
+  with a `parentSessionId` triggers `notifyParentSession` on completion, which dispatches a *new turn*
+  on the parent (treating the child's report as an inbound message) — correct for normal
+  parent/child delegation, but wrong for mid_pair's internal reviewer/revision children: it raced a
+  second, uncoordinated turn on the same top-level session concurrently with the orchestrator still
+  driving it. `runWebSession` now computes `isRoleChildSession` (reusing the existing
+  `executionDepth ≥ 1` recursion guard) and forces `alwaysNotify: false` for any role child at all
+  nine `notifyParentSession` call sites, so review/revision passes stay silent as designed. Found via
+  live end-to-end testing against a sandbox gateway (the unit-mocked orchestrator tests, which stub
+  `dispatchWebSessionRun` entirely, could not have caught this cross-module interaction).
+- **Known gap (documented, not fixed here):** follow-up messages on an existing session
+  (`POST /api/sessions/:id/message`), queue-replay after a gateway restart
+  (`resumePendingWebQueueItems` / `dispatchPendingQueueItem`), and notification dispatch
+  (`dispatchSessionNotification`) still call `dispatchWebSessionRun` directly and bypass mid_pair.
+  Only the two *new-dispatch* entry points (chat's first message, board dispatch) are wired through
+  the orchestrator.
+
+### Tests
+- `employee-execution.test.ts` (new): the first test coverage for `employee-execution.ts`'s pure
+  helpers (`shouldUseMidPairExecution`, `resolveEffectiveExecution`, `parseReviewResult`,
+  `applyReviewerLossPolicy`, prompt builders) — previously zero test files referenced this module.
+- `mid-pair-orchestrator.test.ts` (new): solo passthrough, implementer-failure, approve-first-pass,
+  changes-requested → revision → approve, max-passes-exhausted degrade, blocked verdict,
+  needs-human-review, child-session and wall-clock budget exhaustion, and reviewer-loss-policy
+  (block / degrade / replace-with-fallback / fallback-also-fails) scenarios.
+- Live end-to-end validation against a sandbox gateway (isolated `CUTTLEFISH_HOME`, deterministic
+  fake engine) covering: clean approve, changes_requested → revision → approve, and blocked-verdict
+  (confirming the kanban card flips to `blocked`) — for both the chat and board dispatch paths.
+
 ## [0.23.4] - 2026-06-30
 
 > Security and architecture defect-repair campaign following the pre-release cloud audit baseline.

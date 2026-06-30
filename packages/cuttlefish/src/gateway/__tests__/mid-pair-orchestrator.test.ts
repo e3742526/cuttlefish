@@ -1,0 +1,443 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { CuttlefishConfig, Employee, Engine } from "../../shared/types.js";
+
+vi.mock("../../shared/logger.js", () => ({
+  logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
+}));
+
+interface FakeSession {
+  id: string;
+  status: "idle" | "running" | "error" | "waiting" | "interrupted";
+  transportMeta: Record<string, unknown> | null;
+  employee?: string | null;
+  parentSessionId?: string | null;
+  source: string;
+  connector?: string | null;
+  title?: string | null;
+  lastError?: string | null;
+  [key: string]: unknown;
+}
+
+const hoisted = vi.hoisted(() => {
+  const sessionsById = new Map<string, FakeSession>();
+  const messagesById = new Map<string, Array<{ role: string; content: string; partial?: boolean }>>();
+  let nextId = 1;
+
+  /** Queue of scripted outcomes for each dispatchWebSessionRun call, consumed in call order. */
+  type ScriptEntry = { status: "idle" | "error" | "interrupted"; assistantText?: string };
+  const script: ScriptEntry[] = [];
+  const dispatchCalls: FakeSession[] = [];
+
+  const dispatchWebSessionRunMock = vi.fn(async (session: FakeSession) => {
+    dispatchCalls.push(session);
+    const entry = script.shift();
+    if (!entry) throw new Error(`unscripted dispatchWebSessionRun call for session ${session.id}`);
+    const current = sessionsById.get(session.id)!;
+    sessionsById.set(session.id, { ...current, status: entry.status });
+    if (entry.assistantText !== undefined) {
+      const msgs = messagesById.get(session.id) ?? [];
+      msgs.push({ role: "assistant", content: entry.assistantText });
+      messagesById.set(session.id, msgs);
+    }
+  });
+
+  const createSessionMock = vi.fn((opts: Record<string, unknown>) => {
+    const id = `child-${nextId++}`;
+    const session: FakeSession = {
+      id,
+      status: "idle",
+      transportMeta: (opts.transportMeta as Record<string, unknown>) ?? null,
+      employee: (opts.employee as string | undefined) ?? null,
+      parentSessionId: (opts.parentSessionId as string | undefined) ?? null,
+      source: opts.source as string,
+      connector: opts.connector as string | undefined,
+      title: opts.title as string | undefined,
+      lastError: null,
+      ...opts,
+    };
+    sessionsById.set(id, session);
+    messagesById.set(id, []);
+    return session;
+  });
+
+  const getSessionMock = vi.fn((id: string) => sessionsById.get(id));
+
+  const updateSessionMock = vi.fn((id: string, updates: Record<string, unknown>) => {
+    const current = sessionsById.get(id);
+    if (!current) return undefined;
+    const updated = { ...current, ...updates };
+    sessionsById.set(id, updated);
+    return updated;
+  });
+
+  const insertMessageMock = vi.fn((id: string, role: string, content: string) => {
+    const msgs = messagesById.get(id) ?? [];
+    msgs.push({ role, content });
+    messagesById.set(id, msgs);
+  });
+
+  const getMessagesMock = vi.fn((id: string) => messagesById.get(id) ?? []);
+
+  return {
+    sessionsById, messagesById, script, dispatchCalls,
+    dispatchWebSessionRunMock, createSessionMock, getSessionMock, updateSessionMock, insertMessageMock, getMessagesMock,
+    reset: () => {
+      sessionsById.clear();
+      messagesById.clear();
+      script.length = 0;
+      dispatchCalls.length = 0;
+      nextId = 1;
+    },
+    seedTopSession: (overrides: Partial<FakeSession> = {}): FakeSession => {
+      const id = `top-${nextId++}`;
+      const session: FakeSession = {
+        id,
+        status: "idle",
+        transportMeta: null,
+        employee: "backend-dev",
+        parentSessionId: null,
+        source: "web",
+        connector: "web",
+        title: "Top-level task",
+        lastError: null,
+        ...overrides,
+      };
+      sessionsById.set(id, session);
+      messagesById.set(id, []);
+      return session;
+    },
+  };
+});
+
+vi.mock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun: hoisted.dispatchWebSessionRunMock }));
+vi.mock("../../sessions/registry.js", () => ({
+  createSession: hoisted.createSessionMock,
+  getSession: hoisted.getSessionMock,
+  updateSession: hoisted.updateSessionMock,
+  insertMessage: hoisted.insertMessageMock,
+  getMessages: hoisted.getMessagesMock,
+}));
+
+const { dispatchEmployeeSessionRun } = await import("../mid-pair-orchestrator.js");
+
+function baseConfig(overrides: Partial<CuttlefishConfig> = {}): CuttlefishConfig {
+  return {
+    gateway: { port: 8888, host: "127.0.0.1" },
+    engines: { default: "claude", claude: { bin: "claude", model: "sonnet" }, codex: { bin: "codex", model: "gpt-5.5" } },
+    connectors: {},
+    logging: { file: true, stdout: true, level: "info" },
+    features: { multiRoleEmployeeExecution: true },
+    ...overrides,
+  } as CuttlefishConfig;
+}
+
+function midPairEmployee(overrides: Partial<Employee> = {}): Employee {
+  return {
+    name: "backend-dev",
+    displayName: "Backend Dev",
+    department: "engineering",
+    rank: "employee",
+    engine: "claude",
+    model: "sonnet",
+    persona: "implement services",
+    execution: { tier: "mid_pair" },
+    ...overrides,
+  };
+}
+
+function fakeEngine(): Engine {
+  return { name: "claude" } as Engine;
+}
+
+function makeContext(emitted: Array<{ event: string; payload: unknown }>, engines: Record<string, Engine | undefined> = { claude: fakeEngine(), codex: fakeEngine() }) {
+  return {
+    getConfig: () => baseConfig(),
+    emit: (event: string, payload: unknown) => emitted.push({ event, payload }),
+    sessionManager: {
+      getEngine: (name: string) => engines[name],
+    },
+  } as unknown as import("../api/context.js").ApiContext;
+}
+
+const approvedVerdict = JSON.stringify({ verdict: "approved", summary: "ok", requiredChanges: [], riskAreas: [], confidence: "high" });
+const changesRequestedVerdict = JSON.stringify({ verdict: "changes_requested", summary: "needs work", requiredChanges: ["fix x"], riskAreas: [], confidence: "medium" });
+const blockedVerdict = JSON.stringify({ verdict: "blocked", summary: "do not ship", requiredChanges: [], riskAreas: ["security"], confidence: "high" });
+const needsHumanVerdict = JSON.stringify({ verdict: "needs_human_review", summary: "unsure", requiredChanges: [], riskAreas: [], confidence: "low" });
+
+beforeEach(() => {
+  hoisted.reset();
+  hoisted.dispatchWebSessionRunMock.mockClear();
+  hoisted.createSessionMock.mockClear();
+});
+
+describe("dispatchEmployeeSessionRun — solo passthrough", () => {
+  it("calls dispatchWebSessionRun directly and spawns nothing when the employee is solo", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "done" });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "do the task", fakeEngine(), baseConfig(), context, midPairEmployee({ execution: { tier: "solo" } }));
+
+    expect(hoisted.dispatchWebSessionRunMock).toHaveBeenCalledTimes(1);
+    expect(hoisted.createSessionMock).not.toHaveBeenCalled();
+    expect(hoisted.sessionsById.get(top.id)?.transportMeta).toBeNull(); // never tagged
+  });
+
+  it("passes through when the feature flag is off even for a mid_pair employee", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "done" });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = { ...makeContext(emitted), getConfig: () => baseConfig({ features: { multiRoleEmployeeExecution: false } }) } as any;
+
+    await dispatchEmployeeSessionRun(top as any, "do the task", fakeEngine(), baseConfig({ features: { multiRoleEmployeeExecution: false } }), context, midPairEmployee());
+
+    expect(hoisted.dispatchWebSessionRunMock).toHaveBeenCalledTimes(1);
+    expect(hoisted.createSessionMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("dispatchEmployeeSessionRun — implementer turn fails", () => {
+  it("marks executionPhase failed and never spawns a reviewer", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "error" });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "do the task", fakeEngine(), baseConfig(), context, midPairEmployee());
+
+    expect(hoisted.createSessionMock).not.toHaveBeenCalled(); // no reviewer spawned
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("failed");
+    expect(emitted.some((e) => e.event === "session:completed" && (e.payload as any).error)).toBe(true);
+  });
+});
+
+describe("dispatchEmployeeSessionRun — review loop", () => {
+  it("approves on the first pass: one reviewer child session, phase done, board re-sync with no error", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "implemented the feature" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "add healthz endpoint", fakeEngine(), baseConfig(), context, midPairEmployee());
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1); // exactly one reviewer
+    const reviewerOpts = hoisted.createSessionMock.mock.calls[0][0];
+    expect(reviewerOpts.employee).toBeUndefined(); // role sessions are never org members
+    expect(reviewerOpts.parentSessionId).toBe(top.id);
+    expect((reviewerOpts.transportMeta as any).internalRole).toBe("reviewer");
+    expect((reviewerOpts.transportMeta as any).executionDepth).toBe(1);
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+    expect((final.transportMeta as any).executionChildCount).toBe(1);
+
+    const completed = emitted.filter((e) => e.event === "session:completed");
+    expect(completed.length).toBeGreaterThanOrEqual(1);
+    expect(completed[completed.length - 1].payload).toMatchObject({ sessionId: top.id, error: null });
+  });
+
+  it("loops a revision pass on changes_requested, then approves — two children spawned beyond the implementer", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1
+    hoisted.script.push({ status: "idle", assistantText: "v2 (revised)" }); // revision implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer pass 2
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "add healthz endpoint", fakeEngine(), baseConfig(), context, midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 2 } }));
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(3); // reviewer, revision-implementer, reviewer
+    const roles = hoisted.createSessionMock.mock.calls.map((c) => (c[0].transportMeta as any).internalRole);
+    expect(roles).toEqual(["reviewer", "implementer", "reviewer"]);
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+    expect((final.transportMeta as any).executionPass).toBe(2);
+    expect((final.transportMeta as any).executionChildCount).toBe(3);
+  });
+
+  it("degrades when changes_requested but maxInternalPasses is exhausted (default 1) — no revision spawned", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" });
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee()); // default maxInternalPasses=1
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1); // reviewer only, no revision
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    expect((final.transportMeta as any).executionDegraded).toBe(true);
+    expect((final.transportMeta as any).executionDegradedReason).toMatch(/max internal passes exhausted/);
+  });
+
+  it("blocks on a 'blocked' verdict: phase failed, lastError set, board re-sync carries an error", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" });
+    hoisted.script.push({ status: "idle", assistantText: blockedVerdict });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee());
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("failed");
+    expect(final.lastError).toMatch(/Review blocked/);
+    const completed = emitted.filter((e) => e.event === "session:completed");
+    expect(completed[completed.length - 1].payload).toMatchObject({ sessionId: top.id });
+    expect((completed[completed.length - 1].payload as any).error).toBeTruthy();
+  });
+
+  it("treats 'needs_human_review' as a failed/degraded terminal phase, not a silent success", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" });
+    hoisted.script.push({ status: "idle", assistantText: needsHumanVerdict });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee());
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("failed");
+    expect((final.transportMeta as any).executionDegraded).toBe(true);
+  });
+
+  it("caps revision loops at maxChildSessions, degrading before spawning past the budget", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1 (childCount -> 1)
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 5, maxChildSessions: 1 } }));
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1); // only the reviewer; no revision spawned
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    expect((final.transportMeta as any).executionDegradedReason).toMatch(/child-session budget/);
+  });
+
+  it("respects the wall-clock budget across passes", async () => {
+    const top = hoisted.seedTopSession();
+    const realNow = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => realNow);
+    try {
+      const applyOutcome = (session: FakeSession, text: string) => {
+        const current = hoisted.sessionsById.get(session.id)!;
+        hoisted.sessionsById.set(session.id, { ...current, status: "idle" });
+        hoisted.messagesById.set(session.id, [{ role: "assistant", content: text }]);
+      };
+      // Call order: implementer -> reviewer pass 1 (changes_requested) -> revision pass 1.
+      // Advance the clock as a side effect of the revision call, which lands AFTER
+      // runReviewLoop's deadline is computed and BEFORE pass 2's loop-top check —
+      // so pass 2 must never spawn a second reviewer.
+      hoisted.dispatchWebSessionRunMock
+        .mockImplementationOnce(async (session: FakeSession) => applyOutcome(session, "v1"))
+        .mockImplementationOnce(async (session: FakeSession) => applyOutcome(session, changesRequestedVerdict))
+        .mockImplementationOnce(async (session: FakeSession) => {
+          applyOutcome(session, "v2 (revised)");
+          nowSpy.mockImplementation(() => realNow + 10_000);
+        });
+      const emitted: Array<{ event: string; payload: unknown }> = [];
+      const context = makeContext(emitted);
+
+      await dispatchEmployeeSessionRun(
+        top as any, "task", fakeEngine(), baseConfig(), context,
+        midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 5, maxWallClockMs: 1000 } }),
+      );
+
+      expect(hoisted.createSessionMock).toHaveBeenCalledTimes(2); // reviewer pass 1 + revision pass 1 — pass 2 never starts
+      const final = hoisted.sessionsById.get(top.id)!;
+      expect((final.transportMeta as any).executionPhase).toBe("degraded");
+      expect((final.transportMeta as any).executionDegradedReason).toMatch(/wall-clock/);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+});
+
+describe("dispatchEmployeeSessionRun — reviewer loss policy", () => {
+  it("blocks when the reviewer engine is unavailable and the policy is 'block'", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() }); // reviewer engine missing
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({ execution: { tier: "mid_pair", reviewerLossPolicy: "block" } }),
+    );
+
+    expect(hoisted.createSessionMock).not.toHaveBeenCalled(); // engine check fails before spawning
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("failed");
+    expect(final.lastError).toMatch(/Reviewer unavailable/);
+  });
+
+  it("degrades to the implementer's output when the reviewer is unavailable and the policy is 'degrade'", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({ execution: { tier: "mid_pair", reviewerLossPolicy: "degrade" } }),
+    );
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    expect((final.transportMeta as any).executionDegraded).toBe(true);
+  });
+
+  it("replaces with the configured fallback engine when the primary reviewer is unavailable", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // fallback reviewer succeeds
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() }); // primary (claude) missing, fallback (codex) present
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          roles: { reviewer: { fallbackChain: [{ engine: "codex", model: "gpt-5.5" }] } },
+        },
+      }),
+    );
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1); // only the fallback reviewer spawned (primary engine never resolved)
+    expect(hoisted.createSessionMock.mock.calls[0][0].engine).toBe("codex");
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+  });
+
+  it("falls through to a final block/degrade resolution when the fallback also fails", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "error" }); // fallback reviewer also errors
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          roles: { reviewer: { fallbackChain: [{ engine: "codex", model: "gpt-5.5" }] } },
+        },
+      }),
+    );
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded"); // replace_then_degrade with no further fallback -> degrade
+  });
+});

@@ -8,7 +8,7 @@ import {
   appendOrchestrationTelemetry,
   type OrchestrationRunTelemetryRecord,
 } from "../orchestration/telemetry.js";
-import { dispatchWebSessionRun } from "./api/session-dispatch.js";
+import { dispatchEmployeeSessionRun } from "./mid-pair-orchestrator.js";
 import { findEmployee, scanOrg } from "./org.js";
 import { readBoardArray, writeBoardTickets, type BoardTicket } from "./board-service.js";
 import type { ApiContext } from "./api/context.js";
@@ -405,12 +405,13 @@ export async function dispatchTicket(
         completion = payload;
       })
       : deps.context;
-    const run = dispatchWebSessionRun(
+    const run = dispatchEmployeeSessionRun(
       runningSession,
       prompt,
       engine,
       deps.context.getConfig(),
       telemetryContext,
+      employee,
       {
         attachments: resolvedResources.engineAttachments,
         resourceContext: resolvedResources.promptBlock,

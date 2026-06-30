@@ -228,6 +228,34 @@ ${implementerSummary.slice(0, 4000)}
 Please review the above and return your structured JSON verdict.`;
 }
 
+/** Prompt for a revision pass: the original task plus the reviewer's requested changes. */
+export function buildRevisionPrompt(
+  task: string,
+  priorSummary: string,
+  review: ReviewResult,
+): string {
+  const changes = review.requiredChanges.length > 0
+    ? review.requiredChanges.map((c) => `- ${c}`).join("\n")
+    : "(no specific changes listed — address the summary below)";
+  return `## Revision Request
+
+A reviewer evaluated your previous work on this task and requested changes.
+
+**Original task:**
+${task}
+
+**Your previous output summary:**
+${priorSummary.slice(0, 4000)}
+
+**Reviewer summary:**
+${review.summary || "(no summary provided)"}
+
+**Requested changes:**
+${changes}
+
+Please revise your work to address the requested changes, then report the result.`;
+}
+
 // ---------------------------------------------------------------------------
 // Reviewer loss policy handling
 // ---------------------------------------------------------------------------

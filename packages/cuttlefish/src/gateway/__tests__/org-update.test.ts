@@ -762,6 +762,42 @@ describe("validateEmployeeUpdate", () => {
     expect(data.execution).toMatchObject({ tier: "mid_pair", reviewerToolProfile: "read_only" });
   });
 
+  it("accepts reportsTo to an existing employee when known names are a one-shot iterator (regression: F1)", () => {
+    // Production passes `registry.keys()` — a single-use Map iterator. The
+    // duplicate-name guard used to consume it via Array.from() before the reportsTo
+    // check ran, leaving that check an empty set, so every valid manager reference
+    // was rejected as "unknown employee". Passing an iterator here locks the contract.
+    const knownNames = new Map([["eng-lead", 1], ["frontend-dev", 1]]).keys();
+    const result = validateEmployeeCreate(testConfig, {
+      name: "backend-dev",
+      displayName: "Backend Dev",
+      department: "engineering",
+      rank: "employee",
+      engine: "claude",
+      model: "sonnet",
+      persona: "Implement services.",
+      reportsTo: "eng-lead",
+    }, knownNames);
+    expect(result.ok).toBe(true);
+    expect(result.employee?.reportsTo).toBe("eng-lead");
+  });
+
+  it("still rejects reportsTo to a non-existent employee with an iterator roster (regression: F1)", () => {
+    const knownNames = new Map([["eng-lead", 1]]).keys();
+    const result = validateEmployeeCreate(testConfig, {
+      name: "ghost",
+      displayName: "Ghost",
+      department: "engineering",
+      rank: "employee",
+      engine: "claude",
+      model: "sonnet",
+      persona: "Report to nobody real.",
+      reportsTo: "does-not-exist",
+    }, knownNames);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("unknown employee");
+  });
+
   it("replaces the execution block wholesale on mid_pair → solo downgrade (regression)", () => {
     // Existing YAML carries a full mid_pair reviewer config.
     const existing = {

@@ -51,7 +51,7 @@ import {
 import { HR_EMPLOYEE_NAME, HR_SESSION_KEY } from "../../org-policy.js";
 import { getReusableHrSession } from "../../hr-session.js";
 import { acknowledgeLeaderAck } from "../../../sessions/leader-ack.js";
-import { shouldUseMidPairExecution, generateEmployeeRunId } from "../../employee-execution.js";
+import { dispatchEmployeeSessionRun } from "../../mid-pair-orchestrator.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -517,26 +517,14 @@ export async function handleSessionWriteRoutes(
     }
     session = attached.session;
 
-    // Inject executionRunId into transport meta when mid_pair is applicable.
-    // The recursion guard (executionDepth check) prevents role child sessions
-    // from expanding further — enforced at run time in run-web-session.ts.
+    // Resolve the dispatching employee so dispatchEmployeeSessionRun can decide
+    // whether mid_pair applies. Only top-level (non-child) sessions are eligible —
+    // the recursion guard (executionDepth check) additionally prevents role child
+    // sessions from expanding further, enforced at run time in run-web-session.ts.
+    let execEmp: import("../../../shared/types.js").Employee | undefined;
     if (employeeName && !session.parentSessionId) {
       const { scanOrg: scanOrgForExec } = await import("../../org.js");
-      const execEmp = scanOrgForExec().get(employeeName);
-      const sessionMeta = session.transportMeta as Record<string, unknown> | undefined;
-      if (execEmp && shouldUseMidPairExecution(config, execEmp, sessionMeta ?? null)) {
-        const employeeRunId = generateEmployeeRunId();
-        const updatedWithRunId = updateSession(session.id, {
-          transportMeta: {
-            ...session.transportMeta as Record<string, unknown>,
-            employeeRunId,
-            executionTier: "mid_pair",
-            executionPhase: "implementing",
-            executionDepth: 0,
-          } as any,
-        });
-        if (updatedWithRunId) session = updatedWithRunId;
-      }
+      execEmp = scanOrgForExec().get(employeeName);
     }
 
     insertMessage(session.id, "user", prompt, newSessionMedia.length > 0 ? newSessionMedia : undefined);
@@ -575,7 +563,7 @@ export async function handleSessionWriteRoutes(
     if (hasPendingQueueItemBefore(queueSessionKey, queueItemId)) {
       dispatchPendingWebQueueHeadForSessionKey(context, queueSessionKey);
     } else if (!attached.blocked) {
-      dispatchWebSessionRun(session, prompt, engine, config, context, {
+      dispatchEmployeeSessionRun(session, prompt, engine, config, context, execEmp, {
         queueItemId,
         attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
         resourceContext: attached.promptBlock,
