@@ -103,6 +103,10 @@ owning model reasoning.
 - Add artifact workflows through `api/routes/artifacts.ts` while keeping file
   persistence semantics in `sessions/registry/files.ts`.
 - Add skills through the `cuttlefish skills` CLI and instance `skills.json`.
+- Keep downstream program vocabulary, policy examples, and release semantics out
+  of tracked generic source, templates, and operator docs; program-specific
+  specialization belongs in external policy packs or historical/local planning
+  records.
 
 ## Known Architecture Risks
 
