@@ -12,7 +12,7 @@ import { buildKnowledgeReadProvider } from "../knowledge/read/index.js";
 import { buildKnowledgeSink } from "../knowledge/sinks/index.js";
 import { knowledgeRelayOptions, relayPendingKnowledgeOutbox } from "../knowledge/outbox-service.js";
 import { invalidateModelRegistry, refreshAiderModels, refreshGrokModels, refreshHermesModels, refreshPiModels } from "../shared/models.js";
-import { CLAUDE_SETTINGS_DIR, GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, CUTTLEFISH_HOME, ORG_DIR } from "../shared/paths.js";
+import { CLAUDE_SETTINGS_DIR, GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, CUTTLEFISH_HOME, ORCH_DB, ORG_DIR } from "../shared/paths.js";
 import { CodexEngine } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
 import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";

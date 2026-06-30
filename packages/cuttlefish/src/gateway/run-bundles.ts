@@ -10,11 +10,11 @@ import {
   type SessionMessage,
 } from "../sessions/registry.js";
 import { LOGS_DIR, RUN_BUNDLES_DIR } from "../shared/paths.js";
-import { gateExternalEmit } from "../policy/export-gate.js";
 import type { Approval, RunAttachment, Session } from "../shared/types.js";
 import type { ApiContext } from "./api/context.js";
 import { enrichRunAttachmentsForSession } from "./run-attachments.js";
 import { serializeSession } from "./api/serialize-session.js";
+import { gateExternalEmit } from "../policy/export-gate.js";
 
 interface BundleManifestFile {
   path: string;
@@ -276,6 +276,7 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
   }
 
   fs.mkdirSync(bundlePath, { recursive: true });
+
 
   const manifestFiles: BundleManifestFile[] = [];
   const { copied, skipped } = copyArtifacts(bundlePath, producedArtifacts, attachments, manifestFiles);

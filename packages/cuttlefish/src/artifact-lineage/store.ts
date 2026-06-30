@@ -171,15 +171,23 @@ export class ArtifactLineageStore {
     if (!fromArtifact) throw new Error(`lineage: from_artifact_id ${input.fromArtifactId} does not exist`);
     const toArtifact = this.getArtifact(input.toArtifactId);
     if (!toArtifact) throw new Error(`lineage: to_artifact_id ${input.toArtifactId} does not exist`);
-    if (this.hasCycle(input.fromArtifactId, input.toArtifactId)) {
-      throw new Error(`lineage: adding edge from ${input.fromArtifactId} to ${input.toArtifactId} would create a cycle`);
-    }
+
     const edgeId = uuidv4();
     const createdAt = input.createdAt ?? new Date().toISOString();
-    this.db.prepare(`
-      INSERT INTO lineage_edges (edge_id, from_artifact_id, to_artifact_id, relation_type, run_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(edgeId, input.fromArtifactId, input.toArtifactId, input.relationType, input.runId ?? null, createdAt);
+
+    // Wrap cycle-check DFS and INSERT in a single BEGIN IMMEDIATE transaction
+    // so concurrent writers cannot slip an edge in between the check and the write.
+    const addEdge = this.db.transaction(() => {
+      if (this.hasCycle(input.fromArtifactId, input.toArtifactId)) {
+        throw new Error(`lineage: adding edge from ${input.fromArtifactId} to ${input.toArtifactId} would create a cycle`);
+      }
+      this.db.prepare(`
+        INSERT INTO lineage_edges (edge_id, from_artifact_id, to_artifact_id, relation_type, run_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(edgeId, input.fromArtifactId, input.toArtifactId, input.relationType, input.runId ?? null, createdAt);
+    });
+    addEdge.immediate();
+
     return lineageEdgeSchema.parse({
       edgeId,
       fromArtifactId: input.fromArtifactId,

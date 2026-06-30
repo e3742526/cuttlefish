@@ -210,28 +210,32 @@ export function validateGatewayExposure(config: Pick<CuttlefishConfig, "gateway"
   return { ok: true };
 }
 
-export function authCookieHeader(token: string): string {
-  return `${AUTH_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
+export function authCookieHeader(token: string, secure = true): string {
+  const secureAttr = secure ? "; Secure" : "";
+  return `${AUTH_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secureAttr}`;
 }
 
-export function authDeviceCookieHeader(deviceId: string): string {
-  return `${AUTH_DEVICE_COOKIE}=${encodeURIComponent(deviceId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`;
+export function authDeviceCookieHeader(deviceId: string, secure = true): string {
+  const secureAttr = secure ? "; Secure" : "";
+  return `${AUTH_DEVICE_COOKIE}=${encodeURIComponent(deviceId)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000${secureAttr}`;
 }
 
-export function authCookieHeaders(secret: string, deviceId: string): string[] {
-  return [authCookieHeader(secret), authDeviceCookieHeader(deviceId)];
+export function authCookieHeaders(secret: string, deviceId: string, secure = true): string[] {
+  return [authCookieHeader(secret, secure), authDeviceCookieHeader(deviceId, secure)];
 }
 
-export function clearAuthCookieHeader(): string {
-  return `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export function clearAuthCookieHeader(secure = true): string {
+  const secureAttr = secure ? "; Secure" : "";
+  return `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}`;
 }
 
-export function clearAuthDeviceCookieHeader(): string {
-  return `${AUTH_DEVICE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+export function clearAuthDeviceCookieHeader(secure = true): string {
+  const secureAttr = secure ? "; Secure" : "";
+  return `${AUTH_DEVICE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureAttr}`;
 }
 
-export function clearAuthCookieHeaders(): string[] {
-  return [clearAuthCookieHeader(), clearAuthDeviceCookieHeader()];
+export function clearAuthCookieHeaders(secure = true): string[] {
+  return [clearAuthCookieHeader(secure), clearAuthDeviceCookieHeader(secure)];
 }
 
 export function createAuthState(
@@ -469,51 +473,4 @@ export function isAuthenticatedRequest(
   const parsed = parseCookieHeader(cookie);
   if (parsed[AUTH_COOKIE] && safeEqual(parsed[AUTH_COOKIE], expectedToken)) return true;
   return false;
-}
-
-// ── Auth API request handler ──────────────────────────────────────────────────
-
-import type { ServerResponse } from "node:http";
-
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk: string) => { body += chunk; });
-    req.on("end", () => {
-      try { resolve(JSON.parse(body)); } catch { resolve({}); }
-    });
-    req.on("error", reject);
-  });
-}
-
-function jsonResponse(res: ServerResponse, status: number, body: unknown, extraHeaders?: Record<string, string>): void {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json", ...extraHeaders });
-  res.end(payload);
-}
-
-export async function handleAuthApiRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  pathname: string,
-  method: string,
-  expectedToken: string | undefined,
-): Promise<boolean> {
-  if (pathname === "/api/auth/login" && method === "POST") {
-    const body = await readJsonBody(req) as Record<string, unknown>;
-    if (typeof body.token === "string" && expectedToken && safeEqual(body.token, expectedToken)) {
-      jsonResponse(res, 200, { ok: true }, {
-        "Set-Cookie": authCookieHeader(expectedToken),
-      });
-    } else {
-      jsonResponse(res, 401, { error: "Invalid token" });
-    }
-    return true;
-  }
-  return false;
-}
-
-export function unauthorized(res: ServerResponse): void {
-  jsonResponse(res, 401, { error: "Authentication required" });
 }

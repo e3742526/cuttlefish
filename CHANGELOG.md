@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.23.4] - 2026-06-30
+
+> Security and architecture defect-repair campaign following the pre-release cloud audit baseline.
+
+### Security
+- **Removed dangerous dead code path.** `handleAuthApiRequest` in `gateway/auth.ts` would have embedded the raw gateway master token directly in browser cookies on the `/api/auth/login` path. The function was unreachable at runtime (the live dispatcher uses `handleAuthRoutes`), but the code was removed to eliminate the hazard entirely (SEC-CRIT-001).
+- **Auth cookies now carry the `Secure` flag on non-loopback connections.** All cookie-setting helpers accept a `secure` parameter (default `true`). Route handlers compute `secure = !isLoopbackHost(req.headers.host)` and pass it through, so cookies set over network connections are always marked `Secure` (SEC-HIGH-001).
+- **Artifact-lineage cycle check is now atomic.** The cycle-detection query and the subsequent edge INSERT are wrapped in a `BEGIN IMMEDIATE` transaction, closing the TOCTOU window where concurrent writers could create cycles between the two operations (SEC-HIGH-004 / ARCH-HIGH-004).
+
+### Architecture
+- **Policy cache now has a 60-second TTL.** `getPolicyProfile()` previously cached forever; operators who tightened policy by editing a `.json` file would see no effect until the process restarted. The cache now expires after 60 seconds (`POLICY_CACHE_TTL_MS`) (ARCH-HIGH-001).
+- **Startup orphan-sweep no longer kills live orchestration runs.** `recoverOrphanedRunsAtStartup` was called with an empty `liveAllocationIds` set, causing every in-progress orchestration run to be marked `interrupted` on every boot. A new `getLiveOrchestrationSourceRefs()` helper reads the persisted `OrchestrationStore` directly (the runtime is not yet live at startup) and passes the correct set (ARCH-HIGH-002).
+- **`getArtifactLineage()` is guarded against re-entrant initialization.** An `initializing` flag prevents double-init if the singleton factory is called concurrently during module loading (ARCH-MED-002).
+
+### Bug Fixes
+- **Artifact-lineage cycle detection now works correctly.** `hasCycle()` was traversing edges backwards (finding predecessors), so it never detected cycles. The DFS now follows edges forward (`from_artifact_id` → `to_artifact_id`), correctly identifying that a proposed edge would close a cycle.
+
+### Tests
+- Added dedicated test suites for the policy subsystem (`policy/__tests__/evaluator.test.ts`, `policy/__tests__/export-gate.test.ts`) and the orchestration run-ledger integration bridge (`orchestration/__tests__/run-ledger-integration.test.ts`), bringing previously zero-coverage modules under test.
+- All 1853 tests now pass (0 failing, 1 skipped); previously 3 tests were failing.
+
 ## [0.23.3] - 2026-06-25
 
 ### 🐛 Fixes

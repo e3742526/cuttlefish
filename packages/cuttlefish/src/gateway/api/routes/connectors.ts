@@ -20,6 +20,12 @@ export async function handleConnectorRoutes(
 ): Promise<boolean> {
   let params = matchRoute("/api/connectors/:id/proxy", pathname);
   if (method === "POST" && params && params.id) {
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    const proxyAuth = authorizeConnectorSend(principal, params.id);
+    if (!proxyAuth.allowed) {
+      json(res, { error: proxyAuth.reason }, 403);
+      return true;
+    }
     const connector = context.connectors.get(params.id);
     if (!connector) {
       notFound(res);

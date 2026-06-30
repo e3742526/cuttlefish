@@ -49,7 +49,8 @@ export async function handleAuthRoutes(
       return true;
     }
     const session = createAuthSession(cuttlefishHome, req, { kind: "local" });
-    res.setHeader("Set-Cookie", authCookieHeaders(session.secret, session.device.id));
+    const secureBootstrap = !isLoopbackHost(Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host);
+    res.setHeader("Set-Cookie", authCookieHeaders(session.secret, session.device.id, secureBootstrap));
     json(res, { status: "ok", authRequired: true, device: { ...session.device, current: true } });
     return true;
   }
@@ -96,7 +97,8 @@ export async function handleAuthRoutes(
       return true;
     }
     const session = createAuthSession(cuttlefishHome, req, { kind: pairedWithToken ? "token" : "remote" });
-    res.setHeader("Set-Cookie", authCookieHeaders(session.secret, session.device.id));
+    const securePair = !isLoopbackHost(Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host);
+    res.setHeader("Set-Cookie", authCookieHeaders(session.secret, session.device.id, securePair));
     json(res, { status: "ok", authRequired: true, device: { ...session.device, current: true } });
     return true;
   }
@@ -137,7 +139,10 @@ export async function handleAuthRoutes(
       return true;
     }
     const current = Boolean(currentDevice && currentDevice === deviceId);
-    if (current) res.setHeader("Set-Cookie", clearAuthCookieHeaders());
+    if (current) {
+      const secureRevoke = !isLoopbackHost(Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host);
+      res.setHeader("Set-Cookie", clearAuthCookieHeaders(secureRevoke));
+    }
     json(res, { status: "ok", current });
     return true;
   }
@@ -147,7 +152,8 @@ export async function handleAuthRoutes(
     if (!parsed.ok) return true;
     const currentDevice = currentAuthDeviceId(req.headers);
     if (currentDevice) revokeAuthSession(cuttlefishHome, currentDevice);
-    res.setHeader("Set-Cookie", clearAuthCookieHeaders());
+    const secureLogout = !isLoopbackHost(Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host);
+    res.setHeader("Set-Cookie", clearAuthCookieHeaders(secureLogout));
     json(res, { status: "ok" });
     return true;
   }

@@ -47,17 +47,37 @@ export function loadPolicyProfile(policyDir: string): PolicyProfile {
   return { rules: allRules };
 }
 
+/**
+ * How long (in milliseconds) a cached policy profile is considered fresh.
+ * After this interval elapses, the next call to getPolicyProfile() will
+ * re-read and re-parse all policy files from disk, picking up any live
+ * changes an operator made without restarting the gateway.
+ * Set to 60 seconds as a balance between responsiveness and I/O cost.
+ */
+const POLICY_CACHE_TTL_MS = 60_000;
+
 let _cached: PolicyProfile | undefined;
 let _cachedDir: string | undefined;
+let _cachedAt: number | undefined;
 
 export function getPolicyProfile(policyDir: string): PolicyProfile {
-  if (_cached && _cachedDir === policyDir) return _cached;
+  const now = Date.now();
+  if (
+    _cached &&
+    _cachedDir === policyDir &&
+    _cachedAt !== undefined &&
+    now - _cachedAt < POLICY_CACHE_TTL_MS
+  ) {
+    return _cached;
+  }
   _cached = loadPolicyProfile(policyDir);
   _cachedDir = policyDir;
+  _cachedAt = now;
   return _cached;
 }
 
 export function invalidatePolicyCache(): void {
   _cached = undefined;
   _cachedDir = undefined;
+  _cachedAt = undefined;
 }
