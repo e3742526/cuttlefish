@@ -181,7 +181,11 @@ export function listArtifacts(filter: ArtifactListFilter = {}): FileMeta[] {
     params.push(q, q, q, q, q);
   }
   const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
-  const limit = Math.min(Math.max(Math.trunc(filter.limit ?? 200), 1), 1000);
+  // `?? 200` only covers null/undefined; a non-finite limit (e.g. Number("abc") = NaN
+  // from a bad ?limit= query) would otherwise reach `LIMIT NaN` and crash SQLite with
+  // a datatype mismatch. Treat any non-finite value as "use the default".
+  const requestedLimit = Number.isFinite(filter.limit) ? (filter.limit as number) : 200;
+  const limit = Math.min(Math.max(Math.trunc(requestedLimit), 1), 1000);
   const rows = db.prepare(`SELECT * FROM files ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit) as Record<string, unknown>[];
   return rows.map(rowToFileMeta);
 }

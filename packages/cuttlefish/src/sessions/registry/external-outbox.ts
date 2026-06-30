@@ -169,7 +169,8 @@ export function listExternalOutboxItems(filter?: { status?: ExternalOutboxStatus
     values.push(filter.status);
   }
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = filter?.limit ?? 100;
+  // Defense-in-depth: a non-finite limit would reach `LIMIT NaN` and crash SQLite.
+  const limit = Number.isFinite(filter?.limit) ? (filter!.limit as number) : 100;
   const rows = db.prepare(`
     SELECT *
     FROM external_outbox
