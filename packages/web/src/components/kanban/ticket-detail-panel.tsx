@@ -145,9 +145,16 @@ export function TicketDetailPanel({
   const closeRef = useRef<HTMLButtonElement>(null)
   const { subscribe } = useGateway()
   const currentTicketIdRef = useRef(ticket.id)
-  currentTicketIdRef.current = ticket.id
   const [liveSession, setLiveSession] = useState<TicketSessionResponse | null>(null)
   const [liveLoading, setLiveLoading] = useState(false)
+  if (currentTicketIdRef.current !== ticket.id) {
+    // Reset synchronously during render so switching tickets doesn't flash the
+    // previous ticket's live session (status/cost/messages) before the new
+    // ticket's fetch resolves.
+    currentTicketIdRef.current = ticket.id
+    setLiveSession(null)
+    setLiveLoading(false)
+  }
   const [draftTitle, setDraftTitle] = useState(ticket.title)
   const [draftDescription, setDraftDescription] = useState(ticket.description)
   const [draftResourcePath, setDraftResourcePath] = useState<string | null>(ticket.resourcePath ?? null)

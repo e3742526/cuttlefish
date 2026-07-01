@@ -13,9 +13,9 @@ import { isSessionLiveRunning } from "../serialize-session.js";
 // are failing instead of a bare count (a bare count made two different
 // root causes on two different polls indistinguishable to a health monitor).
 export function summarizeConnectorErrors(
-  connectors: Record<string, { status: string }>,
+  connectors: Record<string, { status: string } | null | undefined>,
 ): { count: number; names: string[] } {
-  const errors = Object.entries(connectors).filter(([, health]) => health.status === "error");
+  const errors = Object.entries(connectors).filter(([, health]) => health?.status === "error");
   return { count: errors.length, names: errors.map(([name]) => name) };
 }
 

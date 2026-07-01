@@ -10,6 +10,15 @@ describe("summarizeConnectorErrors", () => {
     expect(result).toEqual({ count: 0, names: [] });
   });
 
+  it("handles null or undefined connector health gracefully without throwing", () => {
+    const result = summarizeConnectorErrors({
+      slack: { status: "ok" },
+      whatsapp: null,
+      email: undefined,
+    });
+    expect(result).toEqual({ count: 0, names: [] });
+  });
+
   it("names the specific connector(s) in error instead of only a count", () => {
     const result = summarizeConnectorErrors({
       slack: { status: "ok" },
