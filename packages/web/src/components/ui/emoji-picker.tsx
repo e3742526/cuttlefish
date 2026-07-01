@@ -150,7 +150,7 @@ export function EmojiPicker({ current, onSelect, onSelectImage, onClose }: Emoji
                     type="button"
                     disabled={!urlInput.trim()}
                     onClick={() => { if (urlInput.trim()) { onSelectImage(urlInput.trim()); onClose() } }}
-                    className="rounded-[var(--radius-md)] bg-[var(--accent)] text-white px-3 py-1.5 text-xs font-[var(--weight-semibold)] disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+                    className="rounded-[var(--radius-md)] bg-[var(--accent)] text-[var(--accent-contrast)] px-3 py-1.5 text-xs font-[var(--weight-semibold)] disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
                   >
                     Set
                   </button>

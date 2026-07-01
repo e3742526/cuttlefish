@@ -206,7 +206,7 @@ export function EmployeePicker({ employees, value, onChange }: EmployeePickerPro
                   onMouseEnter={() => setHighlightIdx(optionIdx)}
                   className={`flex items-center gap-[var(--space-2)] py-2 px-2.5 rounded-[var(--radius-sm)] cursor-pointer transition-[background] duration-100 ${isHighlighted ? 'bg-[var(--fill-secondary)]' : 'bg-transparent'}`}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-sm text-white font-semibold shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-[var(--accent)] flex items-center justify-center text-sm text-[var(--accent-contrast)] font-semibold shrink-0">
                     {emp.displayName.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">

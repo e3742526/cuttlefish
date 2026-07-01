@@ -23,7 +23,7 @@ export class ChatErrorBoundary extends React.Component<{ children: React.ReactNo
             </pre>
             <button
               onClick={() => { this.setState({ error: null }); window.location.reload() }}
-              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
+              className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)]"
             >
               Reload
             </button>

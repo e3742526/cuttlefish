@@ -157,7 +157,7 @@ export default function CommandPage() {
   const clock = useUtcClock()
 
   const ticketEntries = useMemo(
-    () => STATUS_META.map((meta) => ({ ...meta, count: data?.ticketCounts[meta.key] ?? 0 })).filter((entry) => entry.count > 0),
+    () => STATUS_META.map((meta) => ({ ...meta, count: data?.ticketCounts?.[meta.key] ?? 0 })).filter((entry) => entry.count > 0),
     [data?.ticketCounts],
   )
   const totalTickets = useMemo(() => ticketEntries.reduce((sum, entry) => sum + entry.count, 0), [ticketEntries])
@@ -168,10 +168,10 @@ export default function CommandPage() {
     // a missing/failed fetch must not report "nominal".
     if (isLoading) return { label: 'Checking status…', tone: 'neutral' }
     if (error) return { label: 'Status unavailable', tone: 'error' }
-    const blocked = data?.ticketCounts.blocked ?? 0
+    const blocked = data?.ticketCounts?.blocked ?? 0
     if (blocked > 0) return { label: `${blocked} blocked ticket${blocked === 1 ? '' : 's'} need attention`, tone: 'warn' }
     return { label: 'All systems nominal', tone: 'ok' }
-  }, [isLoading, error, data?.ticketCounts.blocked])
+  }, [isLoading, error, data?.ticketCounts?.blocked])
 
   return (
     <PageLayout>
@@ -231,17 +231,17 @@ export default function CommandPage() {
               Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-36 rounded-[var(--radius-xl)]" />)
             ) : (
               <>
-                <MetricCard title="Agents" value={String(data?.summary.agents ?? 0)} detail="registered across the org" href="/org" icon={<Users size={18} />} />
+                <MetricCard title="Agents" value={String(data?.summary?.agents ?? 0)} detail="registered across the org" href="/org" icon={<Users size={18} />} />
                 <MetricCard
                   title="Running now"
-                  value={String(data?.summary.agentsRunning ?? 0)}
+                  value={String(data?.summary?.agentsRunning ?? 0)}
                   detail="live sessions across the fleet"
                   href="/org"
                   icon={<Radio size={18} />}
                   emphasized
                 />
-                <MetricCard title="Cron jobs" value={String(data?.summary.cronJobs ?? 0)} detail="scheduled automations" href="/cron" icon={<Clock3 size={18} />} />
-                <MetricCard title="Open tickets" value={String(data?.summary.ticketsOpen ?? 0)} detail="open work across departments" href="/kanban" icon={<Ticket size={18} />} />
+                <MetricCard title="Cron jobs" value={String(data?.summary?.cronJobs ?? 0)} detail="scheduled automations" href="/cron" icon={<Clock3 size={18} />} />
+                <MetricCard title="Open tickets" value={String(data?.summary?.ticketsOpen ?? 0)} detail="open work across departments" href="/kanban" icon={<Ticket size={18} />} />
               </>
             )}
           </section>
@@ -391,7 +391,7 @@ export default function CommandPage() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {data?.managers.map((manager, index) => {
+                  {data?.managers?.map((manager, index) => {
                     const badge = managerBadge(manager)
                     const accent = index % 4 === 0
                       ? 'var(--accent)'
@@ -472,7 +472,7 @@ export default function CommandPage() {
             </Link>
           </section>
 
-          {!isLoading && !data?.availableAgents.length && (
+          {!isLoading && !data?.availableAgents?.length && (
             <div className="rounded-[var(--radius-xl)] border border-[var(--separator)] bg-[var(--material-regular)] px-5 py-8 text-center shadow-[var(--shadow-card)]">
               <h2 className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-primary)]">No agent activity yet</h2>
               <p className="mt-2 text-[length:var(--text-footnote)] text-[var(--text-secondary)]">

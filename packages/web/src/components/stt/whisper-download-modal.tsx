@@ -76,7 +76,7 @@ export function WhisperDownloadModal({ open, progress, onDownload, onCancel }: W
             className={`px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] border-none text-[length:var(--text-body)] font-[var(--weight-semibold)] ${
               isDownloading
                 ? "bg-[var(--fill-tertiary)] text-[var(--text-tertiary)] cursor-default"
-                : "bg-[var(--accent)] text-black cursor-pointer"
+                : "bg-[var(--accent)] text-[var(--accent-contrast)] cursor-pointer"
             }`}
           >
             {isDownloading ? "Downloading…" : "Download"}

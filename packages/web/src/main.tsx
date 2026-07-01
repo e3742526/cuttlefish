@@ -46,7 +46,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, { error: Error
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <div className="text-sm font-medium text-foreground">Web UI needs a refresh</div>
         <button
-          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white active:scale-[0.96] transition-transform"
+          className="rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-medium text-[var(--accent-contrast)] active:scale-[0.96] transition-transform"
           onClick={() => window.location.reload()}
         >
           Refresh

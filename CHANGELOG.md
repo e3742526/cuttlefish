@@ -3,6 +3,30 @@
 ## [Unreleased]
 
 > Defect repairs surfaced by an `audit-playtest-app` exploratory playtest of the
+> theme system introduced in the `signal-*`/`reef-*` theme commits. See
+> `docs/cloud-audit/PLAYTEST-THEME-2026-07-01.md`.
+
+### Bug Fixes
+- **The Command Center dashboard no longer crashes the entire app when its
+  API response is missing a field.** `data?.ticketCounts.blocked`,
+  `data?.summary.agents`, and four sibling accesses in `CommandPage` chained
+  `?.` only on `data`, not on the nested `ticketCounts`/`summary`/`managers`/
+  `availableAgents` fields, so any degraded or partial command-center response
+  threw during render. Because Command Center has no page-scoped error
+  boundary, this was caught by the top-level `AppErrorBoundary` and took down
+  every route, not just `/command`, until a hard reload. All six accesses now
+  chain `?.` through to the leaf.
+- **Five buttons/avatars now use the theme's actual accent-contrast color
+  instead of hardcoded white/black text.** The theme-sweep commits
+  (`bf5d5f0`, `337dada`) converted most `bg-[var(--accent)]` elements to
+  `text-[var(--accent-contrast)]`, but missed the emoji-picker "Set" button,
+  the Kanban assignee-picker avatar initial, the Whisper download-modal
+  "Download" button, and both the top-level and chat-page crash-recovery
+  buttons. Measured WCAG contrast for the hardcoded white text was as low as
+  1.87:1 against the new `reef-dark` theme's accent (AA requires 4.5:1) —
+  effectively unreadable. All five now use `text-[var(--accent-contrast)]`.
+
+> Defect repairs surfaced by an `audit-playtest-app` exploratory playtest of the
 > session and org HTTP surfaces (chat create/message, bulk-delete, stop, employee
 > create, org scan). See `.giles/feature-ledger/giles-ledger-0008-playtest-defect-repair-2026-07-01.md`.
 
