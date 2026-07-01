@@ -27,6 +27,7 @@ import type {
 } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
+import { resolveModelAlias } from "../sessions/session-patch.js";
 
 /**
  * Reserved `org/` subdirectories that hold HR / Org-Steward artifacts (change
@@ -369,6 +370,15 @@ function validateModelIdForEngine(
   return undefined;
 }
 
+function normalizeModelForEngine(
+  registry: ReturnType<typeof getModelRegistry>,
+  engineId: string,
+  modelId: string,
+): string {
+  const knownModelIds = new Set((registry[engineId]?.models ?? []).map((model) => model.id));
+  return resolveModelAlias(engineId, modelId, knownModelIds);
+}
+
 /**
  * Validate an employee update body against the model/engine registry and the
  * Employee type's constraints. Pure — does no IO. Rejects:
@@ -457,7 +467,7 @@ export function validateEmployeeUpdate(
     if (typeof body.model !== "string" || !body.model.trim()) {
       return { ok: false, error: "model must be a non-empty string" };
     }
-    const modelId = body.model.trim();
+    const modelId = normalizeModelForEngine(registry, resultingEngine, body.model.trim());
     const modelError = validateModelIdForEngine(registry, resultingEngine, modelId, "model");
     if (modelError) {
       return { ok: false, error: modelError };
@@ -617,9 +627,10 @@ export function validateEmployeeUpdate(
       if (!fallbackModel) {
         updates.fallbackModel = null;
       } else {
-        const fallbackError = validateModelIdForEngine(registry, fallbackEngine, fallbackModel, "fallbackModel");
+        const normalizedFallbackModel = normalizeModelForEngine(registry, fallbackEngine, fallbackModel);
+        const fallbackError = validateModelIdForEngine(registry, fallbackEngine, normalizedFallbackModel, "fallbackModel");
         if (fallbackError) return { ok: false, error: fallbackError };
-        updates.fallbackModel = fallbackModel;
+        updates.fallbackModel = normalizedFallbackModel;
       }
     }
   }

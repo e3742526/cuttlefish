@@ -12,6 +12,7 @@ const ApprovalsPage = lazyRoute(() => import('./routes/approvals/page'), 'approv
 const ArchivePage = lazyRoute(() => import('./routes/archive/page'), 'archive')
 const LogsPage = lazyRoute(() => import('./routes/logs/page'), 'logs')
 const LimitsPage = lazyRoute(() => import('./routes/limits/page'), 'limits')
+const OrchestrationPage = lazyRoute(() => import('./routes/orchestration/page'), 'orchestration')
 const OrgPage = lazyRoute(() => import('./routes/org/page'), 'org')
 const SettingsPage = lazyRoute(() => import('./routes/settings/page'), 'settings')
 const SkillsPage = lazyRoute(() => import('./routes/skills/page'), 'skills')
@@ -69,6 +70,7 @@ function App() {
               <Route path="/archive" element={<ArchivePage />} />
               <Route path="/logs" element={<LogsPage />} />
               <Route path="/limits" element={<LimitsPage />} />
+              <Route path="/orchestration" element={<OrchestrationPage />} />
               <Route path="/org" element={<OrgPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/skills" element={<SkillsPage />} />

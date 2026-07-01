@@ -129,6 +129,7 @@ describe("EmployeeCreateForm", () => {
   it("disables create until required fields are present", async () => {
     render(<EmployeeCreateForm onCancel={() => {}} onCreated={() => {}} />)
     expect(createBtn().disabled).toBe(true)
+    expect(screen.getByText("Persona is required.")).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Platform Lead" } })
     await chooseSelect("Department", "platform")

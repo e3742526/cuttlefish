@@ -329,7 +329,10 @@ async function waitForPidExit(pid: number, timeoutMs: number): Promise<boolean> 
   }
 }
 
-function resolvePort(): number {
+function resolvePort(portOverride?: number): number {
+  if (typeof portOverride === "number" && Number.isFinite(portOverride) && portOverride > 0) {
+    return portOverride;
+  }
   const config = loadConfig();
   return config.gateway?.port || 8888;
 }
@@ -405,10 +408,10 @@ export interface GatewayStatus {
   error?: string;
 }
 
-export function getStatus(): GatewayStatus {
+export function getStatus(portOverride?: number): GatewayStatus {
   let targetPort: number;
   try {
-    targetPort = resolvePort();
+    targetPort = resolvePort(portOverride);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { running: false, pid: null, error: message };

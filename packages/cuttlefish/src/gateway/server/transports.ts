@@ -157,7 +157,7 @@ export function createGatewayTransports({
       }
     }
     if (reqUrl === "/ws") {
-      if (!isAuthenticatedRequest(req, gatewayInfoToken)) {
+      if (authRequiredNow() && !isAuthenticatedRequest(req, gatewayInfoToken)) {
         socket.destroy();
         return;
       }

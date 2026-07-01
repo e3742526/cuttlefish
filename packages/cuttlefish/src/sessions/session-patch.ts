@@ -35,7 +35,7 @@ const CLAUDE_MODEL_ALIASES: Record<string, string> = {
  * is omitted (engine not in the registry), claude aliases still expand by the bare
  * map so behavior is unchanged for that path.
  */
-function resolveModelAlias(engine: string, model: string, knownModelIds?: ReadonlySet<string>): string {
+export function resolveModelAlias(engine: string, model: string, knownModelIds?: ReadonlySet<string>): string {
   if (engine !== "claude") return model;
   // (1) An id the registry already knows wins — aliases never override a real id.
   if (knownModelIds?.has(model)) return model;

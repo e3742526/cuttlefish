@@ -52,7 +52,7 @@ export async function runStart(opts: { daemon?: boolean; port?: number }): Promi
   // graceful shutdown into EADDRINUSE). Always hand off to the detached helper:
   // an inline foreground stop from inside a gateway session kills the PTY that is
   // running this command before it can start the replacement.
-  const status = getStatus();
+  const status = getStatus(config.gateway.port);
   if (status.error) {
     console.error(`Error: ${status.error}`);
     process.exit(1);

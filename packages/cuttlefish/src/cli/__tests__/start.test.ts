@@ -39,7 +39,18 @@ describe("runStart", () => {
     await runStart({ daemon: false });
 
     expect(lifecycle.restartDetached).toHaveBeenCalledTimes(1);
+    expect(lifecycle.getStatus).toHaveBeenCalledWith(8888);
     expect(lifecycle.startForeground).not.toHaveBeenCalled();
     expect(lifecycle.startDaemon).not.toHaveBeenCalled();
+  });
+
+  it("checks occupancy against the overridden port before starting", async () => {
+    lifecycle.getStatus.mockReturnValueOnce({ running: false, pid: 0 });
+
+    await runStart({ daemon: true, port: 8891 });
+
+    expect(lifecycle.getStatus).toHaveBeenCalledWith(8891);
+    expect(lifecycle.startDaemon).toHaveBeenCalledTimes(1);
+    expect(lifecycle.restartDetached).not.toHaveBeenCalled();
   });
 });

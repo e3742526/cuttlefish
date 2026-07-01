@@ -100,7 +100,7 @@ export function EmployeeCreateForm({
   const [showIconPicker, setShowIconPicker] = useState(false)
   const [selector, setSelector] = useState<SelectorValue>({
     engine: "claude",
-    model: "sonnet",
+    model: "claude-sonnet-4-6",
   })
   const { settings } = useSettings()
   const [departments, setDepartments] = useState<string[]>([])
@@ -435,7 +435,10 @@ export function EmployeeCreateForm({
         />
       </Field>
 
-      <Field label="Persona / instructions">
+      <Field
+        label="Persona / instructions"
+        hint={personaInvalid ? "Persona is required before you can create the agent." : undefined}
+      >
         <Textarea
           rows={10}
           value={persona}
@@ -443,6 +446,11 @@ export function EmployeeCreateForm({
           onChange={(e) => setPersona(e.target.value)}
           aria-invalid={personaInvalid}
         />
+        {personaInvalid && (
+          <span className="text-[length:var(--text-caption2)] text-[var(--system-red)]">
+            Persona is required.
+          </span>
+        )}
       </Field>
 
       <Field label="CLI flags" hint="Space-separated, e.g. --chrome">
@@ -465,7 +473,12 @@ export function EmployeeCreateForm({
 
       <div className="flex items-center justify-end gap-[var(--space-2)] sticky bottom-0 pt-[var(--space-2)] bg-[var(--material-regular)]">
         <Button variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>
-        <Button onClick={() => void save()} disabled={!canSave}>
+        <Button
+          onClick={() => void save()}
+          disabled={!canSave}
+          aria-label={personaInvalid ? "Create agent — persona is required" : saving ? "Creating agent" : "Create agent"}
+          title={personaInvalid ? "Persona is required" : undefined}
+        >
           {saving ? "Creating…" : "Create agent"}
         </Button>
       </div>
