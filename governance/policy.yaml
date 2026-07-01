@@ -5,6 +5,11 @@ policy:
     registry_mode: "authoritative"
   compliance:
     giles_artifacts_advisory: true
+    # giles_ruleset.yaml labels many tier_0/tier_1 rules `severity: fail`; that
+    # label is the ruleset's own priority tier, not a statement that CI
+    # currently enforces it. .github/workflows/governance.yml only runs
+    # `giles repo-check` when a `giles` binary is present on the runner (it
+    # is not, today), so no rule in this ruleset is machine-enforced yet.
     canonical_log: "governance/logs/giles_compliance_todo.json"
   validation:
     required_before_completion:

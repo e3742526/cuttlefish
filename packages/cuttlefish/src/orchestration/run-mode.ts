@@ -154,7 +154,18 @@ export async function runAllocatedOrchestrationTask(opts: RunAllocatedOrchestrat
   const runtime = opts.context.orchestration?.runtime;
   if (!runtime) throw new Error("orchestration runtime is not enabled");
 
-  const runId = beginOrchestrationRun(opts.allocation, opts.mode, opts.task.title);
+  let runId: string;
+  try {
+    runId = beginOrchestrationRun(opts.allocation, opts.mode, opts.task.title);
+  } catch (err) {
+    // Ledger write failed before any lease turn started: release the leases
+    // this allocation already holds instead of leaving them dangling until
+    // the boot-time orphan sweep reclaims them.
+    for (const lease of opts.allocation.leases) {
+      releaseLeaseSafely(runtime, lease);
+    }
+    throw err;
+  }
   opts.allocation.runId = runId;
 
   const sessions: OrchestrationRunSession[] = [];

@@ -1,0 +1,5 @@
+# Ephemeral cloud-session and raw audit-run artifacts for this checkout.
+# Durable, reviewed audit conclusions live under docs/cloud-audit/ (tracked).
+# Everything under this directory is local-only scratch and stays out of git.
+*
+!.gitignore

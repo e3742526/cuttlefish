@@ -11,12 +11,39 @@ import type { OrchestrationConfig, Worker } from "../types.js";
 let tmpHome: string;
 const testHome = withTempCuttlefishHome("cuttlefish-orch-run-mode-");
 
+// Lets one test force the run-ledger's transitionRun to throw exactly once,
+// to exercise the lease-release-on-ledger-failure path in run-mode.ts.
+let forceLedgerTransitionFailureOnce = false;
+
+vi.mock("../../run-ledger/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../run-ledger/index.js")>();
+  return {
+    ...actual,
+    getRunLedger: (...args: Parameters<typeof actual.getRunLedger>) => {
+      const store = actual.getRunLedger(...args);
+      return new Proxy(store, {
+        get(target, prop, receiver) {
+          if (prop === "transitionRun" && forceLedgerTransitionFailureOnce) {
+            forceLedgerTransitionFailureOnce = false;
+            return () => {
+              throw new Error("simulated ledger failure");
+            };
+          }
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+    },
+  };
+});
+
 beforeEach(() => {
   tmpHome = testHome.home();
+  forceLedgerTransitionFailureOnce = false;
   vi.resetModules();
 });
 
 afterEach(() => {
+  forceLedgerTransitionFailureOnce = false;
   vi.resetModules();
 });
 
@@ -56,6 +83,31 @@ describe("runOrchestrationTask", () => {
     expect(runtime.listQueue()).toEqual([]);
     runtime.close();
   }, 15_000);
+
+  it("releases already-granted leases when the run-ledger write fails before any lease turn starts", async () => {
+    const { runOrchestrationTask, OrchestrationRuntime } = await loadModules();
+    const engine = new RecordingEngine();
+    const runtime = new OrchestrationRuntime({ config: config(), dbPath: ":memory:", startReaper: false });
+    const ctx = makeContext(runtime, engine);
+
+    forceLedgerTransitionFailureOnce = true;
+    await expect(
+      runOrchestrationTask({
+        context: ctx,
+        task: {
+          taskId: "task-ledger-fail",
+          coordinatorId: "coord-ledger-fail",
+          requiredRoles: ["seniorImplementer"],
+          mode: "single_worker",
+          prompt: "Task whose ledger write fails before any lease turn",
+        },
+      }),
+    ).rejects.toThrow("simulated ledger failure");
+
+    expect(engine.run).not.toHaveBeenCalled();
+    expect(runtime.listLeases().every((lease) => lease.state === "released")).toBe(true);
+    runtime.close();
+  });
 
   it("runs implementer and reviewer leases sequentially in review mode", async () => {
     const { runOrchestrationTask, OrchestrationRuntime } = await loadModules();

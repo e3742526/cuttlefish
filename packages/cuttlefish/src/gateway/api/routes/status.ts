@@ -9,6 +9,16 @@ import type { ApiContext } from "../context.js";
 import { json } from "../responses.js";
 import { isSessionLiveRunning } from "../serialize-session.js";
 
+// Named so the /api/status "connectors" check surfaces which connector(s)
+// are failing instead of a bare count (a bare count made two different
+// root causes on two different polls indistinguishable to a health monitor).
+export function summarizeConnectorErrors(
+  connectors: Record<string, { status: string } | null | undefined>,
+): { count: number; names: string[] } {
+  const errors = Object.entries(connectors).filter(([, health]) => health?.status === "error");
+  return { count: errors.length, names: errors.map(([name]) => name) };
+}
+
 function checkInstanceHealth(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.request({ hostname: "localhost", port, path: "/api/healthz", timeout: 2000 }, (res) => {
@@ -52,11 +62,13 @@ export async function handleStatusRoutes(
       Array.from(context.connectors.values()).map((connector) => [connector.name, connector.getHealth()]),
     );
     const emailInboxes = context.emailService?.listInboxes() ?? [];
-    const connectorErrors = Object.values(connectors).filter((health) => health.status === "error");
+    const connectorErrors = summarizeConnectorErrors(connectors);
     checks.push({
       name: "connectors",
-      status: connectorErrors.length > 0 ? "degraded" : "ok",
-      ...(connectorErrors.length > 0 ? { detail: `${connectorErrors.length} connector(s) reporting error` } : {}),
+      status: connectorErrors.count > 0 ? "degraded" : "ok",
+      ...(connectorErrors.count > 0
+        ? { detail: `${connectorErrors.count} connector(s) reporting error: ${connectorErrors.names.join(", ")}` }
+        : {}),
     });
     const registry = getModelRegistry(config);
     const availableEngines = Object.values(registry).filter((entry) => entry.available);

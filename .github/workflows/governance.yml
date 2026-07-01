@@ -16,5 +16,5 @@ jobs:
           if command -v giles >/dev/null 2>&1; then
             giles repo-check .
           else
-            echo "giles not installed; skipping local-only governance check"
+            echo "::warning title=Giles governance check did not run::giles is not installed on this runner, so no fail-severity rule in governance/giles_ruleset.yaml was evaluated this run. This job does not currently enforce anything; treat governance/giles_ruleset.yaml severities as aspirational until a giles installation step is added."
           fi

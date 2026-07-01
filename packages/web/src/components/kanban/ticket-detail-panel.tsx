@@ -144,8 +144,17 @@ export function TicketDetailPanel({
 }: TicketDetailPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const { subscribe } = useGateway()
+  const currentTicketIdRef = useRef(ticket.id)
   const [liveSession, setLiveSession] = useState<TicketSessionResponse | null>(null)
   const [liveLoading, setLiveLoading] = useState(false)
+  if (currentTicketIdRef.current !== ticket.id) {
+    // Reset synchronously during render so switching tickets doesn't flash the
+    // previous ticket's live session (status/cost/messages) before the new
+    // ticket's fetch resolves.
+    currentTicketIdRef.current = ticket.id
+    setLiveSession(null)
+    setLiveLoading(false)
+  }
   const [draftTitle, setDraftTitle] = useState(ticket.title)
   const [draftDescription, setDraftDescription] = useState(ticket.description)
   const [draftResourcePath, setDraftResourcePath] = useState<string | null>(ticket.resourcePath ?? null)
@@ -201,19 +210,24 @@ export function TicketDetailPanel({
   }
 
   const loadLiveSession = useCallback(async () => {
+    const requestTicketId = ticket.id
+    const isStale = () => currentTicketIdRef.current !== requestTicketId
     if (!ticket.departmentId) {
+      if (isStale()) return
       setLiveSession({ found: false })
       setLiveLoading(false)
       return
     }
     setLiveLoading(true)
     try {
-      const next = await api.getTicketSession(ticket.departmentId, ticket.id)
+      const next = await api.getTicketSession(ticket.departmentId, requestTicketId)
+      if (isStale()) return
       setLiveSession(next)
     } catch {
+      if (isStale()) return
       setLiveSession({ found: false })
     } finally {
-      setLiveLoading(false)
+      if (!isStale()) setLiveLoading(false)
     }
   }, [ticket.departmentId, ticket.id])
 
