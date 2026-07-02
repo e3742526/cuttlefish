@@ -11,9 +11,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/cuttlefish-cli"><img src="https://img.shields.io/npm/v/cuttlefish-cli?color=7c3aed&label=npm" alt="npm version" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/npm/l/cuttlefish-cli?color=7c3aed" alt="license" /></a>
-  <img src="https://img.shields.io/node/v/cuttlefish-cli?color=7c3aed" alt="node version" />
+  <img src="https://img.shields.io/badge/version-0.23.3-7c3aed" alt="version 0.23.3" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7c3aed" alt="license: MIT" /></a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A524%20%3C25-7c3aed" alt="node >=24 <25" />
   <img src="https://img.shields.io/badge/status-beta-7c3aed" alt="status: beta" />
 </p>
 
@@ -44,36 +44,30 @@ You've already installed the best agent CLIs. Cuttlefish turns that pile of term
 
 ## Quickstart
 
-> **Prerequisites:** Node.js **24** (the repo pins **24.13.0** via `.nvmrc` and root tooling enforces `>=24 <25`), and at least one agent CLI installed **and signed in** - Cuttlefish orchestrates them and can't run a session without one.
+> **Prerequisites:** Node.js **24** (the repo pins **24.13.0** via `.nvmrc` and root tooling enforces `>=24 <25`), **pnpm 10+**, and at least one agent CLI installed **and signed in** - Cuttlefish orchestrates them and can't run a session without one.
 
 ```bash
-# 1. Install
-npm install -g cuttlefish-cli
+# 1. Install from source (the npm package and Homebrew formula are pending first publication)
+git clone https://github.com/e3742526/cuttlefish.git
+cd cuttlefish
+pnpm install
+pnpm setup        # builds all packages and initializes ~/.cuttlefish (probes your engines, writes config)
 
 # 2. Install + sign in to at least one engine (example: Claude Code)
 npm install -g @anthropic-ai/claude-code
 claude            # run once, use /login, then quit
 
-# 3. Initialize ~/.cuttlefish (probes your engines, writes config)
-cuttlefish setup
-
-# 4. Start the gateway - opens the dashboard for you
-cuttlefish start
+# 3. Start the gateway - opens the dashboard for you
+pnpm cuttlefish start
 ```
 
 Then open **[http://localhost:8888](http://localhost:8888)**, send your first message, and watch your COO delegate.
 
-Or install via **Homebrew**:
-
-```bash
-brew tap e3742526/cuttlefish https://github.com/e3742526/cuttlefish
-brew install cuttlefish
-cuttlefish setup && cuttlefish start
-```
+> **Packaged installs.** `npm install -g cuttlefish-cli` and the Homebrew tap will be the one-line install paths once the package is published; until then, install from source as above.
 
 > **`--version` ≠ signed in.** Cuttlefish drives the official engine CLIs, so authenticate each one *before* `cuttlefish start` (run `claude` → `/login`, run `codex` to sign in, etc.). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 
-Everyday commands:
+Everyday commands (prefix with `pnpm` when running from a source checkout, e.g. `pnpm cuttlefish status`):
 
 ```bash
 cuttlefish start      # start the gateway daemon (auto-opens the dashboard)
@@ -183,19 +177,22 @@ Every department also has a **board**. Assign tickets to employees, watch work m
 - **📎 Attachments** - drag, drop, or paste files and images into chat; passed through to the engine and rendered inline.
 - **🎙️ Voice** - push-to-talk dictation (local Whisper) and a hands-free "Talk" mission-control mode with streaming TTS.
 - **💰 Cost governance** - per-employee monthly budgets and per-session cost/time caps.
+- **🗂️ Orchestration Command Center** - a durable, provider-neutral run scheduler with queue pause/resume, dual-lane (cross-provider) competition runs, worktree-isolated execution, recovery/requeue, and a dedicated operations dashboard.
+- **🧾 Traceability & provenance** - a persistent run ledger and artifact-lineage store record what ran, on which engine, and what it produced, so outputs can be traced back to their originating session and inputs.
+- **✅ Approval gates** - human approve/reject checkpoints surfaced in the dashboard (and via Slack ✅ reactions) before sensitive actions proceed.
 - **🔄 Hot-reload & self-modification** - edit config, cron, org, or skills and the daemon reloads live; agents can edit those files too.
 - **🔗 MCP support** - connect engines to any MCP server, with per-employee allow-lists.
 
 ## Lineage And Credit
 
-Cuttlefish is forked from [`repo-makeover/jinn`](https://github.com/repo-makeover/jinn), which is itself a substantial rework/fork of the original [`hristo2612/jinn`](https://github.com/hristo2612/jinn). The original Jinn project and the direct `repo-makeover/jinn` fork remain the technical lineage and MIT-licensed basis for this work.
+Cuttlefish is forked from [`repo-makeover/jinn`](https://github.com/repo-makeover/jinn), which is itself a substantial rework/fork of the original [`hristo2612/jinn`](https://github.com/hristo2612/jinn). The original Jinn project and the direct `repo-makeover/jinn` fork remain the technical lineage and MIT-licensed basis for this work, and we gratefully credit their authors.
 
-Compared with that lineage, this checkout carries a larger feature and maintenance surface:
+Where Jinn established the core idea - a lightweight gateway that orchestrates agent CLIs as an AI organization - Cuttlefish deliberately keeps that layer lightweight ("bus, not brain") and invests its divergence in **traceability, provenance capture, and governance**:
 
-- **Matrix orchestration** - durable orchestration runtime, queue controls, dual-lane runs, recovery/requeue flows, worktree execution, and a dedicated orchestration dashboard.
-- **Operator controls** - approvals, archives, richer Kanban/ticket dispatch, stronger session registry APIs, and additional route-level backend coverage.
-- **Safer file and gateway handling** - modularized file upload/read/attachment flows, stricter file-read boundaries, transfer guards, and focused seam tests.
-- **Governance and tooling** - Node 24 repo pinning, explicit lint/typecheck/test surfaces, Giles/governance metadata, and documentation/validation ledgers.
+- **Traceability & provenance** - a persistent run ledger records every execution, and an artifact-lineage store links outputs back to the sessions, engines, and inputs that produced them, so any result can be audited end to end.
+- **Governance** - human approval gates, per-employee budgets and session caps, policy evaluation with export gating, machine-readable governance metadata (`governance/*.yaml`), a maintained decision log, and documentation/validation ledgers.
+- **Hardened orchestration** - a durable, provider-neutral run scheduler (queue controls, dual-lane runs, worktree-isolated execution, recovery/requeue) with an operations dashboard - added without turning the gateway itself into an agent framework.
+- **Safety & engineering hygiene** - stricter file-read boundaries and transfer guards, SSRF protection, secret-stripped engine environments, Node 24 pinning, and explicit lint/typecheck/test surfaces with broad seam-test coverage.
 
 The source-grounded fork diff lives in [`docs/UPSTREAM_DIFF_BASELINE.md`](docs/UPSTREAM_DIFF_BASELINE.md).
 
@@ -263,12 +260,12 @@ Everything is human-readable files you own - `cat` it, edit it, commit it.
 
 ## Roadmap
 
-Cuttlefish is in active development. Shipped recently: ten-engine support, file attachments, in-app file viewer, agent-to-agent messaging, shared memory, mobile UI, live streaming. On deck:
+Cuttlefish is in active development. Shipped recently: the orchestration Command Center, approval gates, the run ledger and artifact-lineage provenance stores, ten-engine support, file attachments, agent-to-agent messaging, shared memory, and live streaming. On deck:
 
 - **Engines** - deeper local-model support (llama.cpp and richer local-agent adapters), engine fallback chains.
 - **Connectors** - iMessage, outbound email/reply workflows, generic webhooks.
-- **Dashboard** - approve/reject agent actions from the UI, per-employee cost analytics.
-- **Platform** - installable plugins, REST API auth, multi-user roles, Docker image.
+- **Dashboard** - per-employee cost analytics, deeper orchestration run analytics.
+- **Platform** - npm/Homebrew package publication, installable plugins, REST API auth, multi-user roles, Docker image.
 - **Skills** - community marketplace, versioning, scaffolding templates.
 
 Want to suggest something? [Open an issue](https://github.com/e3742526/cuttlefish/issues).

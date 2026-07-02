@@ -28,8 +28,8 @@ describe("resolveModelEscalation (default ladder)", () => {
   it("user example: sonnet (mid) climbs to the large tier (gpt-5.5 first)", () => {
     const got = resolveModelEscalation({
       fromEngine: "claude",
-      fromModel: "claude-sonnet-4-6",
-      triedRungs: new Set([rungKey("claude", "claude-sonnet-4-6")]),
+      fromModel: "claude-sonnet-5",
+      triedRungs: new Set([rungKey("claude", "claude-sonnet-5")]),
       isAvailable: allAvailable,
     });
     expect(got).toEqual({ engine: "codex", model: "gpt-5.5", via: "higher" });
@@ -39,8 +39,8 @@ describe("resolveModelEscalation (default ladder)", () => {
     // sonnet on claude is rate-limited → exclude claude → large tier, non-claude → gpt-5.5.
     const got = resolveModelEscalation({
       fromEngine: "claude",
-      fromModel: "claude-sonnet-4-6",
-      triedRungs: new Set([rungKey("claude", "claude-sonnet-4-6")]),
+      fromModel: "claude-sonnet-5",
+      triedRungs: new Set([rungKey("claude", "claude-sonnet-5")]),
       excludeEngines: new Set(["claude"]),
       isAvailable: allAvailable,
     });
@@ -56,7 +56,7 @@ describe("resolveModelEscalation (default ladder)", () => {
       isAvailable: allAvailable,
     });
     // tier 1 with codex excluded → sonnet.
-    expect(got).toEqual({ engine: "claude", model: "claude-sonnet-4-6", via: "higher" });
+    expect(got).toEqual({ engine: "claude", model: "claude-sonnet-5", via: "higher" });
   });
 
   it("stall from gpt-5.4 (mid) climbs to gpt-5.5 on the SAME engine (no exclusion)", () => {
@@ -103,7 +103,7 @@ describe("resolveModelEscalation (default ladder)", () => {
       triedRungs: new Set([rungKey("claude", "claude-haiku-4-5"), rungKey("codex", "gpt-5.4")]),
       isAvailable: allAvailable,
     });
-    expect(got).toEqual({ engine: "claude", model: "claude-sonnet-4-6", via: "higher" });
+    expect(got).toEqual({ engine: "claude", model: "claude-sonnet-5", via: "higher" });
   });
 
   it("unknown current model is treated as lowest tier and climbs into tier 1", () => {

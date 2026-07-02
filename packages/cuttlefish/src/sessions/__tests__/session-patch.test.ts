@@ -18,7 +18,7 @@ function cfg(): CuttlefishConfig {
         default: "claude-opus-4-8",
         models: [
           { id: "claude-opus-4-8", label: "Opus 4.8", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
-          { id: "claude-sonnet-4-6", label: "Sonnet 4.6", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+          { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
         ],
       },
       codex: { default: "gpt-5.4", models: [{ id: "gpt-5.4", supportsEffort: true, effortLevels: ["low", "medium", "high", "xhigh"] }] },
@@ -56,7 +56,7 @@ function shippedCfg(): CuttlefishConfig {
         models: [
           { id: "claude-fable-5", label: "Fable 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
           { id: "opus", label: "Opus 4.8", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
-          { id: "claude-sonnet-4-6", label: "Sonnet 4.6", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+          { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
           { id: "claude-haiku-4-5", label: "Haiku 4.5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
         ],
       },
@@ -91,7 +91,7 @@ describe("model alias resolution against the shipped registry (opus/haiku 400 re
   });
 
   it("patches model to 'opus' against the shipped registry without rewriting it", () => {
-    const r = validateSessionPatch(shippedCfg(), "claude", "claude-sonnet-4-6", { model: "opus" });
+    const r = validateSessionPatch(shippedCfg(), "claude", "claude-sonnet-5", { model: "opus" });
     expect(r).toMatchObject({ ok: true, updates: { model: "opus" } });
   });
 });
@@ -115,12 +115,12 @@ describe("validateNewSessionSelection", () => {
     const r = validateNewSessionSelection(
       cfg(),
       {},
-      { engine: "claude", model: "claude-sonnet-4-6", effortLevel: "high" },
+      { engine: "claude", model: "claude-sonnet-5", effortLevel: "high" },
     );
     expect(r).toEqual({
       ok: true,
       engine: "claude",
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-5",
       effortLevel: "high",
     });
   });
@@ -129,7 +129,7 @@ describe("validateNewSessionSelection", () => {
     const r = validateNewSessionSelection(
       cfg(),
       { model: "opus", effortLevel: "medium" },
-      { engine: "claude", model: "claude-sonnet-4-6", effortLevel: "high" },
+      { engine: "claude", model: "claude-sonnet-5", effortLevel: "high" },
     );
     expect(r).toEqual({
       ok: true,
@@ -184,9 +184,9 @@ describe("validateNewSessionSelection", () => {
 
 describe("validateSessionPatch", () => {
   it("accepts a valid model switch for the engine", () => {
-    const r = validateSessionPatch(cfg(), "claude", "opus", { model: "claude-sonnet-4-6" });
+    const r = validateSessionPatch(cfg(), "claude", "opus", { model: "claude-sonnet-5" });
     expect(r.ok).toBe(true);
-    expect(r.updates).toEqual({ model: "claude-sonnet-4-6" });
+    expect(r.updates).toEqual({ model: "claude-sonnet-5" });
   });
 
   it("accepts a valid effort switch", () => {
@@ -202,9 +202,9 @@ describe("validateSessionPatch", () => {
   });
 
   it("accepts model + effort together, validating effort against the NEW model", () => {
-    const r = validateSessionPatch(cfg(), "claude", "opus", { model: "claude-sonnet-4-6", effortLevel: "high" });
+    const r = validateSessionPatch(cfg(), "claude", "opus", { model: "claude-sonnet-5", effortLevel: "high" });
     expect(r.ok).toBe(true);
-    expect(r.updates).toEqual({ model: "claude-sonnet-4-6", effortLevel: "high" });
+    expect(r.updates).toEqual({ model: "claude-sonnet-5", effortLevel: "high" });
   });
 
   it("rejects an unknown model for the engine", () => {

@@ -32,7 +32,7 @@ export interface ResolveModelFallbackOpts {
 
 const DEFAULT_GLOBAL_CHAIN: ModelFallbackTarget[] = [
   { engine: "codex", model: "gpt-5.5", effortLevel: "high", reason: "strong cross-provider backup" },
-  { engine: "claude", model: "claude-sonnet-4-6", effortLevel: "medium", reason: "balanced Claude backup" },
+  { engine: "claude", model: "claude-sonnet-5", effortLevel: "medium", reason: "balanced Claude backup" },
   { engine: "codex", model: "gpt-5.4", effortLevel: "high", reason: "mid-tier Codex backup" },
 ];
 

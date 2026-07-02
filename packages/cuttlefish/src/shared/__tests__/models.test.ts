@@ -63,7 +63,7 @@ describe("getModelRegistry with a models: block", () => {
       effortMechanism: "claude-flag",
       models: [
         { id: "claude-opus-4-8", label: "Opus 4.8", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
-        { id: "claude-sonnet-4-6", label: "Sonnet 4.6", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+        { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
       ],
     },
     codex: {
@@ -77,7 +77,7 @@ describe("getModelRegistry with a models: block", () => {
 
   it("honors the configured models, labels, and effort levels", () => {
     const reg = getModelRegistry(cfg({}, models));
-    expect(reg.claude.models.map((m) => m.id)).toEqual(["claude-opus-4-8", "claude-sonnet-4-6"]);
+    expect(reg.claude.models.map((m) => m.id)).toEqual(["claude-opus-4-8", "claude-sonnet-5"]);
     expect(reg.claude.models[0].label).toBe("Opus 4.8");
     expect(reg.codex.models[0].effortLevels).toContain("xhigh");
     expect(reg.antigravity.models[0].supportsEffort).toBe(false);

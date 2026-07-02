@@ -50,7 +50,7 @@ const REG: EnginesResponse = {
       name: 'claude', available: true, defaultModel: 'opus', effortMechanism: 'claude-flag',
       models: [
         { id: 'opus', label: 'Opus 4.8', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
-        { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
+        { id: 'claude-sonnet-5', label: 'Sonnet 5', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
       ],
     },
     antigravity: {
@@ -113,8 +113,8 @@ describe('ModelSelectorRow chip', () => {
   })
 
   it('reflects the selected model on the chip', () => {
-    renderRow(<ModelSelectorRow mode="new" value={{ engine: 'claude', model: 'claude-sonnet-4-6', effortLevel: 'medium' }} onChange={() => {}} />)
-    expect(screen.getByText('Sonnet 4.6')).toBeTruthy()
+    renderRow(<ModelSelectorRow mode="new" value={{ engine: 'claude', model: 'claude-sonnet-5', effortLevel: 'medium' }} onChange={() => {}} />)
+    expect(screen.getByText('Sonnet 5')).toBeTruthy()
   })
 
   it('omits effort from the chip label for effort-less engines (antigravity)', () => {
@@ -191,8 +191,8 @@ describe('ModelSelectorRow in-place engine panel', () => {
     const onChange = vi.fn()
     renderRow(<Harness initial={{ engine: 'claude', model: 'opus', effortLevel: 'high' }} onChange={onChange} />)
     openMenu()
-    fireEvent.click(await screen.findByRole('menuitemradio', { name: /sonnet 4\.6/i }))
-    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ engine: 'claude', model: 'claude-sonnet-4-6' }))
+    fireEvent.click(await screen.findByRole('menuitemradio', { name: /sonnet 5/i }))
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ engine: 'claude', model: 'claude-sonnet-5' }))
   })
 
   it('existing-chat keeps the engine locked (no Switch engine affordance)', async () => {

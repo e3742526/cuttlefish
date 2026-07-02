@@ -6,6 +6,7 @@ interface TranscriptUsage { inputTokens: number; outputTokens: number; cacheToke
 const MODEL_PRICES: Record<string, { in: number; out: number }> = {
   "claude-fable-5": { in: 10, out: 50 },
   "claude-opus-4-7": { in: 15, out: 75 },
+  "claude-sonnet-5": { in: 3, out: 15 },
   "claude-sonnet-4-6": { in: 3, out: 15 },
   "claude-haiku-4-5": { in: 1, out: 5 },
 };

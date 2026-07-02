@@ -15,7 +15,7 @@ import { logger } from "../shared/logger.js";
  * literal alias is not itself a registered id.
  */
 const CLAUDE_MODEL_ALIASES: Record<string, string> = {
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5",
   opus: "claude-opus-4-8",
   haiku: "claude-haiku-4-5",
 };

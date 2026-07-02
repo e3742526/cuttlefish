@@ -59,7 +59,7 @@ export const DEFAULT_MODEL_LADDER: ModelLadder = [
   // Tier 1 — mid / balanced
   [
     { engine: "codex", model: "gpt-5.4" },
-    { engine: "claude", model: "claude-sonnet-4-6" },
+    { engine: "claude", model: "claude-sonnet-5" },
   ],
   // Tier 2 — large / most capable
   [

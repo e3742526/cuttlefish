@@ -5,7 +5,7 @@ import { rungKey } from "../model-escalation.js";
 const baseConfig: any = {
   engines: {
     default: "claude",
-    claude: { bin: "claude", model: "claude-sonnet-4-6" },
+    claude: { bin: "claude", model: "claude-sonnet-5" },
     codex: { bin: "codex", model: "gpt-5.4" },
   },
 };
@@ -65,8 +65,8 @@ describe("resolveModelFallback", () => {
       config: { ...baseConfig, modelFallback: { enabled: true, defaultMode: "auto", globalChain: [{ engine: "codex", model: "gpt-5.4" }] } } as any,
       failureReason: "rate_limit",
       fromEngine: "claude",
-      fromModel: "claude-sonnet-4-6",
-      triedRungs: new Set([rungKey("claude", "claude-sonnet-4-6")]),
+      fromModel: "claude-sonnet-5",
+      triedRungs: new Set([rungKey("claude", "claude-sonnet-5")]),
       excludeEngines: new Set(["claude"]),
       isAvailable: available,
     });

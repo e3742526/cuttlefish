@@ -57,7 +57,7 @@ const FEATURES = [
  *  and all three known model IDs are present in the registry. */
 const CLAUDE_EYEBROW: Record<string, string> = {
   opus:                "Smartest",
-  "claude-sonnet-4-6": "Balanced",
+  "claude-sonnet-5":   "Balanced",
   "claude-haiku-4-5":  "Fastest",
 }
 
@@ -595,7 +595,7 @@ export function OnboardingWizard({ forceOpen, onClose }: OnboardingWizardProps) 
                     if (models.length === 0) return null
                     const useEyebrow =
                       engineChoice.engine === "claude" &&
-                      ["opus", "claude-sonnet-4-6", "claude-haiku-4-5"].every(
+                      ["opus", "claude-sonnet-5", "claude-haiku-4-5"].every(
                         id => models.some(m => m.id === id)
                       )
                     return (

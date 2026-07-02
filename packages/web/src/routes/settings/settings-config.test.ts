@@ -12,12 +12,12 @@ describe("settings-config helpers", () => {
   it("round-trips pipe-delimited fallback chain rows", () => {
     const text = formatFallbackChain([
       { engine: "codex", model: "gpt-5.5", effortLevel: "high" },
-      { engine: "claude", model: "claude-sonnet-4-6", reason: "balanced backup" },
+      { engine: "claude", model: "claude-sonnet-5", reason: "balanced backup" },
     ])
-    expect(text).toBe("codex | gpt-5.5 | high\nclaude | claude-sonnet-4-6 |  |  | balanced backup")
+    expect(text).toBe("codex | gpt-5.5 | high\nclaude | claude-sonnet-5 |  |  | balanced backup")
     expect(parseFallbackChain(text)).toEqual([
       { engine: "codex", model: "gpt-5.5", effortLevel: "high" },
-      { engine: "claude", model: "claude-sonnet-4-6", reason: "balanced backup" },
+      { engine: "claude", model: "claude-sonnet-5", reason: "balanced backup" },
     ])
   })
 })

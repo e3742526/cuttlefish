@@ -630,7 +630,7 @@ export function RecoveryFallbacksSection({
         <SettingsTextarea
           value={formatFallbackChain(config.modelFallback?.globalChain)}
           onChange={(v) => updateConfig(["modelFallback", "globalChain"], parseFallbackChain(v))}
-          placeholder={"codex | gpt-5.5 | high\nclaude | claude-sonnet-4-6 | medium | reviewer | balanced backup"}
+          placeholder={"codex | gpt-5.5 | high\nclaude | claude-sonnet-5 | medium | reviewer | balanced backup"}
           rows={4}
         />
       </FieldRow>

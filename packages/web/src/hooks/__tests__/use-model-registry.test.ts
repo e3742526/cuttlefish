@@ -15,7 +15,7 @@ const REG: EnginesResponse = {
       name: 'claude', available: true, defaultModel: 'opus', effortMechanism: 'claude-flag',
       models: [
         { id: 'opus', label: 'Opus 4.8', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
-        { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
+        { id: 'claude-sonnet-5', label: 'Sonnet 5', supportsEffort: true, effortLevels: ['low', 'medium', 'high'] },
       ],
     },
     codex: {
@@ -40,7 +40,7 @@ describe('engineList', () => {
 
 describe('findModel', () => {
   it('finds a model by id', () => {
-    expect(findModel(REG, 'claude', 'claude-sonnet-4-6')?.label).toBe('Sonnet 4.6')
+    expect(findModel(REG, 'claude', 'claude-sonnet-5')?.label).toBe('Sonnet 5')
   })
   it('falls back to the engine default model when id is unknown/absent', () => {
     expect(findModel(REG, 'claude', undefined)?.id).toBe('opus')

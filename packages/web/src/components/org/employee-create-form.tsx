@@ -100,7 +100,7 @@ export function EmployeeCreateForm({
   const [showIconPicker, setShowIconPicker] = useState(false)
   const [selector, setSelector] = useState<SelectorValue>({
     engine: "claude",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
   })
   const { settings } = useSettings()
   const [departments, setDepartments] = useState<string[]>([])
