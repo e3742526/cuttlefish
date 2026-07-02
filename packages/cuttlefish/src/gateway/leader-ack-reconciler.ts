@@ -8,6 +8,7 @@ import { acknowledgeLeaderAck, isLeaderAckNoOpResult, markLeaderAckEscalated, re
 
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+const DEFAULT_MAX_ESCALATIONS = 1;
 
 export interface LeaderAckEscalationDispatch {
   childSession: Session;
@@ -27,6 +28,11 @@ export interface LeaderAckReconcilerDeps {
 export function resolveLeaderAckTimeoutMs(config: CuttlefishConfig): number {
   const raw = config.gateway?.leaderAckTimeoutMs;
   return typeof raw === "number" && raw > 0 ? raw : DEFAULT_TIMEOUT_MS;
+}
+
+export function resolveLeaderAckMaxEscalations(config: CuttlefishConfig): number {
+  const raw = config.gateway?.leaderAckMaxEscalations;
+  return typeof raw === "number" && raw >= 0 ? raw : DEFAULT_MAX_ESCALATIONS;
 }
 
 function formatDurationMinutes(ms: number): number {
@@ -56,14 +62,26 @@ function buildChildEscalationMessage(child: Session, timeoutMs: number, recipien
   return `🧭 Leader acknowledgement timeout: ${leader} did not acknowledge this report within ${minutes} minute${minutes === 1 ? "" : "s"}. Escalated to ${escalationTargetLabel(recipient)} for reassignment or backlog guidance.`;
 }
 
+/**
+ * Whether the leader has already dealt with this report without hitting the
+ * explicit ack API. Two ways that happens in practice:
+ *  - The leader posts ANY assistant reply after the report landed. The report
+ *    is delivered by waking the leader's own turn, so a subsequent assistant
+ *    message means the leader was active and responded to that wake — this is
+ *    the common "relayed the result in free text" case, not just a no-op.
+ *  - A human/HR closes it out with a boilerplate no-op user message (e.g.
+ *    "acknowledged", "task remains done").
+ */
 function hasParentNoOpAcknowledgement(ack: LeaderAckMeta): boolean {
   const parent = getSession(ack.parentSessionId);
   if (!parent) return false;
   const reportedAt = Date.parse(ack.reportedAt);
+  if (!Number.isFinite(reportedAt)) return false;
   return getMessages(parent.id).some((message) => {
-    if (message.role !== "assistant" && message.role !== "user") return false;
-    if (Number.isFinite(reportedAt) && message.timestamp < reportedAt) return false;
-    return isLeaderAckNoOpResult(message.content);
+    if (message.timestamp < reportedAt) return false;
+    if (message.role === "assistant") return true;
+    if (message.role === "user") return isLeaderAckNoOpResult(message.content);
+    return false;
   });
 }
 
@@ -89,6 +107,7 @@ export function buildLeaderAckEscalationPrompt(input: LeaderAckEscalationDispatc
 export function sweepLeaderAcknowledgements(deps: LeaderAckReconcilerDeps): number {
   const now = deps.now?.() ?? Date.now();
   const timeoutMs = resolveLeaderAckTimeoutMs(deps.getConfig());
+  const maxEscalations = resolveLeaderAckMaxEscalations(deps.getConfig());
   let escalated = 0;
 
   for (const session of listSessions()) {
@@ -105,6 +124,22 @@ export function sweepLeaderAcknowledgements(deps: LeaderAckReconcilerDeps): numb
     }
     const reportedAt = Date.parse(ack.reportedAt);
     if (!Number.isFinite(reportedAt) || now - reportedAt < timeoutMs) continue;
+
+    // Every completed child turn re-arms a fresh pending cycle (markLeaderAckPending),
+    // including turns that are just administrative follow-up (e.g. HR sending a closing
+    // note into the worker session). Without a cap, each of those re-arms times out
+    // 10 minutes later and pages HR again, forever, on the exact same underlying handoff.
+    // Once this session lineage has already escalated maxEscalations times, stop paging
+    // and settle quietly instead — a human already saw this once.
+    if ((ack.escalationCount ?? 0) >= maxEscalations) {
+      acknowledgeLeaderAck(session.id, session, {
+        acknowledgedBy: `leader-ack-cap (suppressed repeat escalation #${(ack.escalationCount ?? 0) + 1})`,
+        now: new Date(now).toISOString(),
+      });
+      deps.emit("session:updated", { sessionId: session.id });
+      logger.warn(`[leader-ack] session ${session.id} hit repeat timeout after ${ack.escalationCount ?? 0} prior escalation(s); suppressing duplicate escalation instead of re-paging HR`);
+      continue;
+    }
 
     const recipient = escalationRecipientFor(session, deps.getConfig());
     const recipientName = recipient?.name ?? "manual-review";

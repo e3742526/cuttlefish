@@ -111,6 +111,8 @@ export interface CuttlefishConfig {
     turnStallLeaderCheckMs?: number;
     /** Escalate a finished report to HR/COO when its leader has not acknowledged it within this many ms. */
     leaderAckTimeoutMs?: number;
+    /** Cap on automatic leader-ack escalations per child session lineage before further timeouts are suppressed instead of re-paging HR. Default 1. */
+    leaderAckMaxEscalations?: number;
     /** Stall detection: max ceiling in ms before hard-timeout. */
     turnStallCeilingMs?: number;
     /** Stall detection: number of retries before giving up. */

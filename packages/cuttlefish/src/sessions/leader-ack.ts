@@ -14,6 +14,8 @@ export interface LeaderAckMeta {
   acknowledgedBy?: string | null;
   escalatedAt?: string | null;
   escalatedTo?: string | null;
+  /** Count of automatic escalations already dispatched for this session lineage. Carried forward across re-arms so repeat timeouts can be capped instead of re-paging HR indefinitely. */
+  escalationCount?: number;
   boardTicketId?: string | null;
   boardDepartment?: string | null;
 }
@@ -62,6 +64,7 @@ export function readLeaderAckMeta(session: Pick<Session, "transportMeta"> | null
     acknowledgedBy: typeof raw.acknowledgedBy === "string" ? raw.acknowledgedBy : null,
     escalatedAt: typeof raw.escalatedAt === "string" ? raw.escalatedAt : null,
     escalatedTo: typeof raw.escalatedTo === "string" ? raw.escalatedTo : null,
+    escalationCount: typeof raw.escalationCount === "number" && raw.escalationCount >= 0 ? raw.escalationCount : 0,
     boardTicketId: typeof raw.boardTicketId === "string" ? raw.boardTicketId : null,
     boardDepartment: typeof raw.boardDepartment === "string" ? raw.boardDepartment : null,
   };
@@ -78,6 +81,10 @@ export function markLeaderAckPending(
 ): void {
   if (!session.parentSessionId) return;
   const transport = isRecord(session.transportMeta) ? session.transportMeta : {};
+  // Carry escalationCount forward across re-arms (a fresh report on this same
+  // session lineage does not reset the cap — see hasEscalationsRemaining in
+  // the reconciler, which relies on this to stop the repeat-escalation loop).
+  const existing = readLeaderAckMeta(session);
   patchSessionTransportMeta(session.id, {
     [META_KEY]: {
       state: "pending",
@@ -90,6 +97,7 @@ export function markLeaderAckPending(
       acknowledgedBy: null,
       escalatedAt: null,
       escalatedTo: null,
+      escalationCount: existing?.escalationCount ?? 0,
       boardTicketId: typeof transport.boardTicketId === "string" ? transport.boardTicketId : null,
       boardDepartment: typeof transport.boardDepartment === "string" ? transport.boardDepartment : null,
     },
@@ -125,6 +133,7 @@ export function markLeaderAckEscalated(sessionId: string, existing: Pick<Session
       state: "escalated",
       escalatedAt: input.now ?? new Date().toISOString(),
       escalatedTo: input.escalatedTo,
+      escalationCount: (current.escalationCount ?? 0) + 1,
     },
   });
   return true;

@@ -125,6 +125,53 @@ describe("leader acknowledgement reconciler", () => {
     expect(reg.getMessages(child.id).some((message) => message.content.includes("Leader acknowledgement timeout"))).toBe(false);
   });
 
+  it("acknowledges when the leader simply relays the report in a normal assistant reply (no explicit ack call)", async () => {
+    const parent = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:parent-relay",
+      prompt: "parent",
+      employee: "research-lead",
+    });
+    const child = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:child-relay",
+      prompt: "child",
+      employee: "researcher",
+      parentSessionId: parent.id,
+    });
+    ack.markLeaderAckPending(child, {
+      leaderSessionId: parent.id,
+      leaderName: "research-lead",
+      reportKind: "result",
+      now: new Date(0).toISOString(),
+    });
+    // Ordinary relay: the leader just tells the user what the worker found —
+    // no boilerplate "acknowledged" phrase, no explicit ack API call.
+    reg.insertMessage(parent.id, "assistant", "The vampire squid fact came back from research: it lives in the midnight zone.");
+
+    const dispatchEscalation = vi.fn(async () => {});
+    const fixed = rec.sweepLeaderAcknowledgements({
+      emit: vi.fn(),
+      getConfig: () => ({
+        gateway: { port: 8888, host: "127.0.0.1", leaderAckTimeoutMs: 60_000 },
+        engines: { default: "claude", claude: { bin: "claude", model: "opus" } },
+        connectors: {},
+        logging: { file: true, stdout: true, level: "info" },
+      } as any),
+      now: () => 120_000,
+      dispatchEscalation,
+    });
+
+    expect(fixed).toBe(0);
+    expect(ack.readLeaderAckMeta(reg.getSession(child.id))).toMatchObject({
+      state: "acknowledged",
+      acknowledgedBy: "research-lead",
+    });
+    expect(dispatchEscalation).not.toHaveBeenCalled();
+  });
+
   it("marks the leader ack acknowledged when the child receives a real follow-up", () => {
     const child = reg.createSession({
       engine: "claude",
@@ -150,6 +197,80 @@ describe("leader acknowledgement reconciler", () => {
     expect(ack.readLeaderAckMeta(reg.getSession(child.id))).toMatchObject({
       state: "acknowledged",
       acknowledgedBy: "boss",
+    });
+  });
+
+  it("suppresses a second escalation on the same session lineage instead of re-paging HR (repro: HR closing-ack loop)", async () => {
+    const parent = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:parent-loop",
+      prompt: "parent",
+      employee: "coo",
+    });
+    const child = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:child-loop",
+      prompt: "child",
+      employee: "scraping-lead",
+      parentSessionId: parent.id,
+    });
+
+    const getConfig = () => ({
+      gateway: { port: 8888, host: "127.0.0.1", leaderAckTimeoutMs: 60_000 },
+      engines: { default: "claude", claude: { bin: "claude", model: "opus" } },
+      connectors: {},
+      logging: { file: true, stdout: true, level: "info" },
+    } as any);
+
+    // Round 1: worker reports, leader never explicitly acks, timeout fires -> escalates to HR.
+    ack.markLeaderAckPending(child, {
+      leaderSessionId: parent.id,
+      leaderName: "coo",
+      reportKind: "result",
+      now: new Date(0).toISOString(),
+    });
+    const dispatchEscalation = vi.fn(async () => {});
+    let escalated = rec.sweepLeaderAcknowledgements({
+      emit: vi.fn(),
+      getConfig,
+      now: () => 120_000,
+      dispatchEscalation,
+    });
+    expect(escalated).toBe(1);
+    expect(ack.readLeaderAckMeta(reg.getSession(child.id))).toMatchObject({
+      state: "escalated",
+      escalationCount: 1,
+    });
+
+    // Round 2: HR sends a closing message into the worker session; the worker's
+    // reply re-arms a fresh pending cycle via markLeaderAckPending (this is the
+    // notifyParentSession path — simulated directly here since that's the exact
+    // re-arm this reconciler must dedupe against).
+    ack.markLeaderAckPending(reg.getSession(child.id)!, {
+      leaderSessionId: parent.id,
+      leaderName: "coo",
+      reportKind: "result",
+      now: new Date(130_000).toISOString(),
+    });
+    expect(ack.readLeaderAckMeta(reg.getSession(child.id))).toMatchObject({
+      state: "pending",
+      escalationCount: 1, // carried forward, not reset
+    });
+
+    escalated = rec.sweepLeaderAcknowledgements({
+      emit: vi.fn(),
+      getConfig,
+      now: () => 250_000,
+      dispatchEscalation,
+    });
+
+    // Must NOT escalate (page HR) a second time for the same session lineage.
+    expect(escalated).toBe(0);
+    expect(dispatchEscalation).toHaveBeenCalledTimes(1); // still just the first call
+    expect(ack.readLeaderAckMeta(reg.getSession(child.id))).toMatchObject({
+      state: "acknowledged",
     });
   });
 });

@@ -95,6 +95,7 @@ function validateGateway(problems: string[], value: unknown): void {
     "turnStallInactivityMs",
     "turnStallLeaderCheckMs",
     "leaderAckTimeoutMs",
+    "leaderAckMaxEscalations",
     "turnStallCeilingMs",
     "turnStallRetries",
     "allowFileCustomPaths",
@@ -110,6 +111,7 @@ function validateGateway(problems: string[], value: unknown): void {
   if (value.turnStallInactivityMs !== undefined) validateNumber(problems, "gateway.turnStallInactivityMs", value.turnStallInactivityMs);
   if (value.turnStallLeaderCheckMs !== undefined) validateNumber(problems, "gateway.turnStallLeaderCheckMs", value.turnStallLeaderCheckMs);
   if (value.leaderAckTimeoutMs !== undefined) validateNumber(problems, "gateway.leaderAckTimeoutMs", value.leaderAckTimeoutMs);
+  if (value.leaderAckMaxEscalations !== undefined) validateNumber(problems, "gateway.leaderAckMaxEscalations", value.leaderAckMaxEscalations);
   if (value.turnStallCeilingMs !== undefined) validateNumber(problems, "gateway.turnStallCeilingMs", value.turnStallCeilingMs);
   if (value.turnStallRetries !== undefined) validateNumber(problems, "gateway.turnStallRetries", value.turnStallRetries);
   if (value.allowFileCustomPaths !== undefined) validateBoolean(problems, "gateway.allowFileCustomPaths", value.allowFileCustomPaths);
