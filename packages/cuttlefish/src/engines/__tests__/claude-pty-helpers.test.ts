@@ -3,17 +3,26 @@ import { buildClaudePtyEnv } from "../claude-pty-helpers.js";
 
 describe("buildClaudePtyEnv", () => {
   let prevSandbox: string | undefined;
+  let originalGetuid: typeof process.getuid;
 
   beforeEach(() => {
     // Control IS_SANDBOX explicitly — the ambient test env may already set it.
     prevSandbox = process.env.IS_SANDBOX;
     delete process.env.IS_SANDBOX;
+    // process.getuid is undefined on Windows; vi.spyOn would throw. Provide a
+    // stub so the spies below have something to replace, and restore it after.
+    originalGetuid = process.getuid;
+    if (typeof process.getuid !== "function") {
+      (process as { getuid?: () => number }).getuid = () => 1000;
+    }
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     if (prevSandbox === undefined) delete process.env.IS_SANDBOX;
     else process.env.IS_SANDBOX = prevSandbox;
+    if (originalGetuid === undefined) delete (process as { getuid?: unknown }).getuid;
+    else process.getuid = originalGetuid;
   });
 
   it("sets IS_SANDBOX=1 when running as root so --dangerously-skip-permissions is accepted", () => {

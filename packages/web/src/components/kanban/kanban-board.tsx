@@ -86,8 +86,18 @@ export function KanbanBoard({
       onDragOver={handleDragOver}
       onDrop={stopEdgeScroll}
       onDragLeave={(e) => {
-        // Only stop when the pointer actually leaves the board, not a child column.
-        if (!e.currentTarget.contains(e.relatedTarget as Node)) stopEdgeScroll()
+        // Stop only when the pointer actually leaves the board, not when it moves
+        // over a child column. e.relatedTarget is unreliable during dragleave (null
+        // in Safari), so test the pointer against the board's bounding box instead.
+        const rect = e.currentTarget.getBoundingClientRect()
+        if (
+          e.clientX < rect.left ||
+          e.clientX >= rect.right ||
+          e.clientY < rect.top ||
+          e.clientY >= rect.bottom
+        ) {
+          stopEdgeScroll()
+        }
       }}
       onDragEnd={stopEdgeScroll}
       style={{
