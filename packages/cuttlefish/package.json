@@ -40,7 +40,7 @@
     "node-cron": "^4.5.0",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",
-    "uuid": "^11.1.0",
+    "uuid": "^14.0.1",
     "ws": "^8.18.0",
     "zod": "^4.4.3",
     "@qdrant/js-client-rest": "^1.9.0"
