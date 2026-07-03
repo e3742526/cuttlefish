@@ -13,7 +13,7 @@
     "clean": "node -e \"const{rmSync}=require('node:fs');['out','dist'].forEach(d=>rmSync(d,{recursive:true,force:true}))\""
   },
   "dependencies": {
-    "@dagrejs/dagre": "^2.0.4",
+    "@dagrejs/dagre": "^3.0.0",
     "@tanstack/react-query": "^5",
     "@tanstack/react-virtual": "^3.13.24",
     "@xterm/addon-fit": "^0.11.0",
