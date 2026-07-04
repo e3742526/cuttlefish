@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import path from "node:path";
 import { safeEqual } from "./auth-crypto.js";
 
 // ── Scoped session tokens ─────────────────────────────────────────────────────
@@ -49,8 +50,14 @@ export function verifyScopedSessionToken(token: string, secret: string, now = Da
  * sessions, scoped connector send, read org/email/status, push attachments).
  * Deny list (vs allow list) is deliberate for the "contained" scope.
  */
-export function scopedTokenForbidden(method: string | undefined, pathname: string): boolean {
+export function scopedTokenForbidden(method: string | undefined, rawPathname: string): boolean {
   const m = (method || "GET").toUpperCase();
+  // Normalize before matching. The API router resolves `req.url` through the
+  // WHATWG URL parser (collapsing `..` segments) before dispatch, so a raw match
+  // here would let `/api/sessions/../approvals/abc/approve` slip past the deny
+  // list yet still reach the approvals handler. Collapse `..`/`//` and lower-case
+  // so the gate evaluates exactly the path the router will act on (or stricter).
+  const pathname = path.posix.normalize(rawPathname || "/").toLowerCase();
   if (pathname === "/api/config" || pathname.startsWith("/api/config/")) return true;
   if (pathname === "/api/system" || pathname.startsWith("/api/system/")) return true;
   if (pathname === "/api/auth" || pathname.startsWith("/api/auth/")) return true;

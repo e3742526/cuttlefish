@@ -36,4 +36,18 @@ describe("scopedTokenForbidden — operator control plane", () => {
     expect(scopedTokenForbidden("POST", "/api/sessions/s-1/message")).toBe(false);
     expect(scopedTokenForbidden("POST", "/api/files")).toBe(false);
   });
+
+  it("blocks path-traversal, redundant-slash, and case bypass attempts", () => {
+    // The router resolves `..` before dispatch, so the deny list must too.
+    expect(scopedTokenForbidden("POST", "/api/sessions/../approvals/abc/approve")).toBe(true);
+    expect(scopedTokenForbidden("POST", "/api/sessions/../org/employees")).toBe(true);
+    expect(scopedTokenForbidden("POST", "/api/foo/../../api/config")).toBe(true);
+    // Redundant slashes collapse to the canonical path.
+    expect(scopedTokenForbidden("POST", "/api/approvals//abc/approve")).toBe(true);
+    // Case-folding closes a case-mismatch gap regardless of router casing.
+    expect(scopedTokenForbidden("POST", "/api/Approvals/abc/approve")).toBe(true);
+    expect(scopedTokenForbidden("PUT", "/api/Config")).toBe(true);
+    // A traversal that resolves back to an allowed path stays allowed.
+    expect(scopedTokenForbidden("POST", "/api/approvals/../sessions/s-1/message")).toBe(false);
+  });
 });
