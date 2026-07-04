@@ -9,7 +9,7 @@ import {
   type OrchestrationRunTelemetryRecord,
 } from "../orchestration/telemetry.js";
 import { dispatchEmployeeSessionRun } from "./mid-pair-orchestrator.js";
-import { findEmployee, scanOrg } from "./org.js";
+import { findEmployee, isActiveEmployee, scanOrg } from "./org.js";
 import { readBoardArray, writeBoardTickets, type BoardTicket } from "./board-service.js";
 import type { ApiContext } from "./api/context.js";
 import { orgWorkerIdForName, orgWorkerRoleForName } from "./org-worker-bridge.js";
@@ -24,6 +24,7 @@ export type DispatchTicketFailureReason =
   | "not-found"
   | "unknown-employee"
   | "foreign-department-assignee"
+  | "employee-not-active"
   | "no-manager"
   | "already-running"
   | "manual-only"
@@ -135,6 +136,7 @@ export function resolveDispatchEmployee(
   if (routeToManager) {
     const manager = findDepartmentManager(department, registry);
     if (!manager) return { reason: "no-manager" };
+    if (!isActiveEmployee(manager)) return { reason: "employee-not-active" };
     return { employee: manager };
   }
   const assignee = typeof ticket.assignee === "string" ? ticket.assignee.trim() : "";
@@ -142,6 +144,9 @@ export function resolveDispatchEmployee(
   const employee = findEmployee(assignee, registry);
   if (!employee) return { reason: "unknown-employee" };
   if (employee.department !== department) return { reason: "foreign-department-assignee" };
+  // Draft/disabled/retired employees must not receive work — availability is a
+  // first-class dispatch gate, not an advisory badge.
+  if (!isActiveEmployee(employee)) return { reason: "employee-not-active" };
   return { employee };
 }
 

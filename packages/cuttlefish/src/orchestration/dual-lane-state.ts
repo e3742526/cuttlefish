@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { TMP_DIR } from "../shared/paths.js";
+import { safeWriteFile } from "../shared/safe-write.js";
 import type { OrchestrationRunSession } from "./run-mode.js";
 import type { WorktreeHandle } from "./worktree.js";
 import { safePathSegment } from "./path-segments.js";
@@ -58,8 +59,10 @@ export interface DualLaneComparisonReport {
 
 export function writeDualLaneManifest(manifest: DualLaneManifest): void {
   const file = dualLaneManifestPath(manifest.taskId, manifest.coordinatorId);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  // Atomic tmp+fsync+rename: this manifest's `state` gates whether a lane's patch
+  // may be applied, so a torn write would silently lose a winner selection. Use the
+  // repo's safe-write doctrine rather than a raw writeFileSync.
+  safeWriteFile(file, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
 export function readDualLaneManifest(taskId: string, coordinatorId: string): DualLaneManifest | undefined {

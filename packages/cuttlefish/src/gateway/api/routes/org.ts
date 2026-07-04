@@ -605,6 +605,10 @@ export async function handleOrgRoutes(
         json(res, { reason: result.reason, error: "Assignee does not belong to this department." }, 400);
         return true;
       }
+      if (result.reason === "employee-not-active") {
+        json(res, { reason: result.reason, error: "Assigned agent is not active (draft, disabled, or retired)." }, 409);
+        return true;
+      }
       if (result.reason === "already-running") {
         json(res, { reason: result.reason, error: "Ticket already has a running session." }, 409);
         return true;

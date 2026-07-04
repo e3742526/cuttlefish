@@ -490,7 +490,17 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
 
   const reloadConfig = (): void => {
     try {
-      currentConfig = loadConfig();
+      const nextConfig = loadConfig();
+      // Re-run the boot-time exposure guard on every reload. A live PUT /api/config
+      // that would expose an unauthenticated network gateway must be rejected here,
+      // not merely at startup — otherwise the unsafe combination takes effect until
+      // the next restart. On rejection, keep running with the prior config.
+      const exposureOnReload = validateGatewayExposure(nextConfig);
+      if (!exposureOnReload.ok) {
+        logger.error(`Refusing config reload: ${exposureOnReload.error}`);
+        return;
+      }
+      currentConfig = nextConfig;
       apiContext.config = currentConfig;
       emailService.setConfig(currentConfig.email);
       emailService.start();
