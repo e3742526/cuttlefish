@@ -28,7 +28,20 @@ design decisions; each fix ships with a test. Four findings addressed:
    `state` gates whether a lane's patch may be applied, so a torn write could silently lose a
    winner selection.
 
+## Follow-up (PR #21 review — Gemini Code Assist)
+5. **Path-traversal bypass in `scopedTokenForbidden` (security-high) — fixed.** The API
+   router resolves `req.url` via the WHATWG URL parser (collapsing `..`) before dispatch,
+   but the deny-list matched the raw path, so `POST /api/sessions/../approvals/abc/approve`
+   reached the approvals handler while evading the check (also affected the pre-existing
+   config/org/system entries). Fix: normalize once (`path.posix.normalize` + `toLowerCase`)
+   before every check. Added traversal/redundant-slash/case tests.
+6. **Email-service restart-on-reload (medium) — false positive, no change.** `EmailService.start()`
+   calls `this.stop()` first (`email/service.ts:107`); the poll timer is the only persistent
+   resource and IMAP connections are per-poll. `start()` is idempotent; no leak.
+
 ## Touched Files
+- `packages/cuttlefish/src/gateway/scoped-token.ts` — path normalization in `scopedTokenForbidden`
+  (deny-list widening + traversal-bypass fix).
 - `packages/cuttlefish/src/gateway/ticket-dispatch.ts` — import `isActiveEmployee`; add
   `employee-not-active` to `DispatchTicketFailureReason`; enforce availability in
   `resolveDispatchEmployee` (manager + assignee branches).
@@ -37,7 +50,7 @@ design decisions; each fix ships with a test. Four findings addressed:
 - `packages/cuttlefish/src/gateway/server.ts` — re-validate exposure inside `reloadConfig`.
 - `packages/cuttlefish/src/orchestration/dual-lane-state.ts` — atomic manifest write.
 - Tests (new/updated): `gateway/__tests__/ticket-dispatch.test.ts` (+3 cases),
-  `gateway/__tests__/scoped-token-forbidden.test.ts` (new),
+  `gateway/__tests__/scoped-token-forbidden.test.ts` (new; +traversal/case bypass cases),
   `orchestration/__tests__/dual-lane-state-write.test.ts` (new).
 
 ## Validation Run
