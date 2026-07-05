@@ -95,11 +95,11 @@ Required fields:
 - `reportsTo` - (optional) who this employee reports to (employee name)
 
 **Auto-determining `reportsTo`** when the user does not specify:
-1. Find the highest-ranked employee in the target department (manager > senior > employee)
-2. If a manager exists → set `reportsTo: <manager-name>`
-3. If only seniors exist → set `reportsTo: <first-senior-alphabetically>`
-4. If the department is empty → omit `reportsTo` (smart defaults attach to root)
-5. Confirm to the user: "Assigned X to report to Y. Change this?"
+1. If the new employee's `rank` is `manager`, omit `reportsTo` unless the user explicitly names a supervisor. Smart defaults attach managers to {{portalName}} / COO root.
+2. For non-managers, find the manager in the target department.
+3. If a manager exists → set `reportsTo: <manager-name>`.
+4. If no manager exists → omit `reportsTo` and tell the user there is no department manager yet; ask whether they want to assign a supervisor.
+5. Confirm to the user: "Assigned X to report to Y. Change this?" or "No department manager exists yet, so X has no explicit manager. Assign one?"
 
 When the user specifies a report-to explicitly, validate the target exists in the registry. If not, warn and ask for correction.
 

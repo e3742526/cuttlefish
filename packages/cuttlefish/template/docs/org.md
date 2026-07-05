@@ -102,12 +102,12 @@ Optional ticket-level execution controls:
 
 ## Default Organization
 
-`cuttlefish setup` seeds a small default org under `~/.cuttlefish/org/general/`:
+`cuttlefish setup` seeds a small default org under `~/.cuttlefish/org/`:
 
-- `parliamentarian.yaml` — a `manager` for governance, policy, and routing work
-- `assistant.yaml` — a `senior` generalist with `reportsTo: parliamentarian`
-- `hr-manager.yaml` — a `manager` that critiques org changes and gates risky org mutations
-- `senior-security-officer.yaml` — a `senior` reviewer seeded with the default hard security gate triggers
+- `compliance/parliamentarian.yaml` — a `manager` for governance, policy, and routing work
+- `compliance/senior-security-officer.yaml` — a `senior` reviewer seeded with the default hard security gate triggers, reporting to Parliamentarian
+- `personnel/hr-manager.yaml` — a `manager` that critiques org changes and gates risky org mutations
+- `general/assistant.yaml` — a `senior` generalist in the General department
 
 That gives fresh installs a manager-first lane for cross-cutting guidance work
 without forcing delivery departments into existence up front. `{{portalName}}`

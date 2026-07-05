@@ -42,9 +42,37 @@ describe("fresh-install: talk seeding + config guidance", () => {
   });
 
   it("ships an HR steward seed that knows onboarding and team-formation workflow", () => {
-    const steward = readFileSync(join(TEMPLATE, "org", "general", "hr-manager.yaml"), "utf-8");
+    const steward = readFileSync(join(TEMPLATE, "org", "personnel", "hr-manager.yaml"), "utf-8");
     expect(steward).toMatch(/skills\/onboarding\/SKILL\.md/);
     expect(steward).toMatch(/skills\/management\/SKILL\.md/);
     expect(steward).toMatch(/build a team|create a team/);
+  });
+
+  it("seeds first-run departments and reporting lines without over-attaching everyone to Parliamentarian", () => {
+    const hr = readFileSync(join(TEMPLATE, "org", "personnel", "hr-manager.yaml"), "utf-8");
+    const parliamentarian = readFileSync(join(TEMPLATE, "org", "compliance", "parliamentarian.yaml"), "utf-8");
+    const security = readFileSync(join(TEMPLATE, "org", "compliance", "senior-security-officer.yaml"), "utf-8");
+    const assistant = readFileSync(join(TEMPLATE, "org", "general", "assistant.yaml"), "utf-8");
+
+    expect(existsSync(join(TEMPLATE, "org", "general", "hr-manager.yaml"))).toBe(false);
+    expect(existsSync(join(TEMPLATE, "org", "general", "parliamentarian.yaml"))).toBe(false);
+    expect(existsSync(join(TEMPLATE, "org", "general", "senior-security-officer.yaml"))).toBe(false);
+    expect(hr).toMatch(/department: personnel/);
+    expect(hr).not.toMatch(/reportsTo:/);
+    expect(parliamentarian).toMatch(/department: compliance/);
+    expect(parliamentarian).not.toMatch(/reportsTo:/);
+    expect(security).toMatch(/department: compliance/);
+    expect(security).toMatch(/reportsTo: parliamentarian/);
+    expect(assistant).toMatch(/department: general/);
+    expect(assistant).not.toMatch(/reportsTo: parliamentarian/);
+  });
+
+  it("instructs HR that new managers report to the COO unless the user says otherwise", () => {
+    const managementSkill = readFileSync(join(TEMPLATE, "skills", "management", "SKILL.md"), "utf-8");
+    const manual = readFileSync(join(TEMPLATE, "CLAUDE.md"), "utf-8");
+
+    expect(managementSkill).toMatch(/rank` is `manager`, omit `reportsTo`/);
+    expect(managementSkill).toMatch(/Smart defaults attach managers to \{\{portalName\}\} \/ COO root/);
+    expect(manual).toMatch(/managers → \{\{portalName\}\} \/ COO root unless the user explicitly says otherwise/);
   });
 });

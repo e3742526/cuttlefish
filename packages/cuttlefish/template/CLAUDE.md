@@ -116,7 +116,7 @@ provides:                    # optional - services this employee offers to the o
 ```
 
 - `reportsTo` accepts a single employee name (or an array for future dotted-line support)
-- If omitted, smart defaults infer hierarchy from rank: employees → department manager → root
+- If omitted, smart defaults infer hierarchy from rank: non-managers → department manager when one exists; managers → {{portalName}} / COO root unless the user explicitly says otherwise.
 - **Same-rank rule**: employees of equal rank never implicitly report to each other
 - The gateway resolves the full tree and exposes it via `GET /api/org` (includes `parentName`, `directReports`, `depth`, `chain` per employee)
 - `hierarchy.warnings` in the API response surfaces broken references, cycles, and cross-department reporting
@@ -162,7 +162,7 @@ the field is omitted, runtime defaults to `notify`.
 - Each employee's system prompt shows their chain of command, direct reports, and escalation path
 - Apply oversight levels when reviewing employee work: TRUST (relay directly), VERIFY (spot-check), THOROUGH (full review + multi-turn follow-ups)
 - When a department grows (3+ employees), promote a reliable senior to manager - managers handle their own delegation
-- When hiring, auto-determine `reportsTo` based on the highest-ranked employee in the target department (see management skill)
+- When hiring, auto-determine `reportsTo` by rank and intent: new managers report to {{portalName}} / COO unless the user explicitly says otherwise; non-managers report to the department manager when one exists (see management skill)
 
 ### Cross-Department Services
 

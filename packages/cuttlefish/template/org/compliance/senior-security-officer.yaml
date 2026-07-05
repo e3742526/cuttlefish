@@ -1,7 +1,7 @@
 name: senior-security-officer
 avatar: nautical:spyglass
 displayName: Senior Security Officer
-department: general
+department: compliance
 rank: senior
 reportsTo: parliamentarian
 engine: claude

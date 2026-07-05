@@ -10,8 +10,8 @@ critique, a risk tier, and a human-approval gate, instead of silent YAML edits.
 
 ## Template files changed
 
-- `org/general/hr-manager.yaml` — **new** seed employee (the HR / Org Steward).
-  Rank `manager`, reports to `parliamentarian`, persona encodes the steward
+- `org/personnel/hr-manager.yaml` — **new** seed employee (the HR / Org Steward).
+  Rank `manager`, reports to the COO/root by default, persona encodes the steward
   invariants (bus-not-brain, never self-modify, minimal tool grants, no invented
   engines/models, prefer narrow agents, keep the org acyclic, check for
   redundancy).
@@ -54,7 +54,7 @@ New optional field (added in this release; defaults to `active`):
 
 ## Manual steps for existing installs
 
-1. Copy `org/general/hr-manager.yaml` into `~/.cuttlefish/org/general/` (the
+1. Copy `org/personnel/hr-manager.yaml` into `~/.cuttlefish/org/personnel/` (the
    gateway hot-reloads it; no restart needed).
 2. Re-copy the updated `skills/management/SKILL.md` and `CLAUDE.md` if you have
    not customized them.
