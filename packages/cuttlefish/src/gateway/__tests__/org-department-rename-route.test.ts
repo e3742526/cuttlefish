@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -74,9 +74,17 @@ function writeEmployee(dept: string, name: string): void {
   );
 }
 
+function readEmployee(dept: string, name: string): Record<string, unknown> {
+  return yaml.load(fs.readFileSync(path.join(tmpHome, "org", dept, `${name}.yaml`), "utf-8")) as Record<string, unknown>;
+}
+
 beforeEach(() => {
   tmpHome = testHome.home();
   vi.resetModules();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("PATCH /api/org/departments/:name", () => {
@@ -103,8 +111,7 @@ describe("PATCH /api/org/departments/:name", () => {
     });
     expect(fs.existsSync(path.join(tmpHome, "org", "platform"))).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, "org", "product", "board.json"))).toBe(true);
-    const employee = yaml.load(fs.readFileSync(path.join(tmpHome, "org", "product", "dev.yaml"), "utf-8")) as Record<string, unknown>;
-    expect(employee.department).toBe("product");
+    expect(readEmployee("product", "dev").department).toBe("product");
     expect(ctx.reloadOrg).toHaveBeenCalled();
     expect(ctx.emit).toHaveBeenCalledWith("org:updated", expect.objectContaining({ action: "department-renamed" }));
   });
@@ -122,5 +129,54 @@ describe("PATCH /api/org/departments/:name", () => {
     );
 
     expect(cap.status).toBe(409);
+  });
+
+  it("rolls back employee updates when the department directory move fails", async () => {
+    writeEmployee("platform", "dev");
+    fs.writeFileSync(path.join(tmpHome, "org", "platform", "board.json"), JSON.stringify([{ id: "t1", status: "todo" }]));
+    const oldDir = path.join(tmpHome, "org", "platform");
+    const newDir = path.join(tmpHome, "org", "product");
+    const originalRenameSync = fs.renameSync.bind(fs);
+    vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (from === oldDir && to === newDir) throw new Error("rename blocked");
+      return originalRenameSync(from, to);
+    });
+    const api = await import("../api.js");
+    const ctx = makeCtx();
+    const cap = makeRes();
+
+    await api.handleApiRequest(
+      makeJsonReq("PATCH", "/api/org/departments/platform", { name: "product" }),
+      cap.res,
+      ctx,
+    );
+
+    expect(cap.status).toBe(409);
+    expect(cap.body.error).toContain("failed to move department directory");
+    expect(fs.existsSync(path.join(tmpHome, "org", "platform", "board.json"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpHome, "org", "product"))).toBe(false);
+    expect(readEmployee("platform", "dev").department).toBe("platform");
+    expect(ctx.reloadOrg).not.toHaveBeenCalled();
+    expect(ctx.emit).not.toHaveBeenCalledWith("org:updated", expect.anything());
+  });
+
+  it("rolls back earlier employee updates when a later employee update fails", async () => {
+    writeEmployee("platform", "alpha");
+    writeEmployee("platform", "beta");
+    const org = await import("../org.js");
+    const originalUpdateEmployeeYaml = org.updateEmployeeYaml;
+    vi.spyOn(org, "updateEmployeeYaml").mockImplementation((name, updates) => {
+      if (name === "beta") return false;
+      return originalUpdateEmployeeYaml(name, updates);
+    });
+    const { renameDepartment } = await import("../department-rename.js");
+
+    const result = renameDepartment("platform", "product");
+
+    expect(result).toMatchObject({ ok: false, status: 409 });
+    expect(result.ok ? "" : result.error).toContain('failed to update employee "beta"');
+    expect(fs.existsSync(path.join(tmpHome, "org", "product"))).toBe(false);
+    expect(readEmployee("platform", "alpha").department).toBe("platform");
+    expect(readEmployee("platform", "beta").department).toBe("platform");
   });
 });
