@@ -140,7 +140,9 @@ change before it takes effect; anything beyond a cosmetic edit waits for operato
 approval in the HR / Org Steward panel (and the Approvals queue). See the
 **management** skill for recipes. The steward may not modify itself — only the
 human operator can. (The human operator may still edit employees directly via the
-web org form; that is the manual override.)
+web org form; that is the manual override.) The seeded steward persona also
+knows the onboarding first-hire flow and how to turn "build me a team" requests
+into explicit department, manager, and reporting-line proposals.
 
 ### Risky Bash actions can hard-stop on security review
 

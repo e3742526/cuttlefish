@@ -113,3 +113,9 @@ That gives fresh installs a manager-first lane for cross-cutting guidance work
 without forcing delivery departments into existence up front. `{{portalName}}`
 still acts as the executive/COO above the org even though that role is not
 seeded as an employee YAML file under `org/`.
+
+The seeded `hr-manager.yaml` persona is expected to know the org file layout,
+the onboarding skill's first-hire flow, and how to reason about "create a team"
+requests: reuse an existing department when possible, insist on explicit
+`reportsTo` lines and a clear manager when a multi-person team is warranted,
+and prefer staged, non-overlapping hires over a vague swarm of generalists.

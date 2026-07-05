@@ -40,4 +40,11 @@ describe("fresh-install: talk seeding + config guidance", () => {
     );
     expect(persona).not.toMatch(maintainerPattern);
   });
+
+  it("ships an HR steward seed that knows onboarding and team-formation workflow", () => {
+    const steward = readFileSync(join(TEMPLATE, "org", "general", "hr-manager.yaml"), "utf-8");
+    expect(steward).toMatch(/skills\/onboarding\/SKILL\.md/);
+    expect(steward).toMatch(/skills\/management\/SKILL\.md/);
+    expect(steward).toMatch(/build a team|create a team/);
+  });
 });
