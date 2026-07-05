@@ -7,6 +7,12 @@ export function useApprovals(state: ApprovalState | 'all' = 'pending', sessionId
   return useQuery({
     queryKey: queryKeys.approvals.list(state, sessionId),
     queryFn: () => api.getApprovals(state, sessionId),
+    // Approval queues are an operator-control surface, not background content.
+    // Global query defaults keep data warm for 5 minutes and skip mount refetches,
+    // which can leave the approvals page stuck on an old empty snapshot while a
+    // freshly-mounted chat/session query or WS-updated badge already sees a new
+    // pending item. Always refetch on mount so navigating into approvals re-syncs.
+    refetchOnMount: 'always',
   })
 }
 

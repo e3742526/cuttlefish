@@ -6,6 +6,9 @@ export function useCheckpoints(state: ApprovalState | 'all' = 'pending', session
   return useQuery({
     queryKey: queryKeys.checkpoints.list(state, sessionId),
     queryFn: () => api.getCheckpoints(state, sessionId),
+    // Match approval-queue freshness semantics: human-review surfaces should not
+    // trust a cached empty snapshot when the operator navigates in to act.
+    refetchOnMount: 'always',
   })
 }
 
