@@ -295,15 +295,54 @@ describe("buildContext — audience scoping", () => {
   it("manager employees get the delegation mini-reference", () => {
     const out = buildContext({ ...baseOpts, employee: minimalEmployee, hierarchy });
     expect(out).toContain("Delegate to another employee");
+    expect(out).toContain("## Manager delegation discipline");
+    expect(out).toContain("Before substantive work, decide whether to delegate or stay inline");
     expect(out).toContain("/api/sessions/:id/message");
     expect(out).toContain("/attachments");
     expect(out).not.toContain("| `/api/cron` | GET |");
+  });
+
+  it("manager delegation discipline includes direct-report specialties for smart matching", () => {
+    const security: Employee = {
+      ...minimalEmployee,
+      name: "senior-security-officer",
+      displayName: "Senior Security Officer",
+      department: "security",
+      rank: "senior",
+      persona: "Review security tokens, auth boundaries, secrets exposure, and exploitability.",
+    };
+    const hr: Employee = {
+      ...minimalEmployee,
+      name: "hr-manager",
+      displayName: "HR Manager",
+      department: "people",
+      rank: "manager",
+      persona: "Owns org roster, reporting lines, hiring plans, and HR policy review.",
+    };
+    const h = {
+      nodes: {
+        [minimalEmployee.name]: { employee: minimalEmployee, parentName: null, directReports: [security.name, hr.name], depth: 0, chain: [] },
+        [security.name]: { employee: security, parentName: minimalEmployee.name, directReports: [], depth: 1, chain: [minimalEmployee.name] },
+        [hr.name]: { employee: hr, parentName: minimalEmployee.name, directReports: [], depth: 1, chain: [minimalEmployee.name] },
+      },
+      sorted: [minimalEmployee.name, security.name, hr.name],
+    } as any;
+    const out = buildContext({ ...baseOpts, employee: minimalEmployee, hierarchy: h });
+
+    expect(out).toContain("Direct-report specialties:");
+    expect(out).toContain("`senior-security-officer` Senior Security Officer");
+    expect(out).toContain("auth boundaries");
+    expect(out).toContain("`hr-manager` HR Manager");
+    expect(out).toContain("org roster");
+    expect(out).toContain("Do not delegate just to appear managerial");
+    expect(out).not.toContain("always delegate");
   });
 
   it("non-manager employees get attachments only — no delegation endpoints", () => {
     const out = buildContext({ ...baseOpts, employee: worker, hierarchy });
     expect(out).toContain("/attachments");
     expect(out).not.toContain("Delegate to another employee");
+    expect(out).not.toContain("## Manager delegation discipline");
     expect(out).toContain("Child-session delegation is unavailable");
   });
 
@@ -332,6 +371,7 @@ describe("buildContext — audience scoping", () => {
     } as any;
     const out = buildContext({ ...baseOpts, employee: seniorLead, hierarchy: h });
     expect(out).toContain("Delegate to another employee");
+    expect(out).toContain("## Manager delegation discipline");
   });
 
   it("SECONDARY-parent supervisor (reportsTo[1]) still gets the delegation mini-ref", () => {

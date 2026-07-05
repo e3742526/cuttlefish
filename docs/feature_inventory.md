@@ -450,6 +450,12 @@
 - Native-resume engines such as Claude, Codex, and Grok remain unmodified in `on` mode; they still rely on their CLI-owned session/thread state.
 - V1 metadata includes estimated before/after tokens, model context limit, reserved response/safety budget, slot usage, dropped/summarized records, and an empty retrieved-memory placeholder. No persistent memory, vector retrieval, or MCP memory dependency is added.
 
+### Smart manager delegation discipline
+- Employee sessions with one or more direct reports receive a default-on manager delegation discipline block in their runtime context. The block requires a delegate-vs-inline decision before substantive work, lists concise direct-report specialties, and distinguishes smart delegation from delegation just for appearances.
+- Delegation is still bounded by the existing child-session protocol: managers can spawn/follow/read child sessions, but the gateway does not auto-create child sessions in v1.
+- Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run.
+- Manual live behavior can be sampled with `node packages/cuttlefish/scripts/delegation-live-harness.mjs --employee <manager-slug>` against a running gateway. The harness is not part of CI because it depends on live model behavior and local credentials.
+
 ### `GET /api/org/departments/:name/tickets/:id/session`
 - Best-effort ticket-to-session resolver for the kanban panel.
 - Returns `200 { found:false }` when no live or recent matching session can be resolved.

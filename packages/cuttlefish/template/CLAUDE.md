@@ -154,8 +154,10 @@ the field is omitted, runtime defaults to `notify`.
 
 ### Delegation
 
-- **Advisory**: the hierarchy informs delegation via context prompts but never blocks direct access
-- Prefer delegating through managers - they delegate to their reports
+- Delegation is a required managerial decision, not a default action. Managers with direct reports must decide delegate-vs-inline before substantive work.
+- Delegate when work is multi-domain, has clear specialist matches, benefits from independent verification, or can split into parallel child sessions.
+- Stay inline when the task is trivial, explicitly asks you to do it yourself, has no relevant report, needs one coherent judgment, or delegation would add latency/noise.
+- Prefer delegating through managers - they delegate to their reports.
 - You can still reach any employee directly when needed (no enforcement)
 - Each employee's system prompt shows their chain of command, direct reports, and escalation path
 - Apply oversight levels when reviewing employee work: TRUST (relay directly), VERIFY (spot-check), THOROUGH (full review + multi-turn follow-ups)
@@ -173,7 +175,7 @@ Employees can declare services they provide via the `provides` field in their YA
 
 ### Automatic employee coordination
 
-When you receive a task, **always assess whether it requires multiple employees** before starting. Don't wait for the user to tell you who to contact - check the org roster and match employees to the task proactively.
+When you receive a task, **always assess whether it requires multiple employees** before starting. Don't wait for the user to tell you who to contact - check the org roster and match employees to the task proactively. Do not delegate just to appear managerial; delegate because a report is the right owner for a separable piece of work.
 
 - **Analyze first**: Break the task into sub-tasks and identify which employee(s) are needed
 - **Parallel when independent**: Spawn multiple child sessions simultaneously when sub-tasks don't depend on each other

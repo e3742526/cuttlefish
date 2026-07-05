@@ -24,6 +24,7 @@ import {
 import { notifyConnectorNotification, notifyParentSession, notifyRateLimited, notifyRateLimitResumed } from "../sessions/callbacks.js";
 import { markTranscriptSyncedThrough } from "./external-turns.js";
 import { getOrchestratorPersona } from "../talk/orchestrator-persona.js";
+import { buildManagerDelegationTelemetry, resolveSupervisedNodes } from "../sessions/manager-delegation.js";
 import { feedTalkText, flushTalkSpeech, discardTalkSpeech } from "../talk/tts-stream.js";
 import { isTalkMuted } from "../talk/mute-state.js";
 import { maybeEmitTalkGraph } from "../talk/graph.js";
@@ -152,6 +153,25 @@ export async function runWebSession(
   const { scanOrg: scanOrgForHierarchy } = await import("./org.js");
   const { resolveOrgHierarchy, withPortalExecutive } = await import("./org-hierarchy.js");
   const orgHierarchy = resolveOrgHierarchy(withPortalExecutive(scanOrgForHierarchy(), config.portal?.portalName));
+  const managerDelegationReportCount = employee
+    ? resolveSupervisedNodes(employee.name, orgHierarchy, orgHierarchy.nodes[employee.name]).length
+    : 0;
+  const managerDelegationChildSessionsBefore =
+    employee && managerDelegationReportCount > 0 ? listChildSessions(currentSession.id).length : 0;
+  let managerDelegationTelemetryLogged = false;
+  const logManagerDelegationTelemetryOnce = () => {
+    if (managerDelegationTelemetryLogged || !employee || managerDelegationReportCount <= 0) return;
+    managerDelegationTelemetryLogged = true;
+    const telemetry = buildManagerDelegationTelemetry({
+      sessionId: currentSession.id,
+      engine: currentSession.engine,
+      employee,
+      directReportCount: managerDelegationReportCount,
+      childSessionsBefore: managerDelegationChildSessionsBefore,
+      childSessionsAfter: listChildSessions(currentSession.id).length,
+    });
+    if (telemetry) logger.debug(`manager_delegation ${JSON.stringify(telemetry)}`);
+  };
 
   try {
 
@@ -580,6 +600,7 @@ export async function runWebSession(
       if (partialFlushTimer) { clearTimeout(partialFlushTimer); partialFlushTimer = null; }
       flushPartialText();
     }
+    logManagerDelegationTelemetryOnce();
 
     if (!getSession(currentSession.id)) {
       logger.info(`Skipping completion for deleted web session ${currentSession.id}`);
@@ -899,6 +920,7 @@ export async function runWebSession(
     );
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
+    logManagerDelegationTelemetryOnce();
     if (!getSession(currentSession.id)) {
       logger.info(`Skipping error handling for deleted web session ${currentSession.id}: ${errMsg}`);
       return;

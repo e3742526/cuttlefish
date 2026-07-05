@@ -3,8 +3,8 @@ import path from "node:path";
 import type { Employee, CuttlefishConfig } from "../shared/types.js";
 import { CUTTLEFISH_HOME, ORG_DIR, CRON_JOBS, DOCS_DIR } from "../shared/paths.js";
 import { gatewayBaseUrl } from "../gateway/gateway-info.js";
-import { getAllParents } from "../gateway/org-hierarchy.js";
 import { INBOUND_MESSAGE_SAFETY_CONTEXT, isUntrustedSource } from "../sessions/untrusted-input.js";
+import { buildManagerDelegationDiscipline, resolveSupervisedNodes } from "./manager-delegation.js";
 
 /**
  * Token budget strategy:
@@ -221,6 +221,20 @@ export function buildContext(opts: {
     });
   }
 
+  const employeeNode = opts.employee ? opts.hierarchy?.nodes[opts.employee.name] : undefined;
+  const supervisedNodes = opts.employee ? resolveSupervisedNodes(opts.employee.name, opts.hierarchy, employeeNode) : [];
+  if (opts.employee && !noToolEmployee && supervisedNodes.length > 0) {
+    const managerDelegation = buildManagerDelegationDiscipline(gatewayUrl, opts.employee, supervisedNodes);
+    if (managerDelegation) {
+      sections.push({
+        tier: Tier.ESSENTIAL,
+        marker: "## Manager delegation discipline",
+        content: managerDelegation,
+        summary: "",
+      });
+    }
+  }
+
   // ── STANDARD: Organization (COO only — employees get their chain of command) ──
   if (!opts.employee) {
     const orgCtx = buildOrgContext(opts.hierarchy);
@@ -295,7 +309,6 @@ export function buildContext(opts: {
 
   // ── STANDARD: Gateway API reference (audience-scoped; full table in CLAUDE.md) ──
   if (!noToolEmployee) {
-    const employeeNode = opts.employee ? opts.hierarchy?.nodes[opts.employee.name] : undefined;
     // Count everyone this employee supervises: primary-parent direct reports
     // (resolved tree edges, == directReports) UNION anyone who names this employee
     // as a SECONDARY parent in reportsTo. A reviewer may list two implementers as
@@ -304,13 +317,7 @@ export function buildContext(opts: {
     // directReports, so the secondary parent would otherwise miss the delegation
     // endpoints and improvise a raw CLI spawn with no return path. Falls back to
     // directReports when the hierarchy is unavailable.
-    const me = opts.employee?.name;
-    const supervisesCount =
-      me && opts.hierarchy
-        ? Object.values(opts.hierarchy.nodes).filter(
-            (n) => n.parentName === me || getAllParents(n.employee.reportsTo).includes(me),
-          ).length
-        : (employeeNode?.directReports?.length ?? 0);
+    const supervisesCount = supervisedNodes.length;
     sections.push({
       tier: Tier.STANDARD,
       marker: `## ${portalName} Gateway API`,
