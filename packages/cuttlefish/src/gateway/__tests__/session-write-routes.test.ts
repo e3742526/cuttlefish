@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
 import type { ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import fs from "node:fs";
+import path from "node:path";
 
 const hoisted = vi.hoisted(() => ({
   scheduleOnLoadTailSync: vi.fn(),
   scheduleTranscriptBackfill: vi.fn(),
   loadRawTranscript: vi.fn(),
   dispatchWebSessionRun: vi.fn(async () => {}),
+  dispatchEmployeeSessionRun: vi.fn(async () => {}),
   dispatchPendingWebQueueHeadForSessionKey: vi.fn(() => 0),
   killSessionEngines: vi.fn(() => ({ interruptible: 0 })),
 }));
@@ -27,6 +30,10 @@ vi.mock("../api/session-dispatch.js", () => ({
   killSessionEngines: hoisted.killSessionEngines,
   maybeRevertEngineOverride: <T>(session: T) => session,
   redispatchPendingWebQueueItemsForSessionKey: vi.fn(() => 0),
+}));
+
+vi.mock("../mid-pair-orchestrator.js", () => ({
+  dispatchEmployeeSessionRun: hoisted.dispatchEmployeeSessionRun,
 }));
 
 function makeRes() {
@@ -112,6 +119,7 @@ beforeEach(() => {
   hoisted.scheduleTranscriptBackfill.mockReset();
   hoisted.loadRawTranscript.mockReset();
   hoisted.dispatchWebSessionRun.mockReset();
+  hoisted.dispatchEmployeeSessionRun.mockReset();
   hoisted.killSessionEngines.mockReset();
   hoisted.killSessionEngines.mockReturnValue({ interruptible: 0 });
   vi.resetModules();
@@ -155,6 +163,48 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
 
     expect(cap.status).toBe(400);
     expect(cap.body).toEqual(expect.objectContaining({ error: expect.stringContaining("message is required") }));
+  });
+
+  it("applies a workspace profile cwd and instructions to a new session", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    const repoDir = path.join(testHome.home(), "repo");
+    fs.mkdirSync(repoDir, { recursive: true });
+    const expectedRepoDir = fs.realpathSync(repoDir);
+    ctx.getConfig = () => ({
+      gateway: {},
+      engines: { default: "claude", claude: { bin: "claude", model: "sonnet" } },
+      portal: {},
+      workspaces: {
+        roots: [testHome.home()],
+        profiles: {
+          billing: {
+            label: "Billing",
+            cwd: repoDir,
+            instructions: ["Use the billing repo conventions.", "Read AGENTS.md first."],
+          },
+        },
+      },
+    }) as any;
+    ctx.sessionManager.getEngine = () => ({ name: "claude" }) as any;
+
+    const cap = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", { prompt: "Implement invoices.", workspaceProfile: "billing" }),
+      cap.res,
+      ctx,
+    );
+
+    expect(cap.status).toBe(201);
+    const session = reg.getSession(String(cap.body.id));
+    expect(session?.cwd).toBe(expectedRepoDir);
+    expect(session?.promptExcerpt).toBe("Implement invoices.");
+    expect(session?.transportMeta?.workspaceProfile).toMatchObject({ id: "billing", label: "Billing", cwd: expectedRepoDir });
+    expect(reg.getMessages(session!.id)[0]?.content).toBe("Implement invoices.");
+    expect(hoisted.dispatchEmployeeSessionRun).toHaveBeenCalledTimes(1);
+    const dispatchedPrompt = (hoisted.dispatchEmployeeSessionRun.mock.calls as unknown[][])[0][1] as string;
+    expect(dispatchedPrompt).toContain("Use the billing repo conventions.");
+    expect(dispatchedPrompt).toContain("### Operator request\nImplement invoices.");
   });
 });
 

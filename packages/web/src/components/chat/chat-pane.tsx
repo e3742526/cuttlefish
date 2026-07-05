@@ -1,7 +1,7 @@
 
 import { lazy, Suspense, useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { api } from '@/lib/api'
-import { useOrg } from '@/hooks/use-employees'
+import { useOrg, useWorkspaceProfiles } from '@/hooks/use-employees'
 import { ChatMessages } from '@/components/chat/chat-messages'
 import { ChatInput } from '@/components/chat/chat-input'
 import { CliKeybar } from '@/components/chat/cli-keybar'
@@ -12,6 +12,7 @@ import { SessionHumanReview } from '@/components/chat/session-human-review'
 import { ModelSelectorRow, type SelectorValue } from '@/components/chat/model-selector-row'
 import { FolderPicker } from '@/components/chat/folder-picker'
 import { useLiveSession } from '@/hooks/use-live-session'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const CliTerminal = lazy(() => import('@/components/cli-terminal').then(m => ({ default: m.CliTerminal })))
 import type { CliTerminalHandle } from '@/components/cli-terminal'
@@ -27,6 +28,7 @@ export { shouldRecoverStuckTurn } from '@/hooks/use-live-session'
 type Listener = (event: string, payload: unknown) => void
 
 const NEW_SESSION_SELECTOR_KEY = 'cuttlefish-chat-new-session-selector'
+const WORKSPACE_PROFILE_NONE = '__none__'
 const CLI_CAPABLE_ENGINES = new Set(['claude', 'codex', 'antigravity', 'grok'])
 
 function readNewSessionSelector(): SelectorValue {
@@ -185,6 +187,9 @@ export function ChatPane({
   // with that employee preselected (the pane is remounted via key on change).
   const [selectedEmployee, setSelectedEmployee] = useState<string | null>(initialEmployee ?? null)
   const { data: orgData } = useOrg()
+  const { data: workspaceProfileData } = useWorkspaceProfiles()
+  const workspaceProfiles = workspaceProfileData?.profiles ?? []
+  const [selectedWorkspaceProfile, setSelectedWorkspaceProfile] = useState<string | null>(null)
   const pickerEmployees = Array.isArray(orgData?.employees)
     ? orgData.employees.map((emp) => ({
         name: emp.name,
@@ -202,6 +207,14 @@ export function ChatPane({
   // clears its own state on a null sessionId; this is the pane-local part).
   // Falls back to initialEmployee so a preselected contact survives the reset.
   useEffect(() => { if (!sessionId) setSelectedEmployee(initialEmployee ?? null) }, [sessionId, initialEmployee])
+
+  const handleWorkspaceProfileChange = useCallback((value: string) => {
+    const next = value === WORKSPACE_PROFILE_NONE ? null : value
+    setSelectedWorkspaceProfile(next)
+    if (!next || sessionId) return
+    const profile = workspaceProfiles.find((entry) => entry.id === next)
+    if (profile?.employee) setSelectedEmployee(profile.employee)
+  }, [sessionId, workspaceProfiles])
 
   // Engine/Model/Effort selector state (composer). Engine is editable on a new
   // chat only; model + effort are editable in existing chats too.
@@ -342,6 +355,7 @@ export function ChatPane({
             model: selector.model,
             effortLevel: selector.effortLevel,
             cwd: undefined,
+            workspaceProfile: selectedWorkspaceProfile,
           })
           if (viewMode === 'cli' && supportsCliPreference(selector.engine)) (params as Record<string, unknown>).mode = 'interactive'
           const session = (await api.createSession(params)) as Record<string, unknown>
@@ -365,7 +379,7 @@ export function ChatPane({
     // viewMode MUST be in deps — without it, toggling chat↔CLI keeps the stale
     // closure value and routes CLI sends to the headless engine, which is
     // exactly what made "the xterm shows stale content" reproducible.
-    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, currentSession?.engine, beginSend, failSend]
+    [sessionId, selectedEmployee, onSessionCreated, onRefresh, viewMode, selector, selectedWorkspaceProfile, currentSession?.engine, beginSend, failSend]
   )
 
   const handleStatusRequest = useCallback(async () => {
@@ -583,16 +597,33 @@ export function ChatPane({
         focusTrigger={focusTrigger}
         onShortcutsClick={onShortcutsClick}
         selectorSlot={
-          <ModelSelectorRow
-            mode={sessionId ? 'existing' : 'new'}
-            value={selector}
-            onChange={handleSelectorChange}
-            pendingNote={effortPendingNote}
-            errorNote={selectorError ?? undefined}
-            disabled={loading}
-            contextTokens={liveContextTokens ?? (currentSession?.lastContextTokens as number | null | undefined) ?? undefined}
-            onNewChat={sessionId ? onNewChat : handleNewSession}
-          />
+          <div className="flex flex-col gap-[var(--space-2)]">
+            {!sessionId && workspaceProfiles.length > 0 && (
+              <Select value={selectedWorkspaceProfile ?? WORKSPACE_PROFILE_NONE} onValueChange={handleWorkspaceProfileChange}>
+                <SelectTrigger aria-label="Workspace profile" className="h-8">
+                  <SelectValue placeholder="Workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={WORKSPACE_PROFILE_NONE}>No workspace profile</SelectItem>
+                  {workspaceProfiles.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <ModelSelectorRow
+              mode={sessionId ? 'existing' : 'new'}
+              value={selector}
+              onChange={handleSelectorChange}
+              pendingNote={effortPendingNote}
+              errorNote={selectorError ?? undefined}
+              disabled={loading}
+              contextTokens={liveContextTokens ?? (currentSession?.lastContextTokens as number | null | undefined) ?? undefined}
+              onNewChat={sessionId ? onNewChat : handleNewSession}
+            />
+          </div>
         }
         terminalActionsSlot={
           viewMode === 'cli' && sessionId ? (

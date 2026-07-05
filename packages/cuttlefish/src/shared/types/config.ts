@@ -28,6 +28,19 @@ export interface BoardWorkerConfig {
   };
 }
 
+export interface WorkspaceProfileConfig {
+  /** Stable id used by API clients when creating sessions. */
+  id?: string;
+  /** Human label shown in the dashboard. */
+  label?: string;
+  /** Repository/working directory for sessions launched under this profile. */
+  cwd?: string;
+  /** Product- or repo-specific instructions injected into the first turn. */
+  instructions?: string | string[];
+  /** Optional default employee slug for dashboard clients that want to preselect an agent. */
+  employee?: string;
+}
+
 export interface OrchestrationRuntimeConfig {
   enabled?: boolean;
   configDir?: string;
@@ -84,6 +97,7 @@ export interface CuttlefishConfig {
   workspaces?: {
     roots?: string[];
     defaultCwd?: string;
+    profiles?: Record<string, WorkspaceProfileConfig> | WorkspaceProfileConfig[];
   };
   gateway: {
     port: number;

@@ -64,6 +64,15 @@ describe('buildNewSessionParams', () => {
     expect(params).toMatchObject({ engine: 'codex', model: 'gpt-5.5', effortLevel: 'xhigh' })
   })
 
+  it('includes workspaceProfile when a product workspace is selected', () => {
+    const params = buildNewSessionParams({
+      message: 'ship it',
+      selectedEmployee: 'platform-lead',
+      workspaceProfile: 'billing',
+    })
+    expect(params).toMatchObject({ workspaceProfile: 'billing', employee: 'platform-lead' })
+  })
+
   it('omits engine/model/effortLevel keys when not provided', () => {
     const params = buildNewSessionParams({ message: 'hi', selectedEmployee: null })
     expect(params).not.toHaveProperty('engine')

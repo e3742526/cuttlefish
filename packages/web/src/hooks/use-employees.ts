@@ -24,3 +24,10 @@ export function useDepartmentBoard(dept: string | null) {
     enabled: !!dept,
   })
 }
+
+export function useWorkspaceProfiles() {
+  return useQuery({
+    queryKey: queryKeys.workspaceProfiles.all,
+    queryFn: () => api.getWorkspaceProfiles(),
+  })
+}

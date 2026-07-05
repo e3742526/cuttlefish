@@ -214,6 +214,18 @@ export interface WorkOverview {
   items: WorkItem[]
 }
 
+export interface WorkspaceProfile {
+  id: string
+  label: string
+  cwd?: string
+  employee?: string
+  hasInstructions: boolean
+}
+
+export interface WorkspaceProfilesResponse {
+  profiles: WorkspaceProfile[]
+}
+
 export type CommandCenterUsageRange = 'day' | 'week' | 'month'
 
 export interface CommandCenterUsageBucket {
@@ -350,6 +362,7 @@ export const api = {
   fsRecent: () => get<FsRecent>("/api/fs/recent"),
   /** Feature 2: normalized work-state across all sessions. */
   getWork: () => get<WorkOverview>("/api/work"),
+  getWorkspaceProfiles: () => get<WorkspaceProfilesResponse>("/api/workspace-profiles"),
   getCommandCenter: () => get<CommandCenterResponse>("/api/command-center"),
   /** Resolved model + capability registry (engines, their models, effort levels). */
   getEngines: () => get<EnginesResponse>("/api/engines"),

@@ -132,4 +132,9 @@ export const orgApi = {
     post<{ status: string; employee: Employee | null }>("/api/org/employees", data),
   deleteEmployee: (name: string) =>
     del<{ status: string }>(`/api/org/employees/${name}`),
+  renameDepartment: (name: string, nextName: string) =>
+    patch<{ status: string; previousDepartment: string; department: string; employees: string[]; movedDirectory: boolean }>(
+      `/api/org/departments/${encodeURIComponent(name)}`,
+      { name: nextName },
+    ),
 }

@@ -77,6 +77,10 @@ export default function OrgPage() {
   const [selected, setSelected] = useState<Employee | null>(null);
   const [creating, setCreating] = useState(false);
   const [activeDepartment, setActiveDepartment] = useState<string | null>(null);
+  const [renamingDepartment, setRenamingDepartment] = useState(false);
+  const [renameDepartmentValue, setRenameDepartmentValue] = useState("");
+  const [renameDepartmentSaving, setRenameDepartmentSaving] = useState(false);
+  const [renameDepartmentError, setRenameDepartmentError] = useState<string | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const { settings } = useSettings();
 
@@ -120,6 +124,12 @@ export default function OrgPage() {
     }
   }, [activeDepartment, departments]);
 
+  useEffect(() => {
+    setRenamingDepartment(false);
+    setRenameDepartmentValue(activeDepartment ?? "");
+    setRenameDepartmentError(null);
+  }, [activeDepartment]);
+
   // Focus close button when panel opens
   useEffect(() => {
     if (selected && closeRef.current) {
@@ -142,6 +152,35 @@ export default function OrgPage() {
     setCreating(false);
     setSelected(emp);
   }, []);
+
+  const startRenameDepartment = useCallback(() => {
+    if (!activeDepartment || activeDepartment === UNASSIGNED_DEPARTMENT_TAB) return;
+    setRenameDepartmentValue(activeDepartment);
+    setRenameDepartmentError(null);
+    setRenamingDepartment(true);
+  }, [activeDepartment]);
+
+  const submitRenameDepartment = useCallback(async () => {
+    if (!activeDepartment || activeDepartment === UNASSIGNED_DEPARTMENT_TAB) return;
+    const nextName = renameDepartmentValue.trim();
+    if (!nextName || nextName === activeDepartment) {
+      setRenameDepartmentError("Choose a different department name.");
+      return;
+    }
+    setRenameDepartmentSaving(true);
+    setRenameDepartmentError(null);
+    try {
+      const result = await api.renameDepartment(activeDepartment, nextName);
+      setDepartments((current) => current.map((entry) => entry === activeDepartment ? result.department : entry));
+      setActiveDepartment(result.department);
+      setRenamingDepartment(false);
+      loadData();
+    } catch (err) {
+      setRenameDepartmentError(err instanceof Error ? err.message : "Failed to rename department.");
+    } finally {
+      setRenameDepartmentSaving(false);
+    }
+  }, [activeDepartment, loadData, renameDepartmentValue]);
 
   // After an inline edit: reload the org (so the map re-parents / re-layouts on
   // a reportsTo change) and refresh the open panel with the saved employee.
@@ -234,6 +273,54 @@ export default function OrgPage() {
                 )}
               </TabsList>
             </Tabs>
+            {activeDepartment && activeDepartment !== UNASSIGNED_DEPARTMENT_TAB && (
+              <div className="flex max-w-full flex-wrap items-center gap-[var(--space-2)]">
+                {renamingDepartment ? (
+                  <>
+                    <input
+                      className="h-8 w-[min(240px,calc(100vw-160px))] rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-regular)]/95 px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none focus:border-[var(--accent)]"
+                      value={renameDepartmentValue}
+                      aria-label="Department name"
+                      onChange={(event) => setRenameDepartmentValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void submitRenameDepartment();
+                        if (event.key === "Escape") setRenamingDepartment(false);
+                      }}
+                      disabled={renameDepartmentSaving}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void submitRenameDepartment()}
+                      disabled={renameDepartmentSaving}
+                      className="h-8 px-[var(--space-3)] rounded-[var(--radius-sm)] border border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-contrast)] text-[length:var(--text-footnote)] font-[var(--weight-semibold)] disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRenamingDepartment(false)}
+                      disabled={renameDepartmentSaving}
+                      className="h-8 px-[var(--space-3)] rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-regular)]/95 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)] disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                    {renameDepartmentError && (
+                      <span className="text-[length:var(--text-caption2)] text-[var(--system-red)]">
+                        {renameDepartmentError}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startRenameDepartment}
+                    className="h-8 px-[var(--space-3)] rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-regular)]/95 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)]"
+                  >
+                    Rename department
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap items-center gap-[var(--space-2)]">
               <button
                 type="button"

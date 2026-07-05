@@ -54,6 +54,7 @@ import { HR_EMPLOYEE_NAME, HR_SESSION_KEY } from "../../org-policy.js";
 import { getReusableHrSession } from "../../hr-session.js";
 import { acknowledgeLeaderAck } from "../../../sessions/leader-ack.js";
 import { dispatchEmployeeSessionRun } from "../../mid-pair-orchestrator.js";
+import { buildWorkspaceProfilePrompt, resolveWorkspaceProfile, type ResolvedWorkspaceProfile } from "../../workspace-profiles.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -461,6 +462,18 @@ export async function handleSessionWriteRoutes(
       return true;
     }
     const config = context.getConfig();
+    let workspaceProfile: ResolvedWorkspaceProfile | undefined;
+    if (body.workspaceProfile !== undefined && body.workspaceProfile !== null && body.workspaceProfile !== "") {
+      const resolved = resolveWorkspaceProfile(config, body.workspaceProfile);
+      if (!resolved.ok) {
+        json(res, { error: resolved.error }, resolved.status);
+        return true;
+      }
+      workspaceProfile = resolved.profile;
+    }
+    const dispatchPrompt = workspaceProfile
+      ? buildWorkspaceProfilePrompt(workspaceProfile, prompt)
+      : prompt;
     const employeeName = coercePortalEmployee(body.employee, config.portal?.portalName);
     let employeeDefaults: { engine: string; model: string; effortLevel?: string } | undefined;
     if (employeeName) {
@@ -480,7 +493,7 @@ export async function handleSessionWriteRoutes(
       badRequest(res, selection.error || "invalid engine/model/effort");
       return true;
     }
-    let cwd: string | undefined;
+    let cwd: string | undefined = workspaceProfile?.cwd;
     if (body.cwd !== undefined) {
       const validatedCwd = validateCwd(body.cwd, { roots: config.workspaces?.roots });
       if (!validatedCwd.ok) {
@@ -508,10 +521,19 @@ export async function handleSessionWriteRoutes(
           parentSessionId: body.parentSessionId,
           effortLevel: selection.effortLevel,
           model: selection.model,
-          prompt,
-          promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : undefined,
+          prompt: dispatchPrompt,
+          promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : prompt,
           cwd,
           portalName: config.portal?.portalName,
+          transportMeta: workspaceProfile
+            ? {
+                workspaceProfile: {
+                  id: workspaceProfile.id,
+                  label: workspaceProfile.label,
+                  cwd: workspaceProfile.cwd ?? null,
+                },
+              }
+            : undefined,
         });
     if (!existingSingletonSession) {
       logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
@@ -572,7 +594,7 @@ export async function handleSessionWriteRoutes(
     }
 
     const queueSessionKey = session.sessionKey || session.sourceRef || session.id;
-    const queueItemId = enqueueQueueItem(session.id, queueSessionKey, prompt);
+    const queueItemId = enqueueQueueItem(session.id, queueSessionKey, dispatchPrompt);
     context.emit("queue:updated", { sessionId: session.id, sessionKey: queueSessionKey });
     if (singletonWasRunning) {
       context.emit("session:queued", { sessionId: session.id, message: prompt });
@@ -580,7 +602,7 @@ export async function handleSessionWriteRoutes(
     if (hasPendingQueueItemBefore(queueSessionKey, queueItemId)) {
       dispatchPendingWebQueueHeadForSessionKey(context, queueSessionKey);
     } else if (!attached.blocked) {
-      dispatchEmployeeSessionRun(session, prompt, engine, config, context, execEmp, {
+      dispatchEmployeeSessionRun(session, dispatchPrompt, engine, config, context, execEmp, {
         queueItemId,
         attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
         resourceContext: attached.promptBlock,

@@ -104,9 +104,20 @@
   risky-but-reviewed Bash actions to continue with a session notification
   instead of a human checkpoint.
 - Employee, manager, and executive org-map cards also expose a compact quick-chat affordance that opens the main chat workspace, using the existing employee preselection deep-link for non-executive employees.
+- `/org` department tabs expose an inline rename action for a selected department. `PATCH /api/org/departments/:name` updates matching employee YAML `department` fields, renames the department directory when there is no target collision, and emits org/board refresh events.
 - The create/edit surfaces now include multi-role execution configuration when the `features.multiRoleEmployeeExecution` feature flag is enabled: execution tier (`solo` or `mid_pair`), max internal passes, max child sessions, max wall-clock time, max tool calls, max estimated cost, reviewer loss policy, and reviewer tool profile.
 - `packages/web/src/components/org/employee-detail.tsx` displays an execution profile summary in the detail panel when a profile is configured.
 - Fresh-install seed personas place Parliamentarian and Senior Security Officer in `compliance`, HR / Org Steward as the `personnel` department manager, and Assistant in `general`. New manager-hire guidance defaults managers to the COO/root reporting line unless the user explicitly says otherwise.
+
+### Workspace profiles
+- `packages/cuttlefish/src/gateway/workspace-profiles.ts`
+- `packages/cuttlefish/src/gateway/api/routes/session-write.ts`
+- `packages/web/src/components/chat/chat-pane.tsx`
+- Operators can define named workspace/product profiles in `config.yaml` under `workspaces.profiles`.
+- Supported profile fields are `id`, `label`, `cwd`, `instructions`, and optional default `employee`.
+- `GET /api/workspace-profiles` returns sanitized profile summaries for the dashboard.
+- `POST /api/sessions` accepts `workspaceProfile`; the gateway validates the configured cwd against `workspaces.roots`, uses it as the session working directory unless an explicit `cwd` is supplied, injects the profile instructions into the first engine prompt, and records `transportMeta.workspaceProfile` for traceability.
+- The chat composer shows a workspace profile picker for new chats when profiles are configured. Profile authoring remains config-backed in this version.
 
 ### Cross-department service requests
 - `packages/cuttlefish/src/gateway/api/routes/org.ts`

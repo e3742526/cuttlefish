@@ -763,6 +763,32 @@ export async function handleOrgRoutes(
     return true;
   }
 
+  params = matchRoute("/api/org/departments/:name", pathname);
+  if (method === "PATCH" && params) {
+    const parsed = await readJsonBody(req, res);
+    if (!parsed.ok) return true;
+    const body = parsed.body as Record<string, unknown>;
+    const nextName = typeof body.name === "string" ? body.name.trim() : "";
+    const { renameDepartment } = await import("../../department-rename.js");
+    const result = renameDepartment(params.name, nextName);
+    if (!result.ok) {
+      json(res, { error: result.error }, result.status);
+      return true;
+    }
+    context.reloadOrg?.();
+    context.emit("org:updated", {
+      action: "department-renamed",
+      previousDepartment: result.previousDepartment,
+      department: result.department,
+      employees: result.employees,
+    });
+    if (result.movedDirectory) {
+      context.emit("board:updated", { department: result.department, previousDepartment: result.previousDepartment });
+    }
+    json(res, { status: "ok", ...result });
+    return true;
+  }
+
   params = matchRoute("/api/org/departments/:name/board", pathname);
   if (method === "GET" && params) {
     const deptDir = path.join(ORG_DIR, params.name);

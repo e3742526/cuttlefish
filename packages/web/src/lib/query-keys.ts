@@ -43,6 +43,9 @@ export const queryKeys = {
   work: {
     all: ['work'] as const,
   },
+  workspaceProfiles: {
+    all: ['workspace-profiles'] as const,
+  },
   commandCenter: {
     all: ['command-center'] as const,
   },

@@ -9,6 +9,7 @@ import { getModelRegistry } from "../../../shared/models.js";
 import { listSessions } from "../../../sessions/registry.js";
 import { deriveWorkState, emptyWorkCounts } from "../../../shared/work-state.js";
 import { listApprovals } from "../../approvals.js";
+import { summarizeWorkspaceProfiles } from "../../workspace-profiles.js";
 import type { ApiContext } from "../context.js";
 import { json } from "../responses.js";
 import { isSessionLiveRunning } from "../serialize-session.js";
@@ -215,6 +216,10 @@ export async function handleStatusRoutes(
 ): Promise<boolean> {
   if (method === "GET" && pathname === "/api/healthz") {
     json(res, { status: "ok", uptime: process.uptime() });
+    return true;
+  }
+  if (method === "GET" && pathname === "/api/workspace-profiles") {
+    json(res, { profiles: summarizeWorkspaceProfiles(context.getConfig()) });
     return true;
   }
   if (method === "GET" && pathname === "/api/status") {
