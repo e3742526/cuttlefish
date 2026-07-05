@@ -1,4 +1,5 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import type { Engine, CuttlefishConfig, Session, StreamDelta } from "../shared/types.js";
 import { isInterruptibleEngine } from "../shared/types.js";
 import { rungKey } from "../shared/model-escalation.js";
@@ -8,7 +9,7 @@ import { effortLevelsForModel, engineAvailable, isKnownEngine, engineUnavailable
 import { createApproval } from "./approvals.js";
 import { buildContext } from "../sessions/context.js";
 import { buildContextPacket, contextManagerMode, logContextPacketMetadata } from "../sessions/context-manager/index.js";
-import { beginSessionRun, listChildSessions, getSession, updateSession, patchSessionTransportMeta, insertMessage, insertPartialMessage, updatePartialMessage, deletePartialMessages, finalizePartialMessages, getMessages } from "../sessions/registry.js";
+import { beginSessionRun, createSession, listChildSessions, getSession, updateSession, patchSessionTransportMeta, insertMessage, insertPartialMessage, updatePartialMessage, deletePartialMessages, finalizePartialMessages, getMessages } from "../sessions/registry.js";
 import { logger } from "../shared/logger.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { resolveEffort } from "../shared/effort.js";
@@ -24,7 +25,7 @@ import {
 import { notifyConnectorNotification, notifyParentSession, notifyRateLimited, notifyRateLimitResumed } from "../sessions/callbacks.js";
 import { markTranscriptSyncedThrough } from "./external-turns.js";
 import { getOrchestratorPersona } from "../talk/orchestrator-persona.js";
-import { buildManagerDelegationTelemetry, resolveSupervisedNodes } from "../sessions/manager-delegation.js";
+import { buildManagerDelegationPlan, buildManagerDelegationTelemetry, resolveSupervisedNodes } from "../sessions/manager-delegation.js";
 import { feedTalkText, flushTalkSpeech, discardTalkSpeech } from "../talk/tts-stream.js";
 import { isTalkMuted } from "../talk/mute-state.js";
 import { maybeEmitTalkGraph } from "../talk/graph.js";
@@ -153,8 +154,11 @@ export async function runWebSession(
   const { scanOrg: scanOrgForHierarchy } = await import("./org.js");
   const { resolveOrgHierarchy, withPortalExecutive } = await import("./org-hierarchy.js");
   const orgHierarchy = resolveOrgHierarchy(withPortalExecutive(scanOrgForHierarchy(), config.portal?.portalName));
+  const managerDelegationSupervisedNodes = employee
+    ? resolveSupervisedNodes(employee.name, orgHierarchy, orgHierarchy.nodes[employee.name])
+    : [];
   const managerDelegationReportCount = employee
-    ? resolveSupervisedNodes(employee.name, orgHierarchy, orgHierarchy.nodes[employee.name]).length
+    ? managerDelegationSupervisedNodes.length
     : 0;
   const managerDelegationChildSessionsBefore =
     employee && managerDelegationReportCount > 0 ? listChildSessions(currentSession.id).length : 0;
@@ -172,6 +176,19 @@ export async function runWebSession(
     });
     if (telemetry) logger.debug(`manager_delegation ${JSON.stringify(telemetry)}`);
   };
+
+  const enforcedDelegation = await enforceManagerDelegationIfNeeded({
+    session: currentSession,
+    prompt,
+    employee,
+    supervisedNodes: managerDelegationSupervisedNodes,
+    config,
+    context,
+    attachments,
+    resourceContext,
+    logTelemetry: logManagerDelegationTelemetryOnce,
+  });
+  if (enforcedDelegation) return;
 
   try {
 
@@ -949,4 +966,136 @@ function isOrchestrationImplementationTurn(session: Session): boolean {
   if (!lease) return false;
   const role = typeof lease.role === "string" ? lease.role.toLowerCase() : "";
   return !role.includes("review");
+}
+
+async function enforceManagerDelegationIfNeeded(input: {
+  session: Session;
+  prompt: string;
+  employee: import("../shared/types.js").Employee | undefined;
+  supervisedNodes: import("../shared/types.js").OrgNode[];
+  config: CuttlefishConfig;
+  context: ApiContext;
+  attachments?: string[];
+  resourceContext?: string | null;
+  logTelemetry: () => void;
+}): Promise<boolean> {
+  const { session, prompt, employee, supervisedNodes, config, context } = input;
+  if (!employee || employee.mcp === false || supervisedNodes.length === 0) return false;
+  if (isExecutionDepthBlocked(session.transportMeta as Record<string, unknown> | undefined)) return false;
+
+  const promptHash = delegationPromptHash(prompt, input.resourceContext);
+  const meta = ((session.transportMeta ?? {}) as Record<string, unknown>);
+  const enforcedHashes = Array.isArray(meta.managerDelegationEnforcedPromptHashes)
+    ? meta.managerDelegationEnforcedPromptHashes.filter((value): value is string => typeof value === "string")
+    : [];
+  if (enforcedHashes.includes(promptHash)) return false;
+
+  const plan = buildManagerDelegationPlan({ manager: employee, prompt, supervisedNodes });
+  if (!plan.enforced || plan.matches.length === 0) return false;
+
+  const runnableMatches = plan.matches.filter((match) => {
+    const childEngine = context.sessionManager.getEngine(match.employee.engine);
+    if (!childEngine) {
+      logger.warn(`[manager-delegation] cannot enforce delegation from ${employee.name} to ${match.employee.name}: engine "${match.employee.engine}" unavailable`);
+      return false;
+    }
+    return true;
+  });
+  if (runnableMatches.length === 0) return false;
+
+  const now = new Date().toISOString();
+  const delegatedTo: string[] = [];
+  for (const match of runnableMatches) {
+    const child = createSession({
+      engine: match.employee.engine,
+      source: session.source,
+      sourceRef: `${session.sourceRef}:manager-delegation:${promptHash}:${match.employee.name}`,
+      connector: session.connector ?? session.source,
+      sessionKey: `${session.sessionKey || session.sourceRef}:manager-delegation:${promptHash}:${match.employee.name}`,
+      replyContext: session.replyContext,
+      transportMeta: {
+        managerDelegation: {
+          enforced: true,
+          parentEmployee: employee.name,
+          matchedKeywords: match.matchedKeywords,
+          promptHash,
+        },
+      },
+      employee: match.employee.name,
+      parentSessionId: session.id,
+      model: match.employee.model,
+      effortLevel: match.employee.effortLevel,
+      title: `Delegated to ${match.employee.displayName}`,
+      prompt: match.prompt,
+      promptExcerpt: prompt,
+      cwd: session.cwd,
+      portalName: config.portal?.portalName,
+    });
+    delegatedTo.push(match.employee.name);
+    insertMessage(child.id, "user", match.prompt);
+    maybeEmitTalkGraph(child.id, "added", { getSession, emit: context.emit });
+
+    const childEngine = context.sessionManager.getEngine(match.employee.engine);
+    if (!childEngine) continue;
+    void context.sessionManager.getQueue().enqueue(child.sessionKey || child.sourceRef, async () => {
+      context.emit("session:started", { sessionId: child.id });
+      await runWebSession(child, match.prompt, childEngine, config, context, input.attachments, input.resourceContext);
+    }).catch((err) => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error(`[manager-delegation] delegated child ${child.id} dispatch error: ${errMsg}`);
+      updateSession(child.id, {
+        status: "error",
+        lastActivity: new Date().toISOString(),
+        lastError: errMsg,
+      });
+      context.emit("session:completed", { sessionId: child.id, result: null, error: errMsg });
+      maybeEmitTalkGraph(child.id, "completed", { getSession, emit: context.emit });
+    });
+  }
+
+  if (delegatedTo.length === 0) return false;
+
+  const summary = `Delegated specialist work to ${delegatedTo.map((name) => `\`${name}\``).join(", ")}. I’ll synthesize after the report${delegatedTo.length === 1 ? "" : "s"} come back.`;
+  insertMessage(session.id, "assistant", summary);
+  const nextHashes = [...enforcedHashes.filter((hash) => hash !== promptHash), promptHash].slice(-20);
+  const updated = updateSession(session.id, {
+    status: "idle",
+    transportMeta: {
+      ...meta,
+      managerDelegationEnforcedPromptHashes: nextHashes,
+      managerDelegationEnforcement: {
+        promptHash,
+        delegatedTo,
+        reason: plan.reason,
+        occurredAt: now,
+      },
+    } as any,
+    lastActivity: now,
+    lastError: null,
+  });
+  input.logTelemetry();
+  context.emit("session:updated", { sessionId: session.id });
+  context.emit("manager:delegated", {
+    sessionId: session.id,
+    employee: employee.name,
+    delegatedTo,
+    promptHash,
+    enforced: true,
+  });
+  if (updated) {
+    void deliverConnectorReply(updated, summary, context.connectors, { emit: context.emit }).catch((err) => {
+      logger.warn(`Failed to deliver manager delegation notice for session ${updated.id}: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }
+  logger.info(`[manager-delegation] enforced delegation for session ${session.id}: ${employee.name} -> ${delegatedTo.join(", ")}`);
+  return true;
+}
+
+function delegationPromptHash(prompt: string, resourceContext?: string | null): string {
+  return createHash("sha256")
+    .update(resourceContext ?? "")
+    .update("\n---prompt---\n")
+    .update(prompt)
+    .digest("hex")
+    .slice(0, 16);
 }

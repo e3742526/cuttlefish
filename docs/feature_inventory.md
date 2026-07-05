@@ -453,8 +453,8 @@
 
 ### Smart manager delegation discipline
 - Employee sessions with one or more direct reports receive a default-on manager delegation discipline block in their runtime context. The block requires a delegate-vs-inline decision before substantive work, lists concise direct-report specialties, and distinguishes smart delegation from delegation just for appearances.
-- Delegation is still bounded by the existing child-session protocol: managers can spawn/follow/read child sessions, but the gateway does not auto-create child sessions in v1.
-- Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run.
+- Runtime execution also enforces strong specialty matches before the manager model runs: when a manager prompt matches one or more direct-report specialties, the gateway creates child sessions for those reports, records the enforced prompt hash in `transportMeta`, and leaves the manager session ready to synthesize the existing child-completion callbacks. Child-result callback turns and explicit no-delegation prompts are exempt.
+- Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run or enforced delegation.
 - Manual live behavior can be sampled with `node packages/cuttlefish/scripts/delegation-live-harness.mjs --employee <manager-slug>` against a running gateway. The harness is not part of CI because it depends on live model behavior and local credentials.
 
 ### `GET /api/org/departments/:name/tickets/:id/session`
