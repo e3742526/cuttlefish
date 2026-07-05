@@ -283,9 +283,11 @@ describe("buildContext — audience scoping", () => {
     expect(out).toContain("## Organization (2 employee(s))");
   });
 
-  it("COO API section is a pointer at CLAUDE.md, not the full table", () => {
+  it("COO API section includes the child-session mini-reference, not the full table", () => {
     const out = buildContext({ ...baseOpts });
     expect(out).toContain("Gateway API");
+    expect(out).toContain("Spawn a child session");
+    expect(out).toContain("parentSessionId");
     expect(out).not.toContain("| `/api/cron` | GET |"); // table rows gone
     expect(out).toContain("CLAUDE.md");
   });
@@ -302,6 +304,7 @@ describe("buildContext — audience scoping", () => {
     const out = buildContext({ ...baseOpts, employee: worker, hierarchy });
     expect(out).toContain("/attachments");
     expect(out).not.toContain("Delegate to another employee");
+    expect(out).toContain("Child-session delegation is unavailable");
   });
 
   it("connector section is slim — recipe details live in CLAUDE.md", () => {
@@ -467,6 +470,64 @@ describe("buildContext — maxChars trimming", () => {
     // It should be dramatically smaller than the untrimmed (no-cap) output.
     const uncapped = buildContext({ ...baseOpts, connectors: ["slack"] });
     expect(out.length).toBeLessThan(uncapped.length);
+  });
+
+  it("preserves the COO child-session recipe when the API section is summarized", () => {
+    const config = {
+      gateway: { host: "127.0.0.1", port: 8888 },
+      engines: { default: "claude", claude: { model: "opus" } },
+      context: { maxChars: 1200 },
+    } as unknown as CuttlefishConfig;
+    const out = buildContext({
+      ...baseOpts,
+      config,
+      connectors: ["slack"],
+    });
+
+    expect(out).toContain("Spawn a child session");
+    expect(out).toContain("parentSessionId");
+  });
+
+  it("preserves the manager delegation recipe when the API section is summarized", () => {
+    const config = {
+      gateway: { host: "127.0.0.1", port: 8888 },
+      engines: { default: "claude", claude: { model: "opus" } },
+      context: { maxChars: 1200 },
+    } as unknown as CuttlefishConfig;
+    const managerHierarchy = {
+      nodes: {
+        [minimalEmployee.name]: {
+          employee: minimalEmployee,
+          parentName: null,
+          directReports: ["writer"],
+          depth: 0,
+          chain: [],
+        },
+        writer: {
+          employee: {
+            ...minimalEmployee,
+            name: "writer",
+            displayName: "Writer",
+            rank: "employee",
+          },
+          parentName: minimalEmployee.name,
+          directReports: [],
+          depth: 1,
+          chain: [minimalEmployee.name],
+        },
+      },
+      sorted: [minimalEmployee.name, "writer"],
+    } as any;
+    const out = buildContext({
+      ...baseOpts,
+      config,
+      connectors: ["slack"],
+      employee: minimalEmployee,
+      hierarchy: managerHierarchy,
+    });
+
+    expect(out).toContain("Delegate to another employee");
+    expect(out).toContain("/api/sessions/:id/message");
   });
 
   it("does not trim when output is under the default cap", () => {

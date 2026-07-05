@@ -315,7 +315,7 @@ export function buildContext(opts: {
       tier: Tier.STANDARD,
       marker: `## ${portalName} Gateway API`,
       content: buildApiReference(gatewayUrl, portalName, opts.employee, supervisesCount, opts.sessionToken),
-      summary: `## ${portalName} Gateway API (${gatewayUrl})\nFull endpoint reference: CLAUDE.md / AGENTS.md.`,
+      summary: buildApiReferenceSummary(gatewayUrl, portalName, opts.employee, supervisesCount),
     });
   }
 
@@ -778,6 +778,36 @@ export function buildOnboardingContext(opts: {
  * was pure duplication. What remains dynamic is the live base URL and the
  * short list of calls each audience actually makes.
  */
+function canUseChildSessionProtocol(employee?: Employee, directReportCount = 0): boolean {
+  return !employee || employee.rank === "manager" || employee.rank === "executive" || directReportCount > 0;
+}
+
+function buildApiReferenceSummary(gatewayUrl: string, portalName: string, employee?: Employee, directReportCount = 0): string {
+  const header = `## ${portalName} Gateway API (${gatewayUrl})`;
+  if (!canUseChildSessionProtocol(employee, directReportCount)) {
+    return [
+      header,
+      `Child-session delegation is unavailable because you do not currently supervise any reports in the org graph.`,
+      `If that seems wrong, check the employee's \`reportsTo\` / manager wiring.`,
+      `Full endpoint reference: CLAUDE.md / AGENTS.md.`,
+    ].join("\n");
+  }
+  if (!employee) {
+    return [
+      header,
+      `- Spawn a child session: \`POST ${gatewayUrl}/api/sessions\` with \`{prompt, employee?, parentSessionId}\``,
+      `- Follow up on a child session: \`POST ${gatewayUrl}/api/sessions/:id/message\` with \`{message}\``,
+      `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
+    ].join("\n");
+  }
+  return [
+    header,
+    `- Delegate to another employee: \`POST ${gatewayUrl}/api/sessions\` with \`{prompt, employee, parentSessionId}\``,
+    `- Follow up on a child session: \`POST ${gatewayUrl}/api/sessions/:id/message\` with \`{message}\``,
+    `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
+  ].join("\n");
+}
+
 function buildApiReference(gatewayUrl: string, portalName: string, employee?: Employee, directReportCount = 0, sessionToken?: string): string {
   const header = `## ${portalName} Gateway API (base URL: ${gatewayUrl})`;
   const authLine = sessionToken
@@ -786,13 +816,23 @@ function buildApiReference(gatewayUrl: string, portalName: string, employee?: Em
   const attachmentsLine =
     `- Push a file/image into this chat (web view): \`curl -X POST ${gatewayUrl}/api/sessions/<your-session-id>/attachments -H 'Content-Type: application/json' -d '{"path":"/abs/path","text":"caption"}'\``;
   if (!employee) {
-    return `${header}\n${authLine}\nThe full endpoint reference is in CLAUDE.md / AGENTS.md (auto-loaded). Substitute the base URL above.\n${attachmentsLine}`;
+    return [
+      header,
+      authLine,
+      `- Spawn a child session: \`POST ${gatewayUrl}/api/sessions\` with \`{prompt, employee?, parentSessionId}\``,
+      `- Set \`employee\` to an org slug to delegate; omit it to spawn a direct/COO child session.`,
+      `- Follow up on a child session: \`POST ${gatewayUrl}/api/sessions/:id/message\` with \`{message}\``,
+      `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
+      `- Valid \`employee\` values are the slugs in \`GET ${gatewayUrl}/api/org\` or \`ls ${ORG_DIR}/\``,
+      attachmentsLine,
+      `Full endpoint table: CLAUDE.md / AGENTS.md.`,
+    ].join("\n");
   }
   // Anyone who supervises reports needs the delegation endpoints. The caller
   // passes a count of ALL reportsTo edges (primary + secondary), so a reviewer's
   // secondary-parent implementer is delegate-capable too — rank alone undercounts
   // (seniors, and even employees, can be a reviewer's reportsTo target).
-  if (employee.rank === "manager" || employee.rank === "executive" || directReportCount > 0) {
+  if (canUseChildSessionProtocol(employee, directReportCount)) {
     return [
       header,
       authLine,
@@ -804,7 +844,14 @@ function buildApiReference(gatewayUrl: string, portalName: string, employee?: Em
       `Full endpoint table: CLAUDE.md / AGENTS.md.`,
     ].join("\n");
   }
-  return [header, authLine, attachmentsLine, `Full endpoint table: CLAUDE.md / AGENTS.md.`].join("\n");
+  return [
+    header,
+    authLine,
+    `Child-session delegation is unavailable because you do not currently supervise any reports in the org graph.`,
+    `If that seems wrong, check the employee's \`reportsTo\` / manager wiring.`,
+    attachmentsLine,
+    `Full endpoint table: CLAUDE.md / AGENTS.md.`,
+  ].join("\n");
 }
 
 /**

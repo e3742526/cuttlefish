@@ -342,6 +342,20 @@ export async function handleStatusRoutes(
     const sessions = listSessions();
     const events: Array<{ event: string; payload: unknown; ts: number }> = [];
     for (const session of sessions) {
+      if (session.parentSessionId) {
+        events.push({
+          event: "session:delegated",
+          payload: {
+            sessionId: session.id,
+            parentSessionId: session.parentSessionId,
+            employee: session.employee,
+            engine: session.engine,
+            connector: session.connector,
+            title: session.title ?? null,
+          },
+          ts: new Date(session.createdAt).getTime(),
+        });
+      }
       const ts = new Date(session.lastActivity || session.createdAt).getTime();
       const transportState = context.sessionManager.getQueue().getTransportState(
         session.sessionKey || session.sourceRef,
