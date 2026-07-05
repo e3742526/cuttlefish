@@ -24,8 +24,20 @@ vi.mock('@/lib/api', () => ({
   },
 }))
 
+vi.mock('@/lib/api-hr', () => ({
+  hrApi: {
+    listChangeRequests: vi.fn(),
+    getChangeRequest: vi.fn(),
+    createChangeRequest: vi.fn(),
+    approveChange: vi.fn(),
+    rejectChange: vi.fn(),
+    listRetired: vi.fn(),
+  },
+}))
+
 import { useApprovals } from '../use-approvals'
 import { useCheckpoints } from '../use-checkpoints'
+import { useOrgChange, useOrgChanges } from '../use-org-changes'
 
 describe('approval queue hooks', () => {
   beforeEach(() => {
@@ -49,6 +61,29 @@ describe('approval queue hooks', () => {
     expect(recorded.useQueryCalls).toHaveLength(1)
     expect(recorded.useQueryCalls[0]).toEqual(expect.objectContaining({
       queryKey: queryKeys.checkpoints.list('all', null),
+      refetchOnMount: 'always',
+      queryFn: expect.any(Function),
+    }))
+  })
+
+  it('forces org-change list queries to refetch on mount', () => {
+    useOrgChanges('pending_approval')
+
+    expect(recorded.useQueryCalls).toHaveLength(1)
+    expect(recorded.useQueryCalls[0]).toEqual(expect.objectContaining({
+      queryKey: queryKeys.orgChanges.list('pending_approval'),
+      refetchOnMount: 'always',
+      queryFn: expect.any(Function),
+    }))
+  })
+
+  it('forces org-change detail queries to refetch on mount', () => {
+    useOrgChange('change-123')
+
+    expect(recorded.useQueryCalls).toHaveLength(1)
+    expect(recorded.useQueryCalls[0]).toEqual(expect.objectContaining({
+      queryKey: queryKeys.orgChanges.detail('change-123'),
+      enabled: true,
       refetchOnMount: 'always',
       queryFn: expect.any(Function),
     }))

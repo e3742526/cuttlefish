@@ -85,6 +85,9 @@ describe("assertNotSelfModification", () => {
     expect(() =>
       assertNotSelfModification({ changeType: "retire_agent", employeeName: HR_EMPLOYEE_NAME, proposed: {}, proposedBy: "coo" }),
     ).toThrow(OrgChangeBlockedError);
+    expect(() =>
+      assertNotSelfModification({ changeType: "modify_instructions", employeeName: HR_EMPLOYEE_NAME, proposed: { persona: "tampered" }, proposedBy: "cuttlefish" }),
+    ).toThrow(OrgChangeBlockedError);
   });
 
   it("allows a human operator to change HR", () => {

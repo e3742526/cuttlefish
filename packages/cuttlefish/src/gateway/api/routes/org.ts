@@ -9,7 +9,7 @@ import { authorizeManagerScope } from "../../manager-auth.js";
 import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
-import { RESERVED_ORG_DIRS, scanOrg } from "../../org.js";
+import { RESERVED_ORG_DIRS, isActiveEmployee, scanOrg } from "../../org.js";
 import { resolveUserHeader } from "../../connector-reply.js";
 import type { ApiContext } from "../context.js";
 import { matchRoute } from "../match-route.js";
@@ -32,6 +32,24 @@ interface ExecutionProfileSummary {
   hasCustomRoleOverrides: boolean;
 }
 
+interface OrgServiceSummary {
+  name: string;
+  description: string;
+  provider: {
+    name: string;
+    displayName: string;
+    department: string;
+    rank: Employee["rank"];
+  };
+}
+
+const SERVICE_RANK_PRIORITY: Record<Employee["rank"], number> = {
+  executive: 0,
+  manager: 1,
+  senior: 2,
+  employee: 3,
+};
+
 function computeExecutionProfileSummary(emp: Employee): ExecutionProfileSummary {
   const exec = effectiveExecution(emp);
   const tier = (EXECUTION_TIERS as readonly string[]).includes(exec.tier) ? exec.tier : "solo";
@@ -42,6 +60,41 @@ function computeExecutionProfileSummary(emp: Employee): ExecutionProfileSummary 
     reviewerToolProfile: exec.reviewerToolProfile,
     hasCustomRoleOverrides: !!(exec.roles?.implementer || exec.roles?.reviewer),
   };
+}
+
+function buildOrgServices(registry: Map<string, Employee>): OrgServiceSummary[] {
+  const services = new Map<string, OrgServiceSummary>();
+  for (const employee of registry.values()) {
+    if (!isActiveEmployee(employee) || !Array.isArray(employee.provides)) continue;
+    for (const service of employee.provides) {
+      const key = service.name.trim().toLowerCase();
+      if (!key) continue;
+      const candidate: OrgServiceSummary = {
+        name: service.name.trim(),
+        description: service.description.trim(),
+        provider: {
+          name: employee.name,
+          displayName: employee.displayName,
+          department: employee.department,
+          rank: employee.rank,
+        },
+      };
+      const current = services.get(key);
+      if (!current) {
+        services.set(key, candidate);
+        continue;
+      }
+      const candidatePriority = SERVICE_RANK_PRIORITY[candidate.provider.rank];
+      const currentPriority = SERVICE_RANK_PRIORITY[current.provider.rank];
+      if (
+        candidatePriority < currentPriority ||
+        (candidatePriority === currentPriority && candidate.provider.name.localeCompare(current.provider.name) < 0)
+      ) {
+        services.set(key, candidate);
+      }
+    }
+  }
+  return [...services.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 const VALID_CHANGE_TYPES = new Set<OrgChangeType>(ORG_CHANGE_TYPES);
@@ -170,6 +223,11 @@ export async function handleOrgRoutes(
         warnings: [...scanWarnings, ...hierarchy.warnings],
       },
     });
+    return true;
+  }
+
+  if (method === "GET" && pathname === "/api/org/services") {
+    json(res, { services: buildOrgServices(scanOrg()) });
     return true;
   }
 
@@ -454,6 +512,10 @@ export async function handleOrgRoutes(
       notFound(res);
       return true;
     }
+    if (!["pending_approval", "approved"].includes(request.status)) {
+      json(res, { error: `change is ${request.status}, not awaiting approval` }, 409);
+      return true;
+    }
     const actor = resolveUserHeader(req.headers, context.getConfig().gateway.userHeader);
     const approvalSessionId = request.approvalId ? (getApproval(request.approvalId)?.sessionId ?? null) : null;
     if (request.approvalId) {
@@ -477,8 +539,9 @@ export async function handleOrgRoutes(
 
   params = matchRoute("/api/org/change-requests/:id/apply", pathname);
   if (method === "POST" && params) {
-    const { getChangeRequest } = await import("../../org-changes.js");
-    const { applyOrgChange } = await import("../../hr-steward.js");
+    const { getChangeRequest, updateChangeRequestStatus } = await import("../../org-changes.js");
+    const { applyOrgChange, recordHrDecisionMessage } = await import("../../hr-steward.js");
+    const { getApproval, resolveApproval } = await import("../../approvals.js");
     const request = getChangeRequest(params.id);
     if (!request) {
       notFound(res);
@@ -488,11 +551,31 @@ export async function handleOrgRoutes(
       json(res, { error: `Change request is '${request.status}' and cannot be applied` }, 409);
       return true;
     }
+    const actor = resolveUserHeader(req.headers, context.getConfig().gateway.userHeader);
+    const approvalSessionId = request.approvalId ? (getApproval(request.approvalId)?.sessionId ?? null) : null;
+    if (request.approvalId) {
+      try {
+        const resolved = resolveApproval(request.approvalId, "approved", actor);
+        context.emit("approval:resolved", {
+          approvalId: resolved.id,
+          sessionId: resolved.sessionId,
+          state: "approved",
+        });
+      } catch {
+        /* already resolved — continue idempotently */
+      }
+    }
+    recordHrDecisionMessage(approvalSessionId, request, { action: "approved", actor }, context);
+    if (request.status === "pending_approval") {
+      updateChangeRequestStatus(params.id, "approved");
+    }
     const applied = await applyOrgChange(request, context);
     if (!applied.ok) {
+      recordHrDecisionMessage(approvalSessionId, request, { action: "failed", actor, error: applied.error ?? null }, context);
       json(res, { status: "error", error: applied.error, changeRequest: getChangeRequest(params.id) }, 400);
       return true;
     }
+    recordHrDecisionMessage(approvalSessionId, request, { action: "applied", actor }, context);
     json(res, { status: "ok", changeRequest: getChangeRequest(params.id) });
     return true;
   }

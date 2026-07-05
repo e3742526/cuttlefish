@@ -21,6 +21,8 @@ interface CronJob {
   name: string
   schedule: string
   enabled: boolean
+  scheduleValid?: boolean
+  scheduleError?: string | null
   timezone?: string
   engine?: string
   model?: string
@@ -283,6 +285,7 @@ export default function CronPage() {
   // Derived data
   const enabledCount = jobs.filter(j => j.enabled).length
   const disabledCount = jobs.filter(j => !j.enabled).length
+  const brokenCount = jobs.filter(j => j.scheduleValid === false).length
   const filtered = jobs.filter(j => {
     if (filter === "enabled") return j.enabled
     if (filter === "disabled") return !j.enabled
@@ -315,7 +318,7 @@ export default function CronPage() {
               </h1>
               {!loading && (
                 <p className="text-[length:var(--text-footnote)] text-[var(--text-secondary)] mt-[var(--space-1)]">
-                  {jobs.length} total &middot; {enabledCount} enabled &middot; {disabledCount} disabled
+                  {jobs.length} total &middot; {enabledCount} enabled &middot; {disabledCount} disabled &middot; {brokenCount} broken
                 </p>
               )}
             </div>
@@ -356,8 +359,8 @@ export default function CronPage() {
             </div>
           ) : loading ? (
             <div>
-              <div className="grid grid-cols-3 gap-[var(--space-3)] mb-[var(--space-4)]">
-                {[1, 2, 3].map(i => (
+              <div className="grid grid-cols-4 gap-[var(--space-3)] mb-[var(--space-4)]">
+                {[1, 2, 3, 4].map(i => (
                   <div key={i} className="bg-[var(--material-regular)] border border-[var(--separator)] rounded-[var(--radius-md)] p-[var(--space-4)]">
                     <Skeleton className="w-[60px] h-2.5 mb-2" />
                     <Skeleton className="w-20 h-3.5" />
@@ -379,10 +382,11 @@ export default function CronPage() {
               {/* ─── OVERVIEW TAB ────────────────────────────── */}
               <TabsContent value="overview">
                 {/* Summary cards */}
-                <div className="grid grid-cols-3 gap-[var(--space-3)] mb-[var(--space-4)] mt-[var(--space-4)]">
+                <div className="grid grid-cols-4 gap-[var(--space-3)] mb-[var(--space-4)] mt-[var(--space-4)]">
                   <SummaryCard label="Total Jobs" value={jobs.length} />
                   <SummaryCard label="Enabled" value={enabledCount} color="var(--system-green)" />
                   <SummaryCard label="Disabled" value={disabledCount} color="var(--text-tertiary)" />
+                  <SummaryCard label="Broken" value={brokenCount} color="var(--system-red)" />
                 </div>
 
                 {/* Filter pills */}
@@ -440,6 +444,7 @@ export default function CronPage() {
                             {empJobs.map((job, idx) => {
                               const isExpanded = expandedId === job.id
                               const triggerState = triggering[job.id]
+                              const isBroken = job.scheduleValid === false
 
                               return (
                                 <div key={job.id}>
@@ -461,7 +466,7 @@ export default function CronPage() {
                                     }}
                                     className="flex items-center cursor-pointer min-h-[48px] px-[var(--space-4)] transition-[background] duration-150 ease-in-out"
                                     style={{
-                                      borderLeft: `3px solid ${job.enabled ? "var(--system-green)" : "transparent"}`,
+                                      borderLeft: `3px solid ${isBroken ? "var(--system-red)" : job.enabled ? "var(--system-green)" : "transparent"}`,
                                     }}
                                     onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = "var(--fill-secondary)" }}
                                     onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = "" }}
@@ -470,7 +475,7 @@ export default function CronPage() {
                                     <span
                                       className="w-2 h-2 rounded-full shrink-0"
                                       style={{
-                                        background: job.enabled ? "var(--system-green)" : "var(--text-tertiary)",
+                                        background: isBroken ? "var(--system-red)" : job.enabled ? "var(--system-green)" : "var(--text-tertiary)",
                                       }}
                                     />
 
@@ -479,8 +484,11 @@ export default function CronPage() {
                                       <span className="truncate text-[length:var(--text-footnote)] font-semibold text-[var(--text-primary)]">
                                         {job.name}
                                       </span>
-                                      <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-                                        {describeCron(job.schedule)}
+                                      <span
+                                        className="text-[length:var(--text-caption1)]"
+                                        style={{ color: isBroken ? "var(--system-red)" : "var(--text-tertiary)" }}
+                                      >
+                                        {isBroken ? (job.scheduleError || "Broken schedule") : describeCron(job.schedule)}
                                       </span>
                                     </div>
 
@@ -545,11 +553,18 @@ export default function CronPage() {
                                         <span
                                           className="text-[length:var(--text-caption1)] font-medium"
                                           style={{
-                                            color: job.enabled ? "var(--system-green)" : "var(--text-tertiary)",
+                                            color: isBroken ? "var(--system-red)" : job.enabled ? "var(--system-green)" : "var(--text-tertiary)",
                                           }}
                                         >
-                                          {job.enabled ? "Enabled" : "Disabled"}
+                                          {isBroken ? "Broken schedule" : job.enabled ? "Enabled" : "Disabled"}
                                         </span>
+
+                                        {isBroken && job.scheduleError && (
+                                          <>
+                                            <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">Error</span>
+                                            <span className="text-[length:var(--text-caption1)] text-[var(--system-red)]">{job.scheduleError}</span>
+                                          </>
+                                        )}
 
                                         {job.engine && (
                                           <>

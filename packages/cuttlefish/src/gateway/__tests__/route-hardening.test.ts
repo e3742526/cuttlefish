@@ -22,6 +22,7 @@ import { Readable } from "node:stream";
 const bootHome = fs.mkdtempSync(path.join(os.tmpdir(), "route-harden-boot-"));
 let tmpHome = bootHome;
 let cronRunsDir = path.join(tmpHome, "cron", "runs");
+let cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
 let orgDir = path.join(tmpHome, "org");
 
 vi.mock("../../shared/paths.js", async (importOriginal) => {
@@ -32,6 +33,9 @@ vi.mock("../../shared/paths.js", async (importOriginal) => {
     // the real value so import-time consumers don't break.
     get CRON_RUNS() {
       return cronRunsDir;
+    },
+    get CRON_JOBS() {
+      return cronJobsFile;
     },
     get ORG_DIR() {
       return orgDir;
@@ -103,6 +107,7 @@ const ctx = {
 beforeEach(() => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "route-harden-"));
   cronRunsDir = path.join(tmpHome, "cron", "runs");
+  cronJobsFile = path.join(tmpHome, "cron", "jobs.json");
   orgDir = path.join(tmpHome, "org");
   fs.mkdirSync(cronRunsDir, { recursive: true });
   fs.mkdirSync(orgDir, { recursive: true });
@@ -193,6 +198,107 @@ persona: Reviews mission systems.
 
     expect(cap.status).toBe(200);
     expect((cap.body as { departments: string[] }).departments).toEqual(["general", "mission-systems"]);
+  });
+
+  it("lists active services and resolves duplicate providers by higher rank", async () => {
+    fs.mkdirSync(path.join(orgDir, "engineering"), { recursive: true });
+    fs.writeFileSync(path.join(orgDir, "engineering", "lead.yaml"), `
+name: lead
+displayName: Lead
+department: engineering
+rank: manager
+engine: claude
+model: sonnet
+persona: Reviews architecture.
+provides:
+  - name: code-review
+    description: Review pull requests
+`);
+    fs.writeFileSync(path.join(orgDir, "engineering", "dev.yaml"), `
+name: dev
+displayName: Dev
+department: engineering
+rank: employee
+engine: claude
+model: sonnet
+persona: Ships features.
+provides:
+  - name: code-review
+    description: Review pull requests
+  - name: incident-response
+    description: Handle urgent production issues
+`);
+    fs.writeFileSync(path.join(orgDir, "engineering", "disabled.yaml"), `
+name: disabled
+displayName: Disabled
+department: engineering
+rank: senior
+engine: claude
+model: sonnet
+persona: Unavailable.
+lifecycle: disabled
+provides:
+  - name: data-migration
+    description: Should not be advertised
+`);
+
+    const cap = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/org/services"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect(cap.body).toEqual({
+      services: [
+        {
+          name: "code-review",
+          description: "Review pull requests",
+          provider: {
+            name: "lead",
+            displayName: "Lead",
+            department: "engineering",
+            rank: "manager",
+          },
+        },
+        {
+          name: "incident-response",
+          description: "Handle urgent production issues",
+          provider: {
+            name: "dev",
+            displayName: "Dev",
+            department: "engineering",
+            rank: "employee",
+          },
+        },
+      ],
+    });
+  });
+});
+
+describe("GET /api/cron — invalid schedules", () => {
+  it("surfaces broken schedules in the API payload instead of looking healthy", async () => {
+    fs.mkdirSync(path.dirname(cronJobsFile), { recursive: true });
+    fs.writeFileSync(cronJobsFile, JSON.stringify([
+      { id: "valid-job", name: "Valid Job", enabled: true, schedule: "0 * * * *", prompt: "run valid" },
+      { id: "bad-job", name: "Bad Job", enabled: true, schedule: "99 99 99 99 99", prompt: "run bad" },
+    ]));
+
+    const cap = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/cron"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect(cap.body).toEqual([
+      expect.objectContaining({
+        id: "valid-job",
+        scheduleValid: true,
+        scheduleError: null,
+        lastRun: null,
+      }),
+      expect.objectContaining({
+        id: "bad-job",
+        scheduleValid: false,
+        scheduleError: "Invalid cron schedule: 99 99 99 99 99",
+        lastRun: null,
+      }),
+    ]);
   });
 });
 

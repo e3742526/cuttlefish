@@ -1,3 +1,4 @@
+import cron from "node-cron";
 import fs from "node:fs";
 import path from "node:path";
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
@@ -12,6 +13,16 @@ import { readJsonlTail } from "../../jsonl-tail.js";
 import type { ApiContext } from "../context.js";
 import { matchRoute } from "../match-route.js";
 import { badRequest, json, notFound } from "../responses.js";
+
+function serializeCronJob(job: CronJob, lastRun: Record<string, unknown> | null = null): Record<string, unknown> {
+  const scheduleValid = cron.validate(job.schedule);
+  return {
+    ...job,
+    lastRun,
+    scheduleValid,
+    scheduleError: scheduleValid ? null : `Invalid cron schedule: ${job.schedule}`,
+  };
+}
 
 export async function handleCronRoutes(
   method: string,
@@ -47,7 +58,7 @@ export async function handleCronRoutes(
     const enriched = await Promise.all(jobs.map(async (job) => {
       const runFile = path.join(CRON_RUNS, `${job.id}.jsonl`);
       const { entries } = await readJsonlTail(runFile, 1);
-      return { ...job, lastRun: entries[0] ?? null };
+      return serializeCronJob(job, (entries[0] as Record<string, unknown> | undefined) ?? null);
     }));
     json(res, enriched);
     return true;

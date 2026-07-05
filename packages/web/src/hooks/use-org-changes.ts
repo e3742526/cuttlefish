@@ -7,6 +7,10 @@ export function useOrgChanges(status?: string) {
   return useQuery({
     queryKey: queryKeys.orgChanges.list(status),
     queryFn: () => hrApi.listChangeRequests(status),
+    // The org-change queue is an operator review surface just like approvals.
+    // Force a mount refetch so navigation re-syncs instead of reusing a warm,
+    // potentially stale 5-minute snapshot from the global query defaults.
+    refetchOnMount: 'always',
   })
 }
 
@@ -15,6 +19,7 @@ export function useOrgChange(id: string | null) {
     queryKey: queryKeys.orgChanges.detail(id!),
     queryFn: () => hrApi.getChangeRequest(id!),
     enabled: !!id,
+    refetchOnMount: 'always',
   })
 }
 

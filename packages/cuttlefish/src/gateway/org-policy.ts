@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import { ORG_POLICY_FILE } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
+import { portalEmployeeSlug } from "../shared/portal-slug.js";
 import { resolveOrgHierarchy } from "./org-hierarchy.js";
 import type {
   Employee,
@@ -67,6 +68,15 @@ const DEFAULT_CHANGE_POLICY: Record<OrgChangeType, PolicyTier> = {
 
 /** Fields whose change carries no real risk — a cosmetic-only edit is auto-appliable. */
 const COSMETIC_FIELDS = new Set(["displayName", "emoji", "avatar", "alwaysNotify"]);
+const AGENT_ACTOR_ALIASES = new Set([
+  HR_EMPLOYEE_NAME,
+  "agent",
+  "system",
+  "coo",
+  // The default portal executive slug is "cuttlefish"; this is the canonical
+  // COO identity in a default install even when older prompts still say "coo".
+  portalEmployeeSlug(undefined),
+]);
 
 /** Reads the optional operator override and merges it over the defaults. */
 export function loadChangePolicy(): Record<OrgChangeType, PolicyTier> {
@@ -114,8 +124,8 @@ export function classifyChange(input: PolicyInput): PolicyTier {
  */
 export function assertNotSelfModification(input: PolicyInput): void {
   if (input.employeeName !== HR_EMPLOYEE_NAME) return;
-  const actor = input.proposedBy ?? "user";
-  const isAgent = actor === HR_EMPLOYEE_NAME || actor === "agent" || actor === "system" || actor === "coo";
+  const actor = (input.proposedBy ?? "user").trim().toLowerCase();
+  const isAgent = AGENT_ACTOR_ALIASES.has(actor);
   if (isAgent) {
     throw new OrgChangeBlockedError(
       "The HR / Org Steward may not create, modify, disable, or retire itself. Escalate to the human operator.",
