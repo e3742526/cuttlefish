@@ -406,10 +406,12 @@ function validateLogging(
     problems.push("logging must be a mapping");
     return;
   }
-  pushUnknownKeys(problems, value, ["file", "stdout", "level"], "logging");
+  pushUnknownKeys(problems, value, ["file", "stdout", "level", "maxSizeBytes", "maxFiles"], "logging");
   if (value.file !== undefined) validateBoolean(problems, "logging.file", value.file);
   if (value.stdout !== undefined) validateBoolean(problems, "logging.stdout", value.stdout);
   if (value.level !== undefined) validateString(problems, "logging.level", value.level);
+  if (value.maxSizeBytes !== undefined) validateNumber(problems, "logging.maxSizeBytes", value.maxSizeBytes);
+  if (value.maxFiles !== undefined) validateNumber(problems, "logging.maxFiles", value.maxFiles);
 }
 
 function validateMcp(

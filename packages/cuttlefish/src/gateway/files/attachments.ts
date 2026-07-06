@@ -7,7 +7,7 @@ import { safeFetch, SsrfError } from "../../shared/ssrf-guard.js";
 import { assessFileRead } from "./read-security.js";
 import { logger } from "../../shared/logger.js";
 import {
-  getFile,
+  getFilesByIds,
   insertMessage,
   setFilePath,
   updateArtifactMetadata,
@@ -28,10 +28,11 @@ import {
 
 export function fileIdsToMedia(fileIds: unknown): MessageMedia[] {
   if (!Array.isArray(fileIds)) return [];
+  const ids = fileIds.filter((id): id is string => typeof id === "string" && !!id.trim());
+  const byId = new Map(getFilesByIds(ids).map((meta) => [meta.id, meta]));
   const media: MessageMedia[] = [];
-  for (const id of fileIds) {
-    if (typeof id !== "string" || !id.trim()) continue;
-    const meta = getFile(id);
+  for (const id of ids) {
+    const meta = byId.get(id);
     if (meta) media.push(buildMessageMedia(meta));
   }
   return media;
@@ -40,9 +41,10 @@ export function fileIdsToMedia(fileIds: unknown): MessageMedia[] {
 export function rehomeAttachmentsToSession(fileIds: unknown, sessionId: string): void {
   if (!Array.isArray(fileIds)) return;
   const destDir = uploadDir(sessionId);
-  for (const id of fileIds) {
-    if (typeof id !== "string" || !id.trim()) continue;
-    const meta = getFile(id);
+  const ids = fileIds.filter((id): id is string => typeof id === "string" && !!id.trim());
+  const byId = new Map(getFilesByIds(ids).map((meta) => [meta.id, meta]));
+  for (const id of ids) {
+    const meta = byId.get(id);
     if (!meta) continue;
     // Stored uploads live under their sanitized basename (see saveFile); sanitize
     // here too so a registered artifact's raw/`..`-laden filename cannot make

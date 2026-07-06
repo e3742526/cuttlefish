@@ -126,6 +126,10 @@
   color: var(--text-primary);
   outline: none;
 }
+.wt__edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .wt__pin {
   flex-shrink: 0;
   color: hsl(var(--wt-hue) 70% 58%);

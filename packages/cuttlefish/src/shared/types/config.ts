@@ -167,7 +167,7 @@ export interface CuttlefishConfig {
     instances?: ConnectorInstance[];
   };
   email?: EmailConfig;
-  logging: { file: boolean; stdout: boolean; level: string };
+  logging: { file: boolean; stdout: boolean; level: string; maxSizeBytes?: number; maxFiles?: number };
   mcp?: McpGlobalConfig;
   modelFallback?: GlobalModelFallbackConfig;
   orchestration?: OrchestrationRuntimeConfig;

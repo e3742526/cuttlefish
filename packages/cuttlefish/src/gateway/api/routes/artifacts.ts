@@ -5,6 +5,7 @@ import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import {
   findArtifactsByPaths,
   getFile,
+  getFilesByIds,
   insertFile,
   listArtifacts,
   updateArtifactMetadata,
@@ -180,15 +181,18 @@ export async function handleArtifactRoutes(
       return pairs;
     }));
 
+    const byId = new Map(getFilesByIds(ids).map((artifact) => [artifact.id, artifact]));
+    const idResults = ids.map((id) => ({ requested: id, ...validationResultForArtifact(byId.get(id)) }));
+
     json(res, {
-      ids: ids.map((id) => ({ requested: id, ...validationResultForArtifact(getFile(id)) })),
+      ids: idResults,
       paths: resolvedPaths.map((p) => {
         const artifact = byPath.get(p);
         const result = validationResultForArtifact(artifact);
         return { requested: p, ...result };
       }),
       ok:
-        ids.every((id) => validationResultForArtifact(getFile(id)).existsOnDisk) &&
+        idResults.every((r) => r.existsOnDisk) &&
         resolvedPaths.every((p) => validationResultForArtifact(byPath.get(p)).existsOnDisk),
     });
     return true;

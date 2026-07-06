@@ -348,7 +348,7 @@ export function TicketDetailPanel({
               aria-label="Title"
               value={draftTitle}
               onChange={(e) => setDraftTitle(e.target.value)}
-              className="mt-[var(--space-2)] w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-title3)] font-bold tracking-[-0.3px] text-[var(--text-primary)] outline-none"
+              className="mt-[var(--space-2)] w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-title3)] font-bold tracking-[-0.3px] text-[var(--text-primary)] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)]"
             />
 
             <div className="flex items-center gap-[var(--space-3)] mt-[var(--space-2)]">
@@ -459,7 +459,7 @@ export function TicketDetailPanel({
               rows={6}
               value={draftDescription}
               onChange={(e) => setDraftDescription(e.target.value)}
-              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none resize-y"
+              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] resize-y"
             />
             <div className="mt-[var(--space-3)] text-[length:var(--text-caption1)] font-semibold text-[var(--text-tertiary)] uppercase tracking-[0.5px] mb-[var(--space-2)]">
               Ticket context
@@ -486,7 +486,7 @@ export function TicketDetailPanel({
                 setDraftResourceUrl(next)
                 if (next.trim()) setDraftResourcePath(null)
               }}
-              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none"
+              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)]"
             />
             <label className="mt-[var(--space-3)] flex items-center gap-[var(--space-2)] text-[length:var(--text-caption2)] text-[var(--text-secondary)]">
               <input
@@ -527,7 +527,7 @@ export function TicketDetailPanel({
               value={noteDraft}
               onChange={(e) => setNoteDraft(e.target.value)}
               placeholder="Add a timestamped update…"
-              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none resize-y"
+              className="w-full rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--fill-secondary)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-footnote)] text-[var(--text-secondary)] leading-[1.5] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] resize-y"
             />
             <div className="mt-[var(--space-2)] flex justify-end">
               <button

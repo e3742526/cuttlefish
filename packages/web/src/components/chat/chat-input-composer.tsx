@@ -57,6 +57,7 @@ export function ChatInputComposer({
     >
       <textarea
         id="chat-textarea"
+        aria-label="Message"
         ref={textareaRef}
         value={value}
         onChange={onChange}
@@ -66,7 +67,7 @@ export function ChatInputComposer({
         placeholder={disabled ? 'Waiting for response...' : 'Type a message...'}
         rows={1}
         disabled={disabled}
-        className={`block w-full bg-transparent border-none outline-none resize-none overflow-y-auto text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-6 min-h-6 px-1 pt-1 pb-2 m-0 ${disabled ? 'opacity-50' : 'opacity-100'}`}
+        className={`block w-full bg-transparent border-none outline-none resize-none overflow-y-auto text-[var(--text-primary)] text-[length:var(--text-subheadline)] leading-6 min-h-6 px-1 pt-1 pb-2 m-0 focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] ${disabled ? 'opacity-50' : 'opacity-100'}`}
         onInput={onInput}
       />
       <input

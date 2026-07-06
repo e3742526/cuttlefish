@@ -161,6 +161,16 @@ export function getFile(id: string): FileMeta | undefined {
   return row ? rowToFileMeta(row) : undefined;
 }
 
+/** Batched form of {@link getFile} — one query for N ids instead of N queries (PERF-CF-001). */
+export function getFilesByIds(ids: string[]): FileMeta[] {
+  const wanted = ids.filter(Boolean);
+  if (wanted.length === 0) return [];
+  const db = initDb();
+  const placeholders = wanted.map(() => '?').join(', ');
+  const rows = db.prepare(`SELECT * FROM files WHERE id IN (${placeholders})`).all(...wanted) as Record<string, unknown>[];
+  return rows.map(rowToFileMeta);
+}
+
 export function listFiles(): FileMeta[] {
   const db = initDb();
   const rows = db.prepare('SELECT * FROM files ORDER BY created_at DESC').all() as Record<string, unknown>[];

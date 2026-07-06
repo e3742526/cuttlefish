@@ -155,7 +155,7 @@ export function CreateTicketModal({
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               required
               autoFocus
-              className="text-[length:var(--text-body)] text-[var(--text-primary)] py-2 px-3 border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none font-[inherit]"
+              className="text-[length:var(--text-body)] text-[var(--text-primary)] py-2 px-3 border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] font-[inherit]"
             />
           </div>
 
@@ -173,7 +173,7 @@ export function CreateTicketModal({
               rows={3}
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-              className="text-[length:var(--text-body)] text-[var(--text-primary)] resize-y min-h-[72px] py-2 px-3 border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none font-[inherit]"
+              className="text-[length:var(--text-body)] text-[var(--text-primary)] resize-y min-h-[72px] py-2 px-3 border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] font-[inherit]"
             />
           </div>
 
@@ -272,6 +272,7 @@ export function CreateTicketModal({
             </div>
             <input
               type="url"
+              aria-label="Reference URL"
               placeholder="https://example.com/reference"
               value={form.resourceUrl}
               aria-invalid={urlError ? true : undefined}
@@ -279,7 +280,7 @@ export function CreateTicketModal({
                 if (urlError) setUrlError(null)
                 setForm((f) => ({ ...f, resourceUrl: e.target.value, resourcePath: e.target.value.trim() ? null : f.resourcePath }))
               }}
-              className="text-[length:var(--text-body)] text-[var(--text-primary)] py-2 px-3 border rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none font-[inherit]"
+              className="text-[length:var(--text-body)] text-[var(--text-primary)] py-2 px-3 border rounded-[var(--radius-md)] bg-[var(--fill-tertiary)] outline-none focus-visible:ring-[3px] focus-visible:ring-[var(--accent-fill)] font-[inherit]"
               style={{ borderColor: urlError ? 'var(--system-red)' : 'var(--separator)' }}
             />
             {urlError ? (

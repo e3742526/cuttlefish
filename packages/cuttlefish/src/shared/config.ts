@@ -154,6 +154,8 @@ export function loadConfig(): CuttlefishConfig {
     file: logging?.file ?? true,
     stdout: logging?.stdout ?? true,
     level: logging?.level ?? "info",
+    maxSizeBytes: logging?.maxSizeBytes ?? 10 * 1024 * 1024,
+    maxFiles: logging?.maxFiles ?? 5,
   };
   config.engines.claude = normalizeClaudeEngineConfig(config.engines.claude);
   config.boardWorker = normalizeBoardWorkerConfig(config.boardWorker);

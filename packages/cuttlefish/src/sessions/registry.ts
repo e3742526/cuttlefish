@@ -117,6 +117,7 @@ export {
 export {
   deleteFile,
   getFile,
+  getFilesByIds,
   insertFile,
   listFiles,
   findArtifactsByPaths,

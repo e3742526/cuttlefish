@@ -574,7 +574,7 @@ describe("saveConfigAtomic", () => {
     expect(config.gateway).toEqual({ port: 8888, host: "127.0.0.1" });
     expect(config.engines.default).toBe("claude");
     expect(config.connectors).toEqual({});
-    expect(config.logging).toEqual({ file: true, stdout: true, level: "info" });
+    expect(config.logging).toEqual({ file: true, stdout: true, level: "info", maxSizeBytes: 10 * 1024 * 1024, maxFiles: 5 });
     expect(config.knowledge).toMatchObject({
       sink: {
         type: "noop",

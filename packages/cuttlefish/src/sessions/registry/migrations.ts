@@ -104,6 +104,8 @@ export function migrateFilesSchema(database: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_files_kind_created ON files (artifact_kind, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_producing_run ON files (producing_run_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_files_sha256 ON files (sha256);
+    CREATE INDEX IF NOT EXISTS idx_files_path ON files (path);
+    CREATE INDEX IF NOT EXISTS idx_files_source_path ON files (source_path);
   `);
 }
 

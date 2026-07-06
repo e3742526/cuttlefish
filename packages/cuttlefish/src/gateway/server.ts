@@ -92,6 +92,8 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     level: config.logging.level,
     stdout: config.logging.stdout,
     file: config.logging.file,
+    maxSizeBytes: config.logging.maxSizeBytes,
+    maxFiles: config.logging.maxFiles,
   });
 
   const gatewayName = config.portal?.portalName || "Cuttlefish";

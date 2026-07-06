@@ -6,7 +6,7 @@ import { notifyAttachedTalkSessions } from "../../sessions/callbacks.js";
 import {
   cancelQueueItem,
   deleteSession,
-  getFile,
+  getFilesByIds,
   getSession,
   insertMessage,
   listPendingQueueItems,
@@ -291,10 +291,11 @@ export function dispatchSessionNotification(
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */
 export function resolveAttachmentPaths(fileIds: unknown): string[] {
   if (!Array.isArray(fileIds)) return [];
+  const ids = fileIds.filter((id): id is string => typeof id === "string" && !!id.trim());
+  const byId = new Map(getFilesByIds(ids).map((meta) => [meta.id, meta]));
   const paths: string[] = [];
-  for (const id of fileIds) {
-    if (typeof id !== "string" || !id.trim()) continue;
-    const meta = getFile(id);
+  for (const id of ids) {
+    const meta = byId.get(id);
     if (!meta) {
       logger.warn(`Attachment file not found: ${id}`);
       continue;
