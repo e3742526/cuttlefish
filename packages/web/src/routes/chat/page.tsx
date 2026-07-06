@@ -23,6 +23,7 @@ import { clearDebugLog, shareDebugLog } from '@/lib/debug-log'
 import { ChatErrorBoundary } from './chat-page-error-boundary'
 import { ChatMoreMenu } from './chat-more-menu'
 import { ChatPageShell } from './chat-page-shell'
+import { clearSelectedRoomId, loadSelectedRoomId, saveSelectedRoomId } from './room-selection-storage'
 
 export default function ChatPageWrapper() {
   return (
@@ -47,7 +48,7 @@ function ChatPage() {
   // When set, the main surface shows a department project-room's merged timeline
   // (read-only) instead of a single session's ChatPane. Mutually exclusive with
   // selectedId — selecting a session clears the room, and vice-versa.
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() => loadSelectedRoomId())
   const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('sidebar')
   // sessionMeta carries the sessionId it belongs to so the tab-label effect
   // can ignore stale meta from a previous session mid-switch (title flash fix).
@@ -91,6 +92,13 @@ function ChatPage() {
   const sessionPickerRef = useRef<HTMLDivElement>(null)
   const { events, connectionSeq, skillsVersion, subscribe } = useGateway()
   const chatTabs = useChatTabs()
+  const restoredRoomIdRef = useRef(selectedRoomId)
+  const clearedRestoredRoomTabRef = useRef(false)
+  useEffect(() => {
+    if (!restoredRoomIdRef.current || clearedRestoredRoomTabRef.current) return
+    clearedRestoredRoomTabRef.current = true
+    chatTabs.clearActiveTab()
+  }, [chatTabs])
   const deleteSessionMutation = useDeleteSession()
   const duplicateSessionMutation = useDuplicateSession()
   const sessionsQuery = useSessions()
@@ -111,6 +119,12 @@ function ChatPage() {
     () => (selectedRoomId ? rooms.find((r) => r.id === selectedRoomId) ?? null : null),
     [rooms, selectedRoomId],
   )
+  useEffect(() => {
+    if (!selectedRoomId || !sessionsQuery.data || !orgData) return
+    if (rooms.some((room) => room.id === selectedRoomId)) return
+    clearSelectedRoomId()
+    setSelectedRoomId(null)
+  }, [selectedRoomId, rooms, sessionsQuery.data, orgData])
   const roomSessionsById = useMemo(() => indexSessionsById(roomSessions), [roomSessions])
   const [showShortcutOverlay, setShowShortcutOverlay] = useState(false)
   const sidebarOrderRef = useRef<SidebarOrder>({ sessionIds: [], employeeNames: [], employeeSessionMap: {} })
@@ -222,6 +236,7 @@ function ChatPage() {
   const handleSelect = useCallback(
     (id: string) => {
       newChatIntentRef.current = false
+      clearSelectedRoomId()
       setSelectedRoomId(null)
       setSelectedId(id)
       setMobileView('chat')
@@ -234,6 +249,7 @@ function ChatPage() {
   const handleSelectRoom = useCallback((roomId: string) => {
     newChatIntentRef.current = false
     setPendingEmployee(null)
+    saveSelectedRoomId(roomId)
     setSelectedRoomId(roomId)
     setSelectedId(null)
     setSessionMeta(null)
@@ -252,6 +268,7 @@ function ChatPage() {
   const handleNewChat = useCallback(() => {
     newChatIntentRef.current = true
     setPendingEmployee(null)
+    clearSelectedRoomId()
     setSelectedRoomId(null)
     setSelectedId(null)
     setSessionMeta(null)
@@ -266,6 +283,7 @@ function ChatPage() {
   const contactEmployee = useCallback((name: string) => {
     newChatIntentRef.current = true
     setPendingEmployee(name)
+    clearSelectedRoomId()
     setSelectedRoomId(null)
     setSelectedId(null)
     setSessionMeta(null)
@@ -346,6 +364,7 @@ function ChatPage() {
     try {
       const result = await duplicateSessionMutation.mutateAsync(id) as { id?: string; title?: string; employee?: string }
       if (result?.id) {
+        clearSelectedRoomId()
         setSelectedRoomId(null)
         setSelectedId(result.id)
         chatTabs.openTab({
@@ -376,6 +395,7 @@ function ChatPage() {
   // ChatPane callbacks
   const handleSessionCreated = useCallback((newId: string, pending?: Message) => {
     if (pending) setPendingUserMessage({ sessionId: newId, message: pending })
+    clearSelectedRoomId()
     setSelectedId(newId)
     chatTabs.openTab({ sessionId: newId, label: 'New Chat', status: 'running', unread: false, pinned: true })
     qc.invalidateQueries({ queryKey: queryKeys.sessions.all })
@@ -489,6 +509,7 @@ function ChatPage() {
   useEffect(() => {
     const at = chatTabs.activeTab
     if (at && at.kind === 'session' && at.sessionId !== selectedId) {
+      clearSelectedRoomId()
       setSelectedRoomId(null) // a session tab takes over the surface from a room
       setSelectedId(at.sessionId)
       return
