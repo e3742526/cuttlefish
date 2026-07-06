@@ -7,6 +7,7 @@ vi.mock('@/lib/api', () => ({ api: {} }))
 
 vi.mock('@/hooks/use-employees', () => ({
   useOrg: () => ({ data: { employees: [] } }),
+  useWorkspaceProfiles: () => ({ data: { profiles: [] } }),
 }))
 
 interface LiveSessionMockState {
