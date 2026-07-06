@@ -113,3 +113,48 @@ export async function validateUrlForServerFetch(rawUrl: string, options: UrlChec
   }
   return { ok: true };
 }
+
+export class SsrfError extends Error {}
+
+/**
+ * Fetch a user-supplied URL server-side while re-validating every redirect hop.
+ *
+ * Audit finding SEC-SSRF-001: callers previously ran `checkPublicUrl(url)` once
+ * and then `fetch(url)`, but `fetch` follows redirects internally with
+ * `redirect: "follow"`. A public URL returning `302 Location:
+ * http://169.254.169.254/…` (cloud metadata) or a loopback address defeated the
+ * guard, because the guard never saw the post-redirect target. This follows
+ * redirects manually (`redirect: "manual"`) and runs the same public-URL check
+ * on each `Location` before following it, with a bounded hop count.
+ *
+ * The initial URL must already have passed `checkPublicUrl`; this re-checks it
+ * defensively too. Throws `SsrfError` if any hop resolves to a private/reserved
+ * address or the redirect chain is too long. Returns the final non-redirect
+ * `Response`; the caller is responsible for size-limited buffering.
+ */
+export async function safeFetch(
+  rawUrl: string,
+  init: RequestInit = {},
+  opts: { maxRedirects?: number } = {},
+): Promise<Response> {
+  const maxRedirects = opts.maxRedirects ?? 5;
+  let currentUrl = rawUrl;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const check = await checkPublicUrl(currentUrl);
+    if (!check.ok) throw new SsrfError(`Refusing to fetch URL: ${check.reason}`);
+    const response = await fetch(currentUrl, { ...init, redirect: "manual" });
+    // 3xx with a Location header is a redirect we must re-validate before following.
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return response; // 3xx with no Location — hand back as-is.
+      if (hop === maxRedirects) throw new SsrfError("Too many redirects");
+      // Resolve relative Location against the current URL, then re-check next loop.
+      currentUrl = new URL(location, currentUrl).toString();
+      // Drain the redirect body so the socket can be reused.
+      await response.body?.cancel().catch(() => {});
+      continue;
+    }
+    return response;
+  }
+  throw new SsrfError("Too many redirects");
+}

@@ -111,7 +111,9 @@ describe("POST /api/files JSON upload boundaries", () => {
       ctx,
     );
 
-    expect(fetchSpy).toHaveBeenCalledWith("https://93.184.216.34/file.bin");
+    // safeFetch (SEC-SSRF-001) now drives the fetch with redirect: "manual" so it
+    // can re-validate each hop; the URL is still the one requested.
+    expect(fetchSpy).toHaveBeenCalledWith("https://93.184.216.34/file.bin", { redirect: "manual" });
     expect(out.status).toBe(400);
     expect(JSON.parse(out.body!)).toEqual({ error: "File exceeds 50 MB limit" });
   });

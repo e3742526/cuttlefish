@@ -5,7 +5,7 @@ import path from "node:path";
 import Busboy from "busboy";
 import { readJsonBody } from "../http-helpers.js";
 import type { ApiContext } from "../api/context.js";
-import { checkPublicUrl } from "../../shared/ssrf-guard.js";
+import { safeFetch, SsrfError } from "../../shared/ssrf-guard.js";
 import { logger } from "../../shared/logger.js";
 import { insertFile, type ArtifactKind, type FileMeta } from "../../sessions/registry.js";
 import { badRequest, FileRequestError, json, serverError } from "./responses.js";
@@ -54,7 +54,7 @@ function estimateBase64DecodedBytes(content: string): number {
   return Math.floor((normalizedLength * 3) / 4) - padding;
 }
 
-async function bufferResponseWithLimit(response: Response, maxBytes: number): Promise<Buffer> {
+export async function bufferResponseWithLimit(response: Response, maxBytes: number): Promise<Buffer> {
   const contentLength = response.headers.get("content-length");
   if (contentLength) {
     const parsed = Number.parseInt(contentLength, 10);
@@ -273,15 +273,16 @@ export async function handleJsonUpload(req: HttpRequest, res: ServerResponse, co
       return badRequest(res, uploadTooLargeMessage());
     }
   } else {
-    const urlCheck = await checkPublicUrl(url!);
-    if (!urlCheck.ok) return badRequest(res, `Refusing to fetch URL: ${urlCheck.reason}`);
     try {
-      const response = await fetch(url!);
+      // safeFetch re-validates every redirect hop against the SSRF guard, so a
+      // 3xx to a private/metadata address cannot slip past the initial check.
+      const response = await safeFetch(url!);
       if (!response.ok) {
         return serverError(res, `Failed to fetch URL: ${response.status} ${response.statusText}`);
       }
       buffer = await bufferResponseWithLimit(response, MAX_UPLOAD_SIZE);
     } catch (err) {
+      if (err instanceof SsrfError) return badRequest(res, err.message);
       if (err instanceof FileRequestError) {
         return badRequest(res, err.message);
       }

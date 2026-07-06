@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import Busboy from "busboy";
-import { checkPublicUrl } from "../../shared/ssrf-guard.js";
+import { safeFetch, SsrfError } from "../../shared/ssrf-guard.js";
+import { assessFileRead } from "./read-security.js";
 import { logger } from "../../shared/logger.js";
 import {
   getFile,
@@ -14,8 +15,8 @@ import {
   type MessageMedia,
 } from "../../sessions/registry.js";
 import type { ApiContext } from "../api/context.js";
-import { badRequest, json, readBody, serverError } from "./responses.js";
-import { saveFile } from "./uploads.js";
+import { badRequest, FileRequestError, json, readBody, serverError } from "./responses.js";
+import { bufferResponseWithLimit, saveFile } from "./uploads.js";
 import { safeRmSync } from "../../shared/safe-delete.js";
 import {
   FILES_DIR,
@@ -202,6 +203,11 @@ async function handleAttachmentJson(
 
   if (localPath) {
     const expanded = expandPath(localPath);
+    // Apply the same secret-file policy /api/files/read enforces (IOP-CF-001):
+    // this route previously read any local path directly, bypassing the denylist
+    // that blocks .env, private keys, ~/.ssh, and stored auth/credential files.
+    const assessment = assessFileRead(expanded);
+    if (!assessment.allowed) return badRequest(res, assessment.reason || "Refusing to read this file");
     if (!fs.existsSync(expanded) || !fs.statSync(expanded).isFile()) {
       return badRequest(res, `File not found: ${localPath}`);
     }
@@ -213,15 +219,17 @@ async function handleAttachmentJson(
     if (buffer.length > MAX) return badRequest(res, "File exceeds 50 MB limit");
     if (!filename) return badRequest(res, "filename is required when sending base64 content");
   } else {
-    const urlCheck = await checkPublicUrl(url!);
-    if (!urlCheck.ok) return badRequest(res, `Refusing to fetch URL: ${urlCheck.reason}`);
     try {
-      const response = await fetch(url!);
+      // safeFetch re-validates every redirect hop (SEC-SSRF-001); the streaming
+      // buffer enforces the 50 MB cap incrementally instead of materializing the
+      // whole response first (SEC-DOS-002).
+      const response = await safeFetch(url!);
       if (!response.ok) return serverError(res, `Failed to fetch URL: ${response.status} ${response.statusText}`);
-      buffer = Buffer.from(await response.arrayBuffer());
-      if (buffer.length > MAX) return badRequest(res, "File exceeds 50 MB limit");
+      buffer = await bufferResponseWithLimit(response, MAX);
       if (!filename) filename = path.basename(new URL(url!).pathname) || "download";
     } catch (err) {
+      if (err instanceof SsrfError) return badRequest(res, err.message);
+      if (err instanceof FileRequestError) return badRequest(res, err.message);
       return serverError(res, `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`);
     }
   }

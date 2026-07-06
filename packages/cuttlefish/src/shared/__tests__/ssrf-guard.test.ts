@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { checkPublicUrl, isPrivateAddress, validateUrlForServerFetch } from "../ssrf-guard.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { checkPublicUrl, isPrivateAddress, safeFetch, SsrfError, validateUrlForServerFetch } from "../ssrf-guard.js";
 
 describe("ssrf-guard: isPrivateAddress", () => {
   it("flags loopback, private, link-local and reserved IPv4", () => {
@@ -50,5 +50,54 @@ describe("ssrf-guard: checkPublicUrl (SEC-F-003)", () => {
   it("can allow loopback/private targets for explicit local webhook use", async () => {
     expect((await validateUrlForServerFetch("http://127.0.0.1:9999/x", { allowPrivateHosts: true })).ok).toBe(true);
     expect((await validateUrlForServerFetch("http://localhost:9999/x", { allowPrivateHosts: true })).ok).toBe(true);
+  });
+});
+
+describe("ssrf-guard: safeFetch redirect re-validation (SEC-SSRF-001)", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  function mockResponse(status: number, headers: Record<string, string> = {}): Response {
+    return {
+      status,
+      ok: status >= 200 && status < 300,
+      headers: { get: (k: string) => headers[k.toLowerCase()] ?? null },
+      body: { cancel: async () => {} },
+    } as unknown as Response;
+  }
+
+  it("refuses to follow a redirect to a private/metadata address", async () => {
+    // Public URL 302s to the cloud metadata endpoint — the classic SSRF bypass.
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(302, { location: "http://169.254.169.254/latest/meta-data/" }),
+    );
+    await expect(safeFetch("https://8.8.8.8/redirector")).rejects.toBeInstanceOf(SsrfError);
+    // The second hop (to the private address) must never be fetched.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a redirect to loopback", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      mockResponse(301, { location: "http://127.0.0.1:8787/api/config" }),
+    );
+    await expect(safeFetch("https://8.8.8.8/x")).rejects.toBeInstanceOf(SsrfError);
+  });
+
+  it("follows a redirect to another public target and returns the final response", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(mockResponse(302, { location: "https://1.1.1.1/final" }))
+      .mockResolvedValueOnce(mockResponse(200));
+    const res = await safeFetch("https://8.8.8.8/start");
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ redirect: "manual" });
+  });
+
+  it("bounds the redirect chain", async () => {
+    // Always redirect to a fresh public host → must hit the hop cap and throw.
+    let n = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      mockResponse(302, { location: `https://8.8.8.${(n++ % 8) + 1}/loop` }),
+    );
+    await expect(safeFetch("https://8.8.8.8/start")).rejects.toBeInstanceOf(SsrfError);
   });
 });
