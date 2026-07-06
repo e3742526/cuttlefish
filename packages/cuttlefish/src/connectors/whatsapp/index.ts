@@ -77,7 +77,16 @@ export class WhatsAppConnector implements Connector {
   }
 
   async start(): Promise<void> {
-    await this.connect();
+    try {
+      await this.connect();
+    } catch (err) {
+      // FSR-SIG-001: a start failure (auth state, socket construction) must
+      // leave the connector in "error" with a reason so getHealth() and the
+      // /api/status connectors check reflect it instead of a stale "starting".
+      this.connectionStatus = "error";
+      this.lastError = err instanceof Error ? err.message : String(err);
+      throw err;
+    }
   }
 
   private scheduleReconnect(): void {
@@ -174,6 +183,9 @@ export class WhatsAppConnector implements Connector {
     let status: ConnectorHealth["status"] = "stopped";
     if (this.connectionStatus === "running") status = "running";
     else if (this.connectionStatus === "qr_pending") status = "qr_pending";
+    // FSR-SIG-001: surface a start/connection failure as "error" so the
+    // /api/status connectors check turns non-ok instead of green-while-broken.
+    else if (this.connectionStatus === "error") status = "error";
     return {
       status,
       detail: this.connectionStatus === "qr_pending"

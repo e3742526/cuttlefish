@@ -273,7 +273,15 @@ export function ChatSidebar({
       startTransition(() => {
         if (selectedId && ids.includes(selectedId)) onNewChat()
       })
-    } catch {}
+    } catch (err: any) {
+      // WFG-CF-001: a bulk delete can partially fail (e.g. 409); surface it to
+      // the operator instead of swallowing it so it doesn't read as success.
+      pushToast({
+        tone: "error",
+        title: "Delete failed",
+        description: err?.message || "Some sessions could not be deleted",
+      })
+    }
   }
 
   const {
@@ -557,7 +565,14 @@ export function ChatSidebar({
           onNewChat()
         }
       })
-    } catch {}
+    } catch (err: any) {
+      // WFG-CF-002: don't silently swallow a failed delete.
+      pushToast({
+        tone: "error",
+        title: "Delete failed",
+        description: err?.message || "The session could not be deleted",
+      })
+    }
   }
 
   return (

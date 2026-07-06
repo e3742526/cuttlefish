@@ -414,7 +414,16 @@ export class SlackConnector implements Connector {
       }
     });
 
-    await this.app.start();
+    try {
+      await this.app.start();
+    } catch (err) {
+      // FSR-SIG-001: record the start failure so getHealth() reports "error"
+      // (not "stopped") and the /api/status connectors check turns non-ok.
+      // Rethrow so the caller's start().catch() log still fires.
+      this.started = false;
+      this.lastError = err instanceof Error ? err.message : String(err);
+      throw err;
+    }
     this.started = true;
     this.lastError = null;
     logger.info("Slack connector started (socket mode)");
