@@ -10,6 +10,7 @@ import {
   isMultiRoleEnabled,
   parseReviewResult,
   resolveEffectiveExecution,
+  resolveRoleFailoverTargets,
   shouldUseMidPairExecution,
 } from "../employee-execution.js";
 
@@ -143,30 +144,129 @@ describe("parseReviewResult", () => {
   });
 });
 
+describe("resolveRoleFailoverTargets", () => {
+  const orgLookup = (name: string) =>
+    ({
+      "sec-reviewer": { name: "sec-reviewer", engine: "codex", model: "gpt-5.4", effortLevel: "medium" },
+      "cheap-checker": { name: "cheap-checker", engine: "claude", model: "haiku" },
+      "no-engine": { name: "no-engine", engine: "", model: "" },
+    } as Record<string, { name: string; engine: string; model: string; effortLevel?: string }>)[name];
+
+  const base = {
+    primary: { engine: "claude", model: "sonnet" },
+    currentEmployeeName: "backend-dev",
+    lookupEmployee: orgLookup,
+    isEngineAvailable: () => true,
+  };
+
+  it("returns an empty list for an absent role or empty chain", () => {
+    expect(resolveRoleFailoverTargets({ ...base, role: undefined })).toEqual([]);
+    expect(resolveRoleFailoverTargets({ ...base, role: { fallbackChain: [] } })).toEqual([]);
+  });
+
+  it("preserves chain order and passes through direct agent targets", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      role: { fallbackChain: [
+        { engine: "codex", model: "gpt-5.5", effortLevel: "high" },
+        { engine: "gemini", model: "gemini-pro" },
+      ] },
+    });
+    expect(targets).toEqual([
+      { engine: "codex", model: "gpt-5.5", effortLevel: "high" },
+      { engine: "gemini", model: "gemini-pro", effortLevel: undefined },
+    ]);
+  });
+
+  it("resolves external-agent (employee) targets from the org lookup", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      role: { fallbackChain: [{ employee: "sec-reviewer" }] },
+    });
+    expect(targets).toEqual([
+      { engine: "codex", model: "gpt-5.4", effortLevel: "medium", viaEmployee: "sec-reviewer" },
+    ]);
+  });
+
+  it("lets an explicit effortLevel on the chain entry override the external employee's own", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      role: { fallbackChain: [{ employee: "sec-reviewer", effortLevel: "high" }] },
+    });
+    expect(targets[0]?.effortLevel).toBe("high");
+  });
+
+  it("drops unknown, incomplete, and self-referential employee targets", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      role: { fallbackChain: [
+        { employee: "ghost" },
+        { employee: "no-engine" },
+        { employee: "backend-dev" },
+        { engine: "codex", model: "gpt-5.5" },
+      ] },
+    });
+    expect(targets).toEqual([{ engine: "codex", model: "gpt-5.5", effortLevel: undefined }]);
+  });
+
+  it("dedupes targets on the same engine+model rung and drops the primary rung", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      role: { fallbackChain: [
+        { engine: "claude", model: "sonnet" }, // == primary
+        { engine: "codex", model: "gpt-5.5" },
+        { engine: "Codex", model: "GPT-5.5" }, // duplicate rung, case-insensitive
+        { employee: "cheap-checker" },
+        { engine: "claude", model: "haiku" }, // duplicate of the resolved employee target
+      ] },
+    });
+    expect(targets).toEqual([
+      { engine: "codex", model: "gpt-5.5", effortLevel: undefined },
+      { engine: "claude", model: "haiku", effortLevel: undefined, viaEmployee: "cheap-checker" },
+    ]);
+  });
+
+  it("drops targets whose engine is unavailable", () => {
+    const targets = resolveRoleFailoverTargets({
+      ...base,
+      isEngineAvailable: (engine: string) => engine !== "codex",
+      role: { fallbackChain: [
+        { engine: "codex", model: "gpt-5.5" },
+        { engine: "gemini", model: "gemini-pro" },
+      ] },
+    });
+    expect(targets).toEqual([{ engine: "gemini", model: "gemini-pro", effortLevel: undefined }]);
+  });
+
+  it("is bounded: never returns more than the chain cap", () => {
+    const chain = Array.from({ length: 10 }, (_, i) => ({ engine: "e" + i, model: "m" + i }));
+    const targets = resolveRoleFailoverTargets({ ...base, role: { fallbackChain: chain } });
+    expect(targets.length).toBeLessThanOrEqual(5);
+  });
+});
+
 describe("applyReviewerLossPolicy", () => {
   it("blocks unconditionally once a prior non-approved verdict exists, regardless of policy", () => {
-    expect(applyReviewerLossPolicy("degrade", "changes_requested", true, "codex", "gpt-5.5").action).toBe("block");
-    expect(applyReviewerLossPolicy("replace_then_degrade", "blocked", true, "codex", "gpt-5.5").action).toBe("block");
+    expect(applyReviewerLossPolicy("degrade", "changes_requested", true).action).toBe("block");
+    expect(applyReviewerLossPolicy("replace_then_degrade", "blocked", true).action).toBe("block");
   });
 
   it("'block' policy always blocks when there is no prior verdict", () => {
-    expect(applyReviewerLossPolicy("block", null, true, "codex", "gpt-5.5").action).toBe("block");
+    expect(applyReviewerLossPolicy("block", null, true).action).toBe("block");
   });
 
   it("'replace_then_block' replaces when a fallback exists, else blocks", () => {
-    const withFallback = applyReviewerLossPolicy("replace_then_block", null, true, "codex", "gpt-5.5");
-    expect(withFallback).toEqual({ action: "replace", fallbackEngine: "codex", fallbackModel: "gpt-5.5" });
+    expect(applyReviewerLossPolicy("replace_then_block", null, true)).toEqual({ action: "replace" });
     expect(applyReviewerLossPolicy("replace_then_block", null, false).action).toBe("block");
   });
 
   it("'replace_then_degrade' replaces when a fallback exists, else degrades", () => {
-    const withFallback = applyReviewerLossPolicy("replace_then_degrade", null, true, "codex", "gpt-5.5");
-    expect(withFallback).toEqual({ action: "replace", fallbackEngine: "codex", fallbackModel: "gpt-5.5" });
+    expect(applyReviewerLossPolicy("replace_then_degrade", null, true)).toEqual({ action: "replace" });
     expect(applyReviewerLossPolicy("replace_then_degrade", null, false).action).toBe("degrade");
   });
 
   it("'degrade' policy always degrades when there is no prior verdict", () => {
-    expect(applyReviewerLossPolicy("degrade", null, true, "codex", "gpt-5.5").action).toBe("degrade");
+    expect(applyReviewerLossPolicy("degrade", null, true).action).toBe("degrade");
     expect(applyReviewerLossPolicy("degrade", null, false).action).toBe("degrade");
   });
 });

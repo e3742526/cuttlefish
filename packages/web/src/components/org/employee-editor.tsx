@@ -13,6 +13,9 @@ import {
 } from "@/components/ui/select"
 import { ModelSelectorRow, type SelectorValue } from "@/components/chat/model-selector-row"
 import { EmployeeFallbackModelSelect } from "@/components/org/employee-fallback-model-select"
+import { RoleAgentConfig } from "@/components/org/role-agent-config"
+import { normalizeRoles } from "@/lib/role-policy"
+import type { RoleExecutionPolicy } from "@/lib/api-org"
 import { ReportsToField, normalizeReportsTo, serializeReportsTo } from "@/components/org/reports-to-field"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { EmojiPicker } from "@/components/ui/emoji-picker"
@@ -32,10 +35,10 @@ const EXECUTION_TIER_OPTIONS = [
 ] as const
 
 const REVIEWER_LOSS_POLICY_OPTIONS = [
-  { value: "replace_then_degrade", label: "Replace, then degrade" },
-  { value: "replace_then_block", label: "Replace, then block" },
-  { value: "degrade", label: "Degrade to solo" },
-  { value: "block", label: "Block" },
+  { value: "replace_then_degrade", label: "Failover chain, then continue solo" },
+  { value: "replace_then_block", label: "Failover chain, then block" },
+  { value: "degrade", label: "Continue solo (skip review)" },
+  { value: "block", label: "Block the run" },
 ] as const
 
 const REVIEWER_TOOL_PROFILE_OPTIONS = [
@@ -129,6 +132,12 @@ export function EmployeeEditor({
   const [maxWallClockMs, setMaxWallClockMs] = useState<string>(
     String(employee.execution?.maxWallClockMs ?? 300000),
   )
+  const [implementerRole, setImplementerRole] = useState<RoleExecutionPolicy>(
+    employee.execution?.roles?.implementer ?? {},
+  )
+  const [reviewerRole, setReviewerRole] = useState<RoleExecutionPolicy>(
+    employee.execution?.roles?.reviewer ?? {},
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
@@ -150,6 +159,12 @@ export function EmployeeEditor({
     for (const entry of orgEmployees) map.set(entry.name, entry)
     return map
   }, [orgEmployees])
+
+  // Org employees offered as defer-to-external-agent failover targets.
+  const externalAgentOptions = useMemo(
+    () => orgEmployees.map((e) => e.name).filter((n) => n !== employee.name).sort((a, b) => a.localeCompare(b)),
+    [orgEmployees, employee.name],
+  )
 
   const departmentOptions = useMemo(() => {
     const names = new Set<string>()
@@ -240,6 +255,8 @@ export function EmployeeEditor({
     const origMaxPasses = String(employee.execution?.maxInternalPasses ?? 1)
     const origMaxChildren = String(employee.execution?.maxChildSessions ?? 3)
     const origMaxMs = String(employee.execution?.maxWallClockMs ?? 300000)
+    const roles = normalizeRoles(implementerRole, reviewerRole)
+    const origRoles = normalizeRoles(employee.execution?.roles?.implementer, employee.execution?.roles?.reviewer)
     const execChanged =
       executionTier !== origTier ||
       (executionTier === "mid_pair" && (
@@ -247,7 +264,8 @@ export function EmployeeEditor({
         reviewerToolProfile !== origToolProfile ||
         maxInternalPasses !== origMaxPasses ||
         maxChildSessions !== origMaxChildren ||
-        maxWallClockMs !== origMaxMs
+        maxWallClockMs !== origMaxMs ||
+        JSON.stringify(roles) !== JSON.stringify(origRoles)
       ))
     if (execChanged) {
       p.execution = {
@@ -258,11 +276,12 @@ export function EmployeeEditor({
           maxInternalPasses: parseInt(maxInternalPasses, 10) || 1,
           maxChildSessions: parseInt(maxChildSessions, 10) || 3,
           maxWallClockMs: parseInt(maxWallClockMs, 10) || 300000,
+          ...(roles ? { roles } : {}),
         } : {}),
       }
     }
     return p
-  }, [displayName, department, rank, reportsTo, persona, alwaysNotify, cliFlags, fallbackEngine, fallbackModel, selector, icon, employee, executionTier, reviewerLossPolicy, reviewerToolProfile, maxInternalPasses, maxChildSessions, maxWallClockMs])
+  }, [displayName, department, rank, reportsTo, persona, alwaysNotify, cliFlags, fallbackEngine, fallbackModel, selector, icon, employee, executionTier, reviewerLossPolicy, reviewerToolProfile, maxInternalPasses, maxChildSessions, maxWallClockMs, implementerRole, reviewerRole])
 
   const dirty = Object.keys(patch).length > 0
 
@@ -472,6 +491,28 @@ export function EmployeeEditor({
                 </label>
                 <input type="number" min={10000} step={10000} className={inputCls} value={maxWallClockMs} onChange={(e) => setMaxWallClockMs(e.target.value)} />
               </div>
+            </div>
+            <div className="border-t border-[var(--separator)] pt-[var(--space-3)]">
+              <RoleAgentConfig
+                roleLabel="Implementer"
+                value={implementerRole}
+                onChange={setImplementerRole}
+                inheritedEngine={selector.engine ?? employee.engine}
+                inheritedModel={selector.model ?? employee.model}
+                employeeOptions={externalAgentOptions}
+                hint="Runs the implementation and revision passes. Pick a cheaper engine/model here to route simple work to a lower tier."
+              />
+            </div>
+            <div className="border-t border-[var(--separator)] pt-[var(--space-3)]">
+              <RoleAgentConfig
+                roleLabel="Reviewer"
+                value={reviewerRole}
+                onChange={setReviewerRole}
+                inheritedEngine={selector.engine ?? employee.engine}
+                inheritedModel={selector.model ?? employee.model}
+                employeeOptions={externalAgentOptions}
+                hint="Reviews implementer output. When the reviewer is lost, the failover chain below is walked in order under the reviewer loss policy."
+              />
             </div>
           </div>
         )}

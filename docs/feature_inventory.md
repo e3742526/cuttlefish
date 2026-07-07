@@ -106,6 +106,7 @@
 - Employee, manager, and executive org-map cards also expose a compact quick-chat affordance that opens the main chat workspace, using the existing employee preselection deep-link for non-executive employees.
 - `/org` department tabs expose an inline rename action for a selected department. `PATCH /api/org/departments/:name` updates matching employee YAML `department` fields, renames the department directory when there is no target collision, and emits org/board refresh events.
 - The create/edit surfaces now include multi-role execution configuration when the `features.multiRoleEmployeeExecution` feature flag is enabled: execution tier (`solo` or `mid_pair`), max internal passes, max child sessions, max wall-clock time, max tool calls, max estimated cost, reviewer loss policy, and reviewer tool profile.
+- The edit surface additionally exposes per-role sub-agent selection (`packages/web/src/components/org/role-agent-config.tsx`) for the implementer and reviewer roles: engine/model/effort overrides with inherit-from-employee defaults (e.g. routing simple review work to a cheaper model), plus an ordered failover chain of up to 5 targets per role where each target is either a backup agent (engine + model) or a defer-to-external-agent entry referencing another org employee. The detail panel summarizes the configured per-role plan.
 - `packages/web/src/components/org/employee-detail.tsx` displays an execution profile summary in the detail panel when a profile is configured.
 - Fresh-install seed personas place Parliamentarian and Senior Security Officer in `compliance`, HR / Org Steward as the `personnel` department manager, and Assistant in `general`. HR / Org Steward advises on organizational planning, agent coordination patterns, and model/budget/resource fit while remaining a review/advisory role rather than a runtime orchestrator or resource manager. New manager-hire guidance defaults managers to the COO/root reporting line unless the user explicitly says otherwise.
 
@@ -138,12 +139,15 @@
 - An execution depth guard (`isExecutionDepthBlocked`) prevents role sessions from recursively spawning additional profiles.
 - Internal roles (`implementer`, `reviewer`) are runtime-only — they are never org members.
 - The reviewer receives a read-only tool profile by default and cannot directly mutate repo contents.
-- Reviewer loss policies: `replace_then_degrade`, `skip`, and `fail` control fallback behavior when a reviewer cannot be allocated.
+- Reviewer loss policies (`block`, `replace_then_block`, `replace_then_degrade`, `degrade`) control fallback behavior when a reviewer cannot be allocated.
+- Role failover is deterministic: `resolveRoleFailoverTargets` resolves each role's `fallbackChain` in configured order, dedupes engine+model rungs, drops the primary rung, self-referential/unknown external-agent targets, and unavailable engines up front, and is capped at `MAX_ROLE_FALLBACK_CHAIN` (5). Under a `replace_then_*` loss policy the mid-pair orchestrator walks the reviewer's full resolved chain — bounded by the child-session budget and wall-clock deadline — before terminally resolving to block or degrade-to-solo; revision passes apply the same failover to the implementer role.
+- Failover chain entries may defer to an external org agent (`{ employee: name }`), resolving that employee's engine/model/effort at dispatch time; `execution.roles` payloads are structurally validated on create/update (unknown keys, chain cap, employee XOR engine+model, self/unknown employee references rejected).
 - All execution-profile sessions carry `executionDepth`, `executionTier`, `profileId`, and `internalRole` in `transportMeta` for traceability.
 - Feature gated: `features.multiRoleEmployeeExecution: true` must be set in daemon config.
 - Fidelity gaps:
   - Mid-pair review flow is wired at the session-write and org-execution layers; UI review status display is deferred.
   - Reviewer allocation uses the configured `reviewerToolProfile`; the full reviewer diff-bundle handoff from the orchestration path is not yet ported to the employee-execution path.
+  - Follow-up messages, queue replay, and notification dispatch still bypass the mid-pair orchestrator (documented in `mid-pair-orchestrator.ts`).
 
 ### Kanban ticket resource context and manual-only dispatch
 - `packages/web/src/routes/kanban/page.tsx`

@@ -44,11 +44,14 @@ import {
   logExecutionDegraded,
   parseReviewResult,
   resolveEffectiveExecution,
+  resolveRoleFailoverTargets,
   shouldUseMidPairExecution,
   type ExecutionPhase,
   type InternalRole,
+  type ResolvedRoleTarget,
   type ReviewerLossOutcome,
 } from "./employee-execution.js";
+import { scanOrg } from "./org.js";
 import { createSession, getMessages, getSession, insertMessage, updateSession } from "../sessions/registry.js";
 import { logger } from "../shared/logger.js";
 import type {
@@ -59,6 +62,7 @@ import type {
   JsonObject,
   ReviewResult,
   ReviewVerdict,
+  RoleExecutionPolicy,
   Session,
 } from "../shared/types.js";
 
@@ -156,6 +160,7 @@ async function runReviewLoop(params: ReviewLoopParams): Promise<void> {
     const outcome = await runReviewerPass({
       employee, exec, task, implementerSummary, employeeRunId, pass,
       parentSession: topSession, config, context, priorVerdict,
+      remainingChildBudget: maxChildren - childCount, deadline,
     });
     childCount += outcome.childSessionsSpawned;
 
@@ -214,13 +219,27 @@ async function runReviewLoop(params: ReviewLoopParams): Promise<void> {
     }
 
     updateExecutionState(topSession.id, context, { executionPhase: "revising", executionPass: pass, executionChildCount: childCount });
-    const revisionSessionId = await runRevisionPass({
+    const revision = await runRevisionPass({
       employee, exec, task, priorSummary: implementerSummary, review: verdict,
       employeeRunId, pass, parentSession: topSession, config, context,
+      remainingChildBudget: maxChildren - childCount, deadline,
     });
-    childCount += 1;
-    if (revisionSessionId) implementerSessionId = revisionSessionId;
-    // loop continues -> next pass reviews the revision (or the unrevised output, if the revision itself failed)
+    childCount += revision.childSessionsSpawned;
+    if (!revision.sessionId) {
+      // Every implementer target failed (or budget/deadline ran out mid-walk).
+      // Re-reviewing the identical unrevised output would only burn budget on a
+      // repeat rejection — stop here and surface the degraded state instead.
+      finalizeExecutionState(topSession.id, context, {
+        executionPhase: "degraded",
+        executionDegraded: true,
+        executionDegradedReason: `revision pass ${pass} failed on all available implementer targets`,
+        executionPass: pass,
+        executionChildCount: childCount,
+      });
+      return;
+    }
+    implementerSessionId = revision.sessionId;
+    // loop continues -> next pass reviews the revision
   }
 }
 
@@ -238,7 +257,7 @@ function lossOutcomeToPatch(outcome: ReviewerLossOutcome): { executionPhase: Exe
 }
 
 // ---------------------------------------------------------------------------
-// Reviewer pass (with one bounded fallback retry on loss)
+// Reviewer pass (walks the role's full failover chain, bounded by budget/deadline)
 // ---------------------------------------------------------------------------
 
 type ReviewerPassOutcome =
@@ -256,13 +275,36 @@ interface ReviewerPassParams {
   config: CuttlefishConfig;
   context: ApiContext;
   priorVerdict: ReviewVerdict | null;
+  /** Child sessions this pass may still spawn (loop budget minus spawns so far). */
+  remainingChildBudget: number;
+  /** Wall-clock deadline shared with the review loop. */
+  deadline: number;
+}
+
+/** Resolve a role's failover chain against the live org + engine registry.
+ *  External-agent (`employee`) targets resolve through scanOrg(). */
+function resolveFailoverTargets(
+  role: RoleExecutionPolicy | undefined,
+  employee: Employee,
+  primary: { engine: string; model: string },
+  context: ApiContext,
+): ResolvedRoleTarget[] {
+  // scanOrg() reads every org YAML from disk — memoize so the chain walk costs
+  // at most one scan, and none when no target defers to an external employee.
+  let org: Map<string, Employee> | undefined;
+  return resolveRoleFailoverTargets({
+    role,
+    primary,
+    currentEmployeeName: employee.name,
+    lookupEmployee: (name) => (org ??= scanOrg()).get(name),
+    isEngineAvailable: (engine) => Boolean(context.sessionManager.getEngine(engine)),
+  });
 }
 
 async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPassOutcome> {
-  const { employee, exec, task, implementerSummary, employeeRunId, pass, parentSession, config, context, priorVerdict } = params;
+  const { employee, exec, task, implementerSummary, employeeRunId, pass, parentSession, config, context, priorVerdict, remainingChildBudget, deadline } = params;
   const reviewerRole = exec.roles?.reviewer;
-  const fallback = reviewerRole?.fallbackChain?.[0];
-  const hasFallback = Boolean(fallback?.engine && fallback?.model);
+  let spawned = 0;
 
   const attemptReview = async (engineName: string, model: string, effortLevel: string | undefined): Promise<ReviewResult | null> => {
     const reviewerEngine = context.sessionManager.getEngine(engineName);
@@ -274,6 +316,7 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
       employee, role: "reviewer", employeeRunId, parentSession, engineName, model, effortLevel,
       label: `Review pass ${pass}`, context,
     });
+    spawned += 1;
     const reviewerPrompt = `${buildReviewerSystemPrompt(exec.reviewerToolProfile ?? "read_only")}\n\n${buildReviewPacketPrompt(task, implementerSummary)}`;
     insertMessage(reviewerSession.id, "user", reviewerPrompt);
     await dispatchWebSessionRun(reviewerSession, reviewerPrompt, reviewerEngine, config, context);
@@ -288,32 +331,48 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
   const primaryEffort = reviewerRole?.override?.effortLevel ?? employee.effortLevel;
 
   const primaryVerdict = await attemptReview(primaryEngine, primaryModel, primaryEffort);
-  if (primaryVerdict) return { kind: "verdict", verdict: primaryVerdict, childSessionsSpawned: 1 };
+  if (primaryVerdict) return { kind: "verdict", verdict: primaryVerdict, childSessionsSpawned: spawned };
 
+  // Primary reviewer lost. Resolve the deterministic failover plan up front:
+  // ordered, deduped, self/primary/unavailable targets already filtered out.
+  const targets = resolveFailoverTargets(reviewerRole, employee, { engine: primaryEngine, model: primaryModel }, context);
   const policy = exec.reviewerLossPolicy ?? "replace_then_degrade";
-  const outcome = applyReviewerLossPolicy(policy, priorVerdict, hasFallback, fallback?.engine, fallback?.model);
+  const outcome = applyReviewerLossPolicy(policy, priorVerdict, targets.length > 0);
 
   if (outcome.action === "replace") {
-    const fallbackVerdict = await attemptReview(outcome.fallbackEngine, outcome.fallbackModel, fallback?.effortLevel);
-    if (fallbackVerdict) {
-      logExecutionDegraded(parentSession.id, `reviewer replaced with fallback ${outcome.fallbackEngine}/${outcome.fallbackModel}`, employeeRunId);
-      return { kind: "verdict", verdict: fallbackVerdict, childSessionsSpawned: 2 };
+    for (const target of targets) {
+      if (spawned >= remainingChildBudget) {
+        logExecutionDegraded(parentSession.id, `reviewer failover halted: child-session budget exhausted after ${spawned} attempt(s)`, employeeRunId);
+        break;
+      }
+      if (Date.now() >= deadline) {
+        logExecutionDegraded(parentSession.id, "reviewer failover halted: wall-clock budget exceeded", employeeRunId);
+        break;
+      }
+      const label = target.viaEmployee
+        ? `external agent "${target.viaEmployee}" (${target.engine}/${target.model})`
+        : `${target.engine}/${target.model}`;
+      const fallbackVerdict = await attemptReview(target.engine, target.model, target.effortLevel);
+      if (fallbackVerdict) {
+        logExecutionDegraded(parentSession.id, `reviewer replaced with fallback ${label}`, employeeRunId);
+        return { kind: "verdict", verdict: fallbackVerdict, childSessionsSpawned: spawned };
+      }
+      logger.warn(`[mid_pair] reviewer fallback ${label} did not produce a verdict for ${employee.name}`);
     }
-    // Fallback also unavailable — resolve again with hasFallback=false so the
-    // bounded retry terminates (never loops trying further fallbacks; with
-    // hasFallback=false the function can only return "block" or "degrade").
+    // Chain exhausted — re-resolve with hasFallback=false so the bounded retry
+    // terminates (the policy can then only return "block" or "degrade").
     const finalOutcome = applyReviewerLossPolicy(policy, priorVerdict, false);
     if (finalOutcome.action === "block") {
       logExecutionBlocked(parentSession.id, finalOutcome.reason, employeeRunId);
     } else if (finalOutcome.action === "degrade") {
       logExecutionDegraded(parentSession.id, finalOutcome.reason, employeeRunId);
     }
-    return { kind: "unavailable", childSessionsSpawned: 2, finalOutcome };
+    return { kind: "unavailable", childSessionsSpawned: spawned, finalOutcome };
   }
 
   if (outcome.action === "block") logExecutionBlocked(parentSession.id, outcome.reason, employeeRunId);
   else logExecutionDegraded(parentSession.id, outcome.reason, employeeRunId);
-  return { kind: "unavailable", childSessionsSpawned: 1, finalOutcome: outcome };
+  return { kind: "unavailable", childSessionsSpawned: spawned, finalOutcome: outcome };
 }
 
 // ---------------------------------------------------------------------------
@@ -331,30 +390,62 @@ interface RevisionPassParams {
   parentSession: Session;
   config: CuttlefishConfig;
   context: ApiContext;
+  /** Child sessions this pass may still spawn (loop budget minus spawns so far). */
+  remainingChildBudget: number;
+  /** Wall-clock deadline shared with the review loop. */
+  deadline: number;
 }
 
-async function runRevisionPass(params: RevisionPassParams): Promise<string | null> {
-  const { employee, exec, task, priorSummary, review, employeeRunId, pass, parentSession, config, context } = params;
-  const implRole = exec.roles?.implementer;
-  const engineName = implRole?.override?.engine ?? employee.engine;
-  const model = implRole?.override?.model ?? employee.model;
-  const effortLevel = implRole?.override?.effortLevel ?? employee.effortLevel;
+interface RevisionPassResult {
+  /** Session id of the successful revision, or null if every attempt failed. */
+  sessionId: string | null;
+  childSessionsSpawned: number;
+}
 
-  const revisionEngine = context.sessionManager.getEngine(engineName);
-  if (!revisionEngine) {
-    logger.warn(`[mid_pair] revision engine "${engineName}" not available for ${employee.name}`);
-    return null;
+async function runRevisionPass(params: RevisionPassParams): Promise<RevisionPassResult> {
+  const { employee, exec, task, priorSummary, review, employeeRunId, pass, parentSession, config, context, remainingChildBudget, deadline } = params;
+  const implRole = exec.roles?.implementer;
+  const primary: ResolvedRoleTarget = {
+    engine: implRole?.override?.engine ?? employee.engine,
+    model: implRole?.override?.model ?? employee.model,
+    effortLevel: implRole?.override?.effortLevel ?? employee.effortLevel,
+  };
+  // Primary first, then the implementer's deterministic failover chain.
+  const targets: ResolvedRoleTarget[] = [
+    primary,
+    ...resolveFailoverTargets(implRole, employee, { engine: primary.engine, model: primary.model }, context),
+  ];
+
+  let spawned = 0;
+  for (const target of targets) {
+    if (spawned >= remainingChildBudget || Date.now() >= deadline) break;
+    const revisionEngine = context.sessionManager.getEngine(target.engine);
+    if (!revisionEngine) {
+      logger.warn(`[mid_pair] revision engine "${target.engine}" not available for ${employee.name}`);
+      continue;
+    }
+    const revisionSession = spawnRoleSession({
+      employee, role: "implementer", employeeRunId, parentSession,
+      engineName: target.engine, model: target.model, effortLevel: target.effortLevel,
+      label: `Revision pass ${pass}`, context,
+    });
+    spawned += 1;
+    const revisionPrompt = buildRevisionPrompt(task, priorSummary, review);
+    insertMessage(revisionSession.id, "user", revisionPrompt);
+    await dispatchWebSessionRun(revisionSession, revisionPrompt, revisionEngine, config, context);
+    const settled = getSession(revisionSession.id);
+    if (settled && settled.status !== "error" && settled.status !== "interrupted") {
+      if (target !== primary) {
+        const label = target.viaEmployee
+          ? `external agent "${target.viaEmployee}" (${target.engine}/${target.model})`
+          : `${target.engine}/${target.model}`;
+        logExecutionDegraded(parentSession.id, `implementer replaced with fallback ${label} for revision pass ${pass}`, employeeRunId);
+      }
+      return { sessionId: revisionSession.id, childSessionsSpawned: spawned };
+    }
+    logger.warn(`[mid_pair] revision attempt on ${target.engine}/${target.model} failed for ${employee.name}`);
   }
-  const revisionSession = spawnRoleSession({
-    employee, role: "implementer", employeeRunId, parentSession, engineName, model, effortLevel,
-    label: `Revision pass ${pass}`, context,
-  });
-  const revisionPrompt = buildRevisionPrompt(task, priorSummary, review);
-  insertMessage(revisionSession.id, "user", revisionPrompt);
-  await dispatchWebSessionRun(revisionSession, revisionPrompt, revisionEngine, config, context);
-  const settled = getSession(revisionSession.id);
-  if (!settled || settled.status === "error" || settled.status === "interrupted") return null;
-  return revisionSession.id;
+  return { sessionId: null, childSessionsSpawned: spawned };
 }
 
 // ---------------------------------------------------------------------------

@@ -57,7 +57,10 @@ describe("manager delegation enforcement", () => {
     const queue = new SessionQueue();
     const config = {
       gateway: { host: "127.0.0.1", port: 8888 },
-      engines: { default: "claude", claude: { model: "opus" }, codex: { model: "gpt-5.5" } },
+      // bin: "node" — runWebSession gates on real binary availability (PATH
+      // lookup) before dispatch; the engines' run() functions are mocked, so
+      // point both at a binary that exists in every test environment.
+      engines: { default: "claude", claude: { bin: "node", model: "opus" }, codex: { bin: "node", model: "gpt-5.5" } },
       portal: { portalName: "Cuttlefish" },
     } as unknown as CuttlefishConfig;
     const events: Array<{ event: string; payload: unknown }> = [];

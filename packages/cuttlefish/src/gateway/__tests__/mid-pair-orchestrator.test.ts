@@ -109,6 +109,12 @@ const hoisted = vi.hoisted(() => {
   };
 });
 
+const orgHoisted = vi.hoisted(() => {
+  const orgEmployees = new Map<string, Record<string, unknown>>();
+  return { orgEmployees };
+});
+vi.mock("../org.js", () => ({ scanOrg: () => orgHoisted.orgEmployees }));
+
 vi.mock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun: hoisted.dispatchWebSessionRunMock }));
 vi.mock("../../sessions/registry.js", () => ({
   createSession: hoisted.createSessionMock,
@@ -166,6 +172,7 @@ const needsHumanVerdict = JSON.stringify({ verdict: "needs_human_review", summar
 
 beforeEach(() => {
   hoisted.reset();
+  orgHoisted.orgEmployees.clear();
   hoisted.dispatchWebSessionRunMock.mockClear();
   hoisted.createSessionMock.mockClear();
 });
@@ -439,5 +446,153 @@ describe("dispatchEmployeeSessionRun — reviewer loss policy", () => {
 
     const final = hoisted.sessionsById.get(top.id)!;
     expect((final.transportMeta as any).executionPhase).toBe("degraded"); // replace_then_degrade with no further fallback -> degrade
+  });
+
+  it("walks the full failover chain in order until a target produces a verdict", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "error" }); // first fallback (codex) errors
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // second fallback (gemini) approves
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine(), gemini: fakeEngine() });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          maxChildSessions: 5,
+          roles: { reviewer: { fallbackChain: [
+            { engine: "codex", model: "gpt-5.5" },
+            { engine: "gemini", model: "gemini-pro" },
+          ] } },
+        },
+      }),
+    );
+
+    const engines = hoisted.createSessionMock.mock.calls.map((c) => c[0].engine);
+    expect(engines).toEqual(["codex", "gemini"]); // primary (claude) never spawned — engine missing
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+    expect((final.transportMeta as any).executionChildCount).toBe(2);
+  });
+
+  it("resolves an external-agent (employee) failover target from the org", async () => {
+    orgHoisted.orgEmployees.set("sec-reviewer", {
+      name: "sec-reviewer", engine: "codex", model: "gpt-5.4", effortLevel: "medium",
+    });
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // external reviewer approves
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          roles: { reviewer: { fallbackChain: [{ employee: "sec-reviewer" }] } },
+        },
+      }),
+    );
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1);
+    const opts = hoisted.createSessionMock.mock.calls[0][0];
+    expect(opts.engine).toBe("codex");
+    expect(opts.model).toBe("gpt-5.4");
+    expect(opts.effortLevel).toBe("medium");
+    expect(opts.employee).toBeUndefined(); // still a runtime-only role session, not an org member
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+  });
+
+  it("stops walking the chain when the child-session budget is exhausted, then degrades", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "error" }); // primary reviewer errors (spawn 1)
+    hoisted.script.push({ status: "error" }); // fallback 1 errors (spawn 2, budget now exhausted)
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: fakeEngine(), codex: fakeEngine(), gemini: fakeEngine() });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          maxChildSessions: 2,
+          roles: { reviewer: { fallbackChain: [
+            { engine: "codex", model: "gpt-5.5" },
+            { engine: "gemini", model: "gemini-pro" }, // never reached: budget
+          ] } },
+        },
+      }),
+    );
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(2); // primary + one fallback, then hard stop
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+  });
+
+  it("terminates as degraded when a revision pass fails on every implementer target — no repeat review of unrevised output", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1
+    hoisted.script.push({ status: "error" }); // revision attempt errors; no implementer fallback configured
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 3, maxChildSessions: 10 } }),
+    );
+
+    // reviewer + failed revision only — the loop must NOT spawn a second reviewer
+    // to re-judge the identical unrevised output.
+    const roles = hoisted.createSessionMock.mock.calls.map((c) => (c[0].transportMeta as any).internalRole);
+    expect(roles).toEqual(["reviewer", "implementer"]);
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    expect((final.transportMeta as any).executionDegradedReason).toMatch(/revision pass 1 failed/);
+  });
+
+  it("uses the implementer failover chain for a revision pass when the override engine is missing", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1
+    hoisted.script.push({ status: "idle", assistantText: "v2 (revised on fallback)" }); // revision on fallback engine
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer pass 2
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: fakeEngine(), codex: fakeEngine(), grok: undefined });
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          maxInternalPasses: 2,
+          maxChildSessions: 5,
+          roles: { implementer: {
+            override: { engine: "grok", model: "grok-4" },
+            fallbackChain: [{ engine: "codex", model: "gpt-5.5" }],
+          } },
+        },
+      }),
+    );
+
+    const spawns = hoisted.createSessionMock.mock.calls.map((c) => ({
+      engine: c[0].engine,
+      role: (c[0].transportMeta as any).internalRole,
+    }));
+    expect(spawns).toEqual([
+      { engine: "claude", role: "reviewer" },
+      { engine: "codex", role: "implementer" }, // grok unavailable -> chain target, no wasted spawn
+      { engine: "claude", role: "reviewer" },
+    ]);
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
   });
 });

@@ -199,16 +199,28 @@ export interface RoleModelOverride {
   effortLevel?: string;
 }
 
+/**
+ * One backup target in a role's deterministic failover chain. Exactly one of
+ * two shapes is valid:
+ *  - direct agent: `engine` + `model` (optional `effortLevel`)
+ *  - external agent deferral: `employee` (engine/model/effort resolve from
+ *    that org employee at dispatch time; must not be combined with engine/model)
+ */
 export interface RoleFallbackTarget {
-  engine: string;
-  model: string;
+  engine?: string;
+  model?: string;
   effortLevel?: string;
+  /** Defer to this org employee's configured agent instead of a fixed engine/model. */
+  employee?: string;
 }
 
 export interface RoleExecutionPolicy {
   override?: RoleModelOverride;
   fallbackChain?: RoleFallbackTarget[];
 }
+
+/** Hard cap on a role's failover chain length — keeps failover deterministic and bounded. */
+export const MAX_ROLE_FALLBACK_CHAIN = 5;
 
 export interface EmployeeExecutionConfig {
   tier: ExecutionTier;

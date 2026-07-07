@@ -6,6 +6,31 @@ export type ExecutionTier = "solo" | "mid_pair"
 export type ReviewerLossPolicy = "block" | "replace_then_block" | "replace_then_degrade" | "degrade"
 export type ReviewerToolProfile = "read_only" | "read_plus_inspect" | "patch_suggestions"
 
+export interface RoleModelOverride {
+  engine?: string
+  model?: string
+  effortLevel?: string
+}
+
+/**
+ * One backup target in a role's failover chain. Either a direct agent
+ * (engine + model) or a defer-to-external-agent entry (employee) — never both.
+ */
+export interface RoleFallbackTarget {
+  engine?: string
+  model?: string
+  effortLevel?: string
+  employee?: string
+}
+
+export interface RoleExecutionPolicy {
+  override?: RoleModelOverride
+  fallbackChain?: RoleFallbackTarget[]
+}
+
+/** Mirrors the backend cap on failover chain length. */
+export const MAX_ROLE_FALLBACK_CHAIN = 5
+
 export interface EmployeeExecutionConfig {
   tier: ExecutionTier
   maxInternalPasses?: number
@@ -16,8 +41,8 @@ export interface EmployeeExecutionConfig {
   reviewerLossPolicy?: ReviewerLossPolicy
   reviewerToolProfile?: ReviewerToolProfile
   roles?: {
-    implementer?: { override?: { engine?: string; model?: string; effortLevel?: string }; fallbackChain?: Array<{ engine: string; model: string; effortLevel?: string }> }
-    reviewer?: { override?: { engine?: string; model?: string; effortLevel?: string }; fallbackChain?: Array<{ engine: string; model: string; effortLevel?: string }> }
+    implementer?: RoleExecutionPolicy
+    reviewer?: RoleExecutionPolicy
   }
 }
 

@@ -3,6 +3,7 @@ import { api } from "@/lib/api";
 import type { Employee } from "@/lib/api";
 import { EmployeeAvatar } from "@/components/ui/employee-avatar";
 import { EmployeeEditor } from "@/components/org/employee-editor";
+import { describeRolePolicy } from "@/lib/role-policy";
 
 interface SessionData {
   id: string;
@@ -255,6 +256,19 @@ export function EmployeeDetail({
                 <span className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
                   · {employee.executionProfileSummary.reviewerToolProfile.replace(/_/g, " ")}
                 </span>
+              )}
+              {employee.executionProfileSummary.tier === "mid_pair" && employee.execution?.roles && (
+                <div className="w-full flex flex-col gap-[2px] mt-[var(--space-1)]">
+                  {(["implementer", "reviewer"] as const).map((role) => {
+                    const policy = employee.execution?.roles?.[role]
+                    if (!policy) return null
+                    return (
+                      <span key={role} className="text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+                        {role}: {describeRolePolicy(policy, { engine: employee.engine, model: employee.model })}
+                      </span>
+                    )
+                  })}
+                </div>
               )}
             </div>
           </div>

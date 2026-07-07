@@ -10,6 +10,7 @@ import {
   EXECUTION_TIERS,
   REVIEWER_LOSS_POLICIES,
   REVIEWER_TOOL_PROFILES,
+  MAX_ROLE_FALLBACK_CHAIN,
 } from "../shared/types.js";
 import type {
   Employee,
@@ -71,6 +72,26 @@ function walkEmployeeYamls<T>(
  * the default should apply it themselves; parseEmployeeData leaves it
  * undefined so the caller can distinguish "explicitly set" vs "defaulted".
  */
+/**
+ * Parse one role fallback-chain entry. Valid shapes (see RoleFallbackTarget):
+ * external-agent deferral (`employee`, no engine/model) or direct agent
+ * (`engine` + `model`). Anything else is dropped rather than half-parsed.
+ */
+function parseRoleFallbackTarget(raw: unknown): RoleFallbackTarget | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const fc = raw as Record<string, unknown>;
+  const employee = typeof fc.employee === "string" ? fc.employee.trim() : "";
+  const engine = typeof fc.engine === "string" ? fc.engine.trim() : "";
+  const model = typeof fc.model === "string" ? fc.model.trim() : "";
+  const effortLevel = typeof fc.effortLevel === "string" && fc.effortLevel.trim() ? fc.effortLevel.trim() : undefined;
+  if (employee) {
+    if (engine || model) return undefined; // ambiguous: employee XOR engine/model
+    return { employee, effortLevel };
+  }
+  if (engine && model) return { engine, model, effortLevel };
+  return undefined;
+}
+
 function parseExecutionConfig(raw: unknown): EmployeeExecutionConfig | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (typeof raw !== "object" || Array.isArray(raw)) return undefined;
@@ -118,12 +139,9 @@ function parseExecutionConfig(raw: unknown): EmployeeExecutionConfig | undefined
         }
         if (Array.isArray(r.fallbackChain)) {
           policy.fallbackChain = r.fallbackChain
-            .filter((fc: unknown) => fc && typeof fc === "object" && typeof (fc as any).engine === "string" && typeof (fc as any).model === "string")
-            .map((fc: any) => ({
-              engine: fc.engine as string,
-              model: fc.model as string,
-              effortLevel: typeof fc.effortLevel === "string" ? fc.effortLevel : undefined,
-            }));
+            .map((fc: unknown) => parseRoleFallbackTarget(fc))
+            .filter((fc): fc is RoleFallbackTarget => fc !== undefined)
+            .slice(0, MAX_ROLE_FALLBACK_CHAIN);
         }
         parsedRoles[role] = policy;
       }
@@ -407,6 +425,98 @@ function normalizeModelForEngine(
  * `current` supplies the existing engine/model so model+effort can be validated
  * even when those fields aren't part of this update.
  */
+/**
+ * Structurally validate an `execution.roles` update payload. Returns an error
+ * message, or null when valid. Enforces:
+ *  - only implementer/reviewer roles, only override/fallbackChain policy keys
+ *  - override fields are strings
+ *  - fallbackChain is a bounded array whose entries are either a direct agent
+ *    (engine + model) or an external-agent deferral (employee), never both
+ *  - employee deferral targets must reference a known employee and never the
+ *    employee being edited (no self-failover loops)
+ */
+function validateExecutionRoles(
+  raw: unknown,
+  currentName: string,
+  knownEmployeeNames?: readonly string[],
+): string | null {
+  if (raw === null) return null; // explicit clear
+  if (typeof raw !== "object" || Array.isArray(raw)) return "execution.roles must be an object";
+  const roles = raw as Record<string, unknown>;
+  const unknownRoles = Object.keys(roles).filter((k) => k !== "implementer" && k !== "reviewer");
+  if (unknownRoles.length > 0) {
+    return `unknown execution.roles key(s): ${unknownRoles.join(", ")} (valid: implementer, reviewer)`;
+  }
+  for (const role of ["implementer", "reviewer"] as const) {
+    const policy = roles[role];
+    if (policy === undefined || policy === null) continue;
+    if (typeof policy !== "object" || Array.isArray(policy)) {
+      return `execution.roles.${role} must be an object`;
+    }
+    const p = policy as Record<string, unknown>;
+    const unknownPolicyKeys = Object.keys(p).filter((k) => k !== "override" && k !== "fallbackChain");
+    if (unknownPolicyKeys.length > 0) {
+      return `unknown execution.roles.${role} key(s): ${unknownPolicyKeys.join(", ")}`;
+    }
+    if (p.override !== undefined && p.override !== null) {
+      if (typeof p.override !== "object" || Array.isArray(p.override)) {
+        return `execution.roles.${role}.override must be an object`;
+      }
+      const ov = p.override as Record<string, unknown>;
+      for (const key of ["engine", "model", "effortLevel"] as const) {
+        if (ov[key] !== undefined && typeof ov[key] !== "string") {
+          return `execution.roles.${role}.override.${key} must be a string`;
+        }
+      }
+      const unknownOverrideKeys = Object.keys(ov).filter((k) => !["engine", "model", "effortLevel"].includes(k));
+      if (unknownOverrideKeys.length > 0) {
+        return `unknown execution.roles.${role}.override key(s): ${unknownOverrideKeys.join(", ")}`;
+      }
+    }
+    if (p.fallbackChain !== undefined && p.fallbackChain !== null) {
+      if (!Array.isArray(p.fallbackChain)) {
+        return `execution.roles.${role}.fallbackChain must be an array`;
+      }
+      if (p.fallbackChain.length > MAX_ROLE_FALLBACK_CHAIN) {
+        return `execution.roles.${role}.fallbackChain exceeds the maximum of ${MAX_ROLE_FALLBACK_CHAIN} targets`;
+      }
+      for (const [i, entry] of p.fallbackChain.entries()) {
+        const label = `execution.roles.${role}.fallbackChain[${i}]`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return `${label} must be an object`;
+        }
+        const fc = entry as Record<string, unknown>;
+        const unknownTargetKeys = Object.keys(fc).filter((k) => !["engine", "model", "effortLevel", "employee"].includes(k));
+        if (unknownTargetKeys.length > 0) {
+          return `unknown ${label} key(s): ${unknownTargetKeys.join(", ")}`;
+        }
+        for (const key of ["engine", "model", "effortLevel", "employee"] as const) {
+          if (fc[key] !== undefined && typeof fc[key] !== "string") {
+            return `${label}.${key} must be a string`;
+          }
+        }
+        const employee = typeof fc.employee === "string" ? fc.employee.trim() : "";
+        const engine = typeof fc.engine === "string" ? fc.engine.trim() : "";
+        const model = typeof fc.model === "string" ? fc.model.trim() : "";
+        if (employee) {
+          if (engine || model) {
+            return `${label} must set either employee OR engine+model, not both`;
+          }
+          if (employee === currentName) {
+            return `${label}.employee cannot reference the employee itself`;
+          }
+          if (knownEmployeeNames && !knownEmployeeNames.includes(employee)) {
+            return `${label}.employee references unknown employee "${employee}"`;
+          }
+        } else if (!engine || !model) {
+          return `${label} must set employee, or both engine and model`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 export function validateEmployeeUpdate(
   config: CuttlefishConfig,
   current: Employee,
@@ -427,6 +537,10 @@ export function validateEmployeeUpdate(
   if (unknownKeys.length > 0) {
     return { ok: false, error: `unknown field(s): ${unknownKeys.join(", ")}` };
   }
+
+  // Materialize once — callers may pass a live iterator, and both the reportsTo
+  // and execution.roles checks below need the names.
+  const knownNamesForRoles = knownEmployeeNames ? Array.from(knownEmployeeNames) : undefined;
 
   const updates: EmployeeUpdate = {};
 
@@ -523,8 +637,8 @@ export function validateEmployeeUpdate(
       if (parentNames.some((name) => name === current.name)) {
         return { ok: false, error: "reportsTo cannot reference the employee itself" };
       }
-      if (knownEmployeeNames) {
-        const known = new Set(knownEmployeeNames);
+      if (knownNamesForRoles) {
+        const known = new Set(knownNamesForRoles);
         const missing = parentNames.filter((name) => !known.has(name));
         if (missing.length > 0) {
           return { ok: false, error: `reportsTo references unknown employee(s): ${missing.join(", ")}` };
@@ -687,6 +801,10 @@ export function validateEmployeeUpdate(
       const unknownExecKeys = Object.keys(exec).filter((k) => !knownExecKeys.has(k));
       if (unknownExecKeys.length > 0) {
         return { ok: false, error: `unknown execution field(s): ${unknownExecKeys.join(", ")}` };
+      }
+      if (exec.roles !== undefined) {
+        const rolesError = validateExecutionRoles(exec.roles, current.name, knownNamesForRoles);
+        if (rolesError) return { ok: false, error: rolesError };
       }
       updates.execution = exec as Partial<EmployeeExecutionConfig>;
     }

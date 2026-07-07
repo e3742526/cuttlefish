@@ -41,6 +41,30 @@ vi.mock("@/components/org/employee-fallback-model-select", () => ({
     </>
   ),
 }))
+// RoleAgentConfig has its own tests + needs the model registry; stub it with a
+// button that injects a fixed policy so this test can exercise the roles diff.
+vi.mock("@/components/org/role-agent-config", () => ({
+  RoleAgentConfig: ({
+    roleLabel,
+    onChange,
+  }: {
+    roleLabel: string
+    onChange: (next: unknown) => void
+  }) => (
+    <button
+      type="button"
+      onClick={() =>
+        onChange({
+          override: { model: "claude-haiku-4-5" },
+          fallbackChain: [{ engine: "codex", model: "gpt-5.5" }, { employee: "review-lead" }],
+        })
+      }
+    >
+      Set {roleLabel} test policy
+    </button>
+  ),
+}))
+
 vi.mock("@/components/ui/select", async () => {
   const React = await vi.importActual<typeof import("react")>("react")
   const SelectContext = React.createContext<{
@@ -150,6 +174,37 @@ describe("EmployeeEditor", () => {
     expect(screen.getByText("Review profile")).toBeTruthy()
     expect(screen.queryByText("Built-in review")).toBeNull()
     expect(screen.getByText(/Solo remains the normal runtime path/i)).toBeTruthy()
+  })
+
+  it("sends per-role sub-agent overrides and failover chain in execution.roles", async () => {
+    updateEmployee.mockResolvedValue({ status: "ok", employee: EMP })
+    render(<EmployeeEditor employee={EMP} onCancel={() => {}} onSaved={() => {}} />)
+
+    fireEvent.click(screen.getByRole("option", { name: "Review profile" }))
+    fireEvent.click(screen.getByRole("button", { name: "Set Reviewer test policy" }))
+    fireEvent.click(saveBtn())
+
+    await waitFor(() => expect(updateEmployee).toHaveBeenCalledTimes(1))
+    const patch = updateEmployee.mock.calls[0][1] as { execution?: { tier?: string; roles?: unknown } }
+    expect(patch.execution?.tier).toBe("mid_pair")
+    expect(patch.execution?.roles).toEqual({
+      reviewer: {
+        override: { model: "claude-haiku-4-5" },
+        fallbackChain: [{ engine: "codex", model: "gpt-5.5" }, { employee: "review-lead" }],
+      },
+    })
+  })
+
+  it("keeps Save disabled when a mid_pair employee's roles are unchanged", () => {
+    const emp: Employee = {
+      ...EMP,
+      execution: {
+        tier: "mid_pair",
+        roles: { reviewer: { fallbackChain: [{ engine: "codex", model: "gpt-5.5" }] } },
+      },
+    }
+    render(<EmployeeEditor employee={emp} onCancel={() => {}} onSaved={() => {}} />)
+    expect(saveBtn().disabled).toBe(true) // pristine — normalization must not create phantom diffs
   })
 
   it("sends only the changed fields and calls onSaved on success", async () => {

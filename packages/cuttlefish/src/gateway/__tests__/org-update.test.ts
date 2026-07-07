@@ -557,6 +557,83 @@ describe("validateEmployeeUpdate", () => {
     expect(r.error).toMatch(/bogusField|unknown/i);
   });
 
+  describe("execution.roles validation", () => {
+    const rolesUpdate = (roles: unknown) => validateEmployeeUpdate(
+      testConfig, emp(), { execution: { tier: "mid_pair", roles } }, ["alpha", "sec-reviewer"],
+    );
+
+    it("accepts per-role overrides and a mixed direct/external fallback chain", () => {
+      const r = rolesUpdate({
+        implementer: { override: { engine: "codex", model: "gpt-5.5", effortLevel: "high" } },
+        reviewer: {
+          override: { model: "haiku" },
+          fallbackChain: [
+            { engine: "codex", model: "gpt-5.4" },
+            { employee: "sec-reviewer" },
+          ],
+        },
+      });
+      expect(r.ok).toBe(true);
+    });
+
+    it("rejects unknown role keys", () => {
+      const r = rolesUpdate({ architect: {} });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/architect/);
+    });
+
+    it("rejects unknown policy and override keys", () => {
+      expect(rolesUpdate({ reviewer: { fallbackModel: "x" } }).ok).toBe(false);
+      expect(rolesUpdate({ reviewer: { override: { temperature: 1 } } }).ok).toBe(false);
+    });
+
+    it("rejects a chain entry that mixes employee with engine/model", () => {
+      const r = rolesUpdate({ reviewer: { fallbackChain: [{ employee: "sec-reviewer", engine: "codex", model: "gpt-5.5" }] } });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/either employee OR engine\+model/);
+    });
+
+    it("rejects a chain entry missing model", () => {
+      const r = rolesUpdate({ reviewer: { fallbackChain: [{ engine: "codex" }] } });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/employee, or both engine and model/);
+    });
+
+    it("rejects a self-referential external-agent target", () => {
+      const r = validateEmployeeUpdate(
+        testConfig, emp(), { execution: { tier: "mid_pair", roles: { reviewer: { fallbackChain: [{ employee: emp().name }] } } } },
+      );
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/itself/);
+    });
+
+    it("rejects an external-agent target for an unknown employee when names are provided", () => {
+      const r = rolesUpdate({ reviewer: { fallbackChain: [{ employee: "ghost" }] } });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/unknown employee "ghost"/);
+    });
+
+    it("rejects a chain longer than the cap", () => {
+      const chain = Array.from({ length: 6 }, (_, i) => ({ engine: "codex", model: `m${i}` }));
+      const r = rolesUpdate({ reviewer: { fallbackChain: chain } });
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/maximum of 5/);
+    });
+
+    it("still validates reportsTo against known names after the roles check consumed them (iterator safety)", () => {
+      function* names() { yield "alpha"; yield "sec-reviewer"; }
+      const r = validateEmployeeUpdate(
+        testConfig, emp(),
+        {
+          reportsTo: "alpha",
+          execution: { tier: "mid_pair", roles: { reviewer: { fallbackChain: [{ employee: "sec-reviewer" }] } } },
+        },
+        names(),
+      );
+      expect(r.ok).toBe(true);
+    });
+  });
+
   it("rejects an invalid rank enum", () => {
     const r = validateEmployeeUpdate(testConfig, emp(), { rank: "boss" });
     expect(r.ok).toBe(false);

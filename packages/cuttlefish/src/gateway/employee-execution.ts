@@ -21,7 +21,9 @@ import type {
   ReviewResult,
   ReviewVerdict,
   ReviewerLossPolicy,
+  RoleExecutionPolicy,
 } from "../shared/types.js";
+import { MAX_ROLE_FALLBACK_CHAIN } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 
 // ---------------------------------------------------------------------------
@@ -257,20 +259,94 @@ Please revise your work to address the requested changes, then report the result
 }
 
 // ---------------------------------------------------------------------------
+// Deterministic role failover resolution
+// ---------------------------------------------------------------------------
+
+/** A concrete, launchable failover target after chain resolution. */
+export interface ResolvedRoleTarget {
+  engine: string;
+  model: string;
+  effortLevel?: string;
+  /** Set when this target came from a defer-to-external-agent chain entry. */
+  viaEmployee?: string;
+}
+
+export interface ResolveRoleFailoverOpts {
+  role: RoleExecutionPolicy | undefined;
+  /** The role's primary rung — resolved targets equal to it are dropped. */
+  primary: { engine: string; model: string };
+  /** Name of the employee whose profile is executing (self-deferral guard). */
+  currentEmployeeName: string;
+  /** Resolve an external-agent deferral target to its org employee. */
+  lookupEmployee: (name: string) => Pick<Employee, "name" | "engine" | "model" | "effortLevel"> | undefined;
+  /** Engine availability pre-check — unavailable targets are dropped up front. */
+  isEngineAvailable: (engine: string) => boolean;
+}
+
+/**
+ * Turn a role's configured fallback chain into an ordered list of launchable
+ * targets. Pure and deterministic: chain order is preserved, external-agent
+ * entries are resolved through `lookupEmployee`, and entries that are
+ * malformed, self-referential, duplicates (same engine+model rung), equal to
+ * the primary rung, or on unavailable engines are dropped rather than
+ * attempted. Bounded by MAX_ROLE_FALLBACK_CHAIN.
+ */
+export function resolveRoleFailoverTargets(opts: ResolveRoleFailoverOpts): ResolvedRoleTarget[] {
+  const chain = (opts.role?.fallbackChain ?? []).slice(0, MAX_ROLE_FALLBACK_CHAIN);
+  const seen = new Set<string>([roleRungKey(opts.primary.engine, opts.primary.model)]);
+  const targets: ResolvedRoleTarget[] = [];
+
+  for (const entry of chain) {
+    let resolved: ResolvedRoleTarget | undefined;
+    const employeeRef = entry.employee?.trim();
+    if (employeeRef) {
+      if (employeeRef === opts.currentEmployeeName) continue; // self-failover loop
+      const external = opts.lookupEmployee(employeeRef);
+      if (!external?.engine || !external?.model) continue; // unknown/incomplete employee
+      resolved = {
+        engine: external.engine,
+        model: external.model,
+        effortLevel: entry.effortLevel ?? external.effortLevel,
+        viaEmployee: external.name,
+      };
+    } else if (entry.engine?.trim() && entry.model?.trim()) {
+      resolved = { engine: entry.engine.trim(), model: entry.model.trim(), effortLevel: entry.effortLevel };
+    }
+    if (!resolved) continue;
+
+    const key = roleRungKey(resolved.engine, resolved.model);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (!opts.isEngineAvailable(resolved.engine)) continue;
+    targets.push(resolved);
+  }
+  return targets;
+}
+
+function roleRungKey(engine: string, model: string): string {
+  return `${engine.trim().toLowerCase()}::${model.trim().toLowerCase()}`;
+}
+
+// ---------------------------------------------------------------------------
 // Reviewer loss policy handling
 // ---------------------------------------------------------------------------
 
 export type ReviewerLossOutcome =
   | { action: "block"; reason: string }
   | { action: "degrade"; reason: string }
-  | { action: "replace"; fallbackEngine: string; fallbackModel: string };
+  | { action: "replace" };
 
+/**
+ * Decide what to do when the reviewer role cannot produce a verdict.
+ * "replace" means the caller should walk the role's resolved failover chain
+ * (resolveRoleFailoverTargets) in order; when the chain is exhausted the
+ * caller re-applies the policy with hasFallback=false, which can only return
+ * "block" or "degrade" — the retry loop always terminates.
+ */
 export function applyReviewerLossPolicy(
   policy: ReviewerLossPolicy,
   priorVerdict: ReviewVerdict | null,
   hasFallback: boolean,
-  fallbackEngine?: string,
-  fallbackModel?: string,
 ): ReviewerLossOutcome {
   // If reviewer already emitted a non-approval verdict, must NOT degrade to success.
   if (priorVerdict && priorVerdict !== "approved") {
@@ -282,15 +358,11 @@ export function applyReviewerLossPolicy(
       return { action: "block", reason: "reviewerLossPolicy is 'block'" };
 
     case "replace_then_block":
-      if (hasFallback && fallbackEngine && fallbackModel) {
-        return { action: "replace", fallbackEngine, fallbackModel };
-      }
+      if (hasFallback) return { action: "replace" };
       return { action: "block", reason: "Reviewer unavailable and no fallback configured" };
 
     case "replace_then_degrade":
-      if (hasFallback && fallbackEngine && fallbackModel) {
-        return { action: "replace", fallbackEngine, fallbackModel };
-      }
+      if (hasFallback) return { action: "replace" };
       return { action: "degrade", reason: "Reviewer unavailable, no fallback — degrading to solo" };
 
     case "degrade":

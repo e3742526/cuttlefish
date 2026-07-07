@@ -61,7 +61,11 @@ function candidateFromTarget(t: ModelFallbackTarget, config: CuttlefishConfig, s
   return { engine, model, effortLevel: t.effortLevel, employee: t.employee, reason: t.reason, source, via: "policy" };
 }
 
-function firstPolicyCandidate(opts: ResolveModelFallbackOpts, chain: ModelFallbackTarget[] | undefined, source: "agent" | "global"): ModelFallbackCandidate | undefined {
+/** All launchable candidates from one policy chain, in chain order — same
+ *  filters as the historical first-candidate scan (malformed, excluded,
+ *  already-tried, self, unavailable are dropped). */
+function policyCandidates(opts: ResolveModelFallbackOpts, chain: ModelFallbackTarget[] | undefined, source: "agent" | "global"): ModelFallbackCandidate[] {
+  const out: ModelFallbackCandidate[] = [];
   for (const t of chain || []) {
     const c = candidateFromTarget(t, opts.config, source);
     if (!c) continue;
@@ -69,9 +73,9 @@ function firstPolicyCandidate(opts: ResolveModelFallbackOpts, chain: ModelFallba
     if (opts.triedRungs.has(rungKey(c.engine, c.model))) continue;
     if (rungKey(c.engine, c.model) === rungKey(opts.fromEngine, opts.fromModel || "")) continue;
     if (!opts.isAvailable(c.engine, c.model)) continue;
-    return c;
+    out.push(c);
   }
-  return undefined;
+  return out;
 }
 
 function ladderCandidate(opts: ResolveModelFallbackOpts): ModelFallbackCandidate | undefined {
@@ -87,6 +91,34 @@ function ladderCandidate(opts: ResolveModelFallbackOpts): ModelFallbackCandidate
   return { engine: c.engine, model: c.model, source: "ladder", via: c.via };
 }
 
+/**
+ * The full, deterministic failover plan for a failing engine/model rung:
+ * every launchable backup in the order it would be attempted — the agent's
+ * own fallback_chain first, then the global chain, then a ladder escalation.
+ * Duplicate rungs (same engine+model, first occurrence wins), the failing
+ * rung itself, already-tried rungs, excluded engines, and unavailable
+ * targets are all filtered out. resolveModelFallback() attempts plan[0];
+ * exposing the whole plan lets callers and UIs show/verify the backup order
+ * without re-implementing the precedence rules.
+ */
+export function resolveModelFallbackPlan(opts: ResolveModelFallbackOpts): ModelFallbackCandidate[] {
+  const policy = opts.employee?.modelPolicy;
+  const global = opts.config.modelFallback;
+  const seen = new Set<string>();
+  const plan: ModelFallbackCandidate[] = [];
+  const push = (c: ModelFallbackCandidate | undefined) => {
+    if (!c) return;
+    const key = rungKey(c.engine, c.model);
+    if (seen.has(key)) return;
+    seen.add(key);
+    plan.push(c);
+  };
+  for (const c of policyCandidates(opts, policy?.fallback_chain, "agent")) push(c);
+  for (const c of policyCandidates(opts, global?.globalChain ?? DEFAULT_GLOBAL_CHAIN, "global")) push(c);
+  push(ladderCandidate(opts));
+  return plan;
+}
+
 export function resolveModelFallback(opts: ResolveModelFallbackOpts): ModelFallbackDecision {
   const global = opts.config.modelFallback;
   if (global?.enabled === false) return { action: "never", mode: "never", reason: "global modelFallback disabled" };
@@ -97,9 +129,7 @@ export function resolveModelFallback(opts: ResolveModelFallbackOpts): ModelFallb
     return { action: "none", mode, reason: "trigger " + opts.failureReason + " is not allowed" };
   }
 
-  const agentCandidate = firstPolicyCandidate(opts, policy?.fallback_chain, "agent");
-  const globalCandidate = firstPolicyCandidate(opts, global?.globalChain ?? DEFAULT_GLOBAL_CHAIN, "global");
-  const target = agentCandidate ?? globalCandidate ?? ladderCandidate(opts);
+  const target = resolveModelFallbackPlan(opts)[0];
   if (!target) return { action: "none", mode, reason: "no available fallback target" };
   if (mode === "ask_user") return { action: "ask_user", mode, target, reason: "approval required before fallback" };
   return { action: "fallback", mode, target, reason: "fallback target resolved" };
