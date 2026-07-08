@@ -63,7 +63,7 @@ pnpm cuttlefish start
 
 Then open **[http://localhost:8888](http://localhost:8888)**, send your first message, and watch your COO delegate.
 
-> **Packaged installs.** `npm install -g cuttlefish-cli` and the Homebrew tap will be the one-line install paths once the package is published; until then, install from source as above.
+> **Packaged installs.** `npm install -g cuttlefish-cli` and the Homebrew tap will be the one-line install paths once the package is published; until then, install from source as above. Each [GitHub Release](https://github.com/e3742526/cuttlefish/releases) also ships prebuilt `cuttlefish-cli-<version>-linux-x64.tar.gz` and `cuttlefish-cli-<version>-darwin-arm64.tar.gz` tarballs for a download-and-run install without `git clone`.
 
 > **`--version` ≠ signed in.** Cuttlefish drives the official engine CLIs, so authenticate each one *before* `cuttlefish start` (run `claude` → `/login`, run `codex` to sign in, etc.). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 
