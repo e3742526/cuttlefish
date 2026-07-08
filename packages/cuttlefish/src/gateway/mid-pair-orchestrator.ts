@@ -101,6 +101,14 @@ export async function dispatchEmployeeSessionRun(
       executionPass: 1,
       executionMaxPasses: exec.maxInternalPasses,
       executionChildCount: 0,
+      // A session can be redispatched onto (board-ticket recovery/retry) — reset
+      // every observability field a prior run may have left behind so a clean
+      // new run can't inherit a stale degraded/fallback/review-context report.
+      executionDegraded: false,
+      executionDegradedReason: null,
+      executionFallbackActive: false,
+      executionReviewContext: null,
+      executionReviewContextReason: null,
     } as JsonObject,
   }) ?? session;
 
@@ -375,7 +383,11 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
 
   const primary = await attemptReview(primaryEngine, primaryModel, primaryEffort);
   if (primary.kind === "verdict") return { kind: "verdict", verdict: primary.verdict, childSessionsSpawned: spawned, fallbackUsed: false };
-  const primaryCause: LossCause = primary.kind === "unparseable" ? "unparseable" : "unavailable";
+  // Tracks the cause of the MOST RECENT attempt (primary or the last fallback
+  // tried), not just the primary's — a fallback rung can fail for a different
+  // reason than the primary did, and the final reason should reflect whichever
+  // attempt actually determined the outcome.
+  let lastCause: LossCause = primary.kind === "unparseable" ? "unparseable" : "unavailable";
 
   // Primary reviewer lost. Resolve the deterministic failover plan up front:
   // ordered, deduped, self/primary/unavailable targets already filtered out.
@@ -401,11 +413,13 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
         logExecutionDegraded(parentSession.id, `reviewer replaced with fallback ${label}`, employeeRunId);
         return { kind: "verdict", verdict: fallbackAttempt.verdict, childSessionsSpawned: spawned, fallbackUsed: true };
       }
-      logger.warn(`[mid_pair] reviewer fallback ${label} did not produce a verdict for ${employee.name}`);
+      lastCause = fallbackAttempt.kind === "unparseable" ? "unparseable" : "unavailable";
+      const detailSuffix = fallbackAttempt.kind === "unparseable" ? `: ${fallbackAttempt.detail}` : "";
+      logger.warn(`[mid_pair] reviewer fallback ${label} did not produce a verdict for ${employee.name}${detailSuffix}`);
     }
     // Chain exhausted — re-resolve with hasFallback=false so the bounded retry
     // terminates (the policy can then only return "block" or "degrade").
-    const finalOutcome = withLossCause(primaryCause, applyReviewerLossPolicy(policy, priorVerdict, false));
+    const finalOutcome = withLossCause(lastCause, applyReviewerLossPolicy(policy, priorVerdict, false));
     if (finalOutcome.action === "block") {
       logExecutionBlocked(parentSession.id, finalOutcome.reason, employeeRunId);
     } else if (finalOutcome.action === "degrade") {
@@ -414,7 +428,7 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
     return { kind: "unavailable", childSessionsSpawned: spawned, finalOutcome };
   }
 
-  const finalOutcome = withLossCause(primaryCause, outcome);
+  const finalOutcome = withLossCause(lastCause, outcome);
   if (finalOutcome.action === "block") logExecutionBlocked(parentSession.id, finalOutcome.reason, employeeRunId);
   else if (finalOutcome.action === "degrade") logExecutionDegraded(parentSession.id, finalOutcome.reason, employeeRunId);
   return { kind: "unavailable", childSessionsSpawned: spawned, finalOutcome };
@@ -531,6 +545,10 @@ function spawnRoleSession(params: {
     parentSessionId: parentSession.id,
     model,
     effortLevel,
+    // Inherit the task workspace so a revision-implementer's edits land in the
+    // real project (not CUTTLEFISH_HOME) and the reviewer's diff context stays
+    // meaningful across passes.
+    cwd: parentSession.cwd,
     title: `${label}: ${parentSession.title ?? employee.displayName}`,
     transportMeta: buildRoleTransportMeta(employeeRunId, role, "mid_pair") as unknown as JsonObject,
     portalName: context.getConfig().portal?.portalName,
@@ -567,8 +585,17 @@ function updateExecutionState(
   if (patch.executionPass !== undefined) meta.executionPass = patch.executionPass;
   if (patch.executionChildCount !== undefined) meta.executionChildCount = patch.executionChildCount;
   if (patch.executionFallbackActive !== undefined) meta.executionFallbackActive = patch.executionFallbackActive;
-  if (patch.executionReviewContext !== undefined) meta.executionReviewContext = patch.executionReviewContext;
-  if (patch.executionReviewContextReason !== undefined) meta.executionReviewContextReason = patch.executionReviewContextReason;
+  // Written as a pair, not independently: reviewContextReason only has meaning
+  // relative to the mode it was recorded under. If we only wrote the reason
+  // when it's defined, a stale reason from an earlier "summary_only" pass would
+  // survive into a later "diff" pass (reason undefined), producing a
+  // self-contradictory reviewContext:"diff" + a leftover "no diff" reason.
+  // Setting meta.executionReviewContextReason = undefined here is intentional —
+  // JSON.stringify drops undefined values on persist, correctly clearing it.
+  if (patch.executionReviewContext !== undefined) {
+    meta.executionReviewContext = patch.executionReviewContext;
+    meta.executionReviewContextReason = patch.executionReviewContextReason;
+  }
 
   const updates: Record<string, unknown> = { transportMeta: meta as JsonObject };
   if (patch.lastError !== undefined) updates.lastError = patch.lastError;

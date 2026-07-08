@@ -17,11 +17,18 @@
 import type { CuttlefishConfig } from "../shared/types.js";
 import { diffGitWorkspace, resolveTaskBaseCwd } from "../orchestration/worktree.js";
 import { telemetryCountsFromDiff } from "../orchestration/telemetry.js";
+import { clampText } from "./content-screening.js";
 
 /** Character budget for the diff embedded in a review packet. Bounds prompt size
  *  while still giving the reviewer the actual changes; larger diffs are truncated
  *  with a marker. */
 export const REVIEW_DIFF_CHAR_BUDGET = 12_000;
+
+/** Bounds the git subprocess calls this module makes on the reviewing hot path —
+ *  a pathological repo/diff can't block the gateway indefinitely. Unlike
+ *  diffGitWorkspace's other (unbounded) callers, this path runs on every
+ *  reviewing pass of a live request, so it opts into a timeout. */
+const REVIEW_DIFF_TIMEOUT_MS = 10_000;
 
 export interface ReviewContext {
   mode: "diff" | "summary_only";
@@ -48,7 +55,7 @@ export interface BuildReviewContextOpts {
  */
 export function buildReviewContext(opts: BuildReviewContextOpts): ReviewContext {
   const { cwd, config } = opts;
-  const diffProducer = opts.diffProducer ?? ((c: string) => diffGitWorkspace(c));
+  const diffProducer = opts.diffProducer ?? ((c: string) => diffGitWorkspace(c, [], REVIEW_DIFF_TIMEOUT_MS));
 
   if (!cwd || !cwd.trim()) {
     return { mode: "summary_only", changedFiles: 0, reason: "workspace cwd not set" };
@@ -63,9 +70,7 @@ export function buildReviewContext(opts: BuildReviewContextOpts): ReviewContext 
       return { mode: "summary_only", changedFiles: 0, reason: "no changes detected in workspace" };
     }
     const { filesChanged } = telemetryCountsFromDiff(diff);
-    const diffText = diff.length > REVIEW_DIFF_CHAR_BUDGET
-      ? `${diff.slice(0, REVIEW_DIFF_CHAR_BUDGET)}\n...[diff truncated]...`
-      : diff;
+    const diffText = clampText(diff, REVIEW_DIFF_CHAR_BUDGET, "...[diff truncated]...");
     return { mode: "diff", diffText, changedFiles: filesChanged };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

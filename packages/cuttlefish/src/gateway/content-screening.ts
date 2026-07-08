@@ -88,8 +88,8 @@ export interface ScreenedTextOutcome {
   blocked: boolean;
 }
 
-function clampText(text: string, limit: number): string {
-  return text.length > limit ? `${text.slice(0, limit)}\n...[truncated]...` : text;
+export function clampText(text: string, limit: number, marker = "...[truncated]..."): string {
+  return text.length > limit ? `${text.slice(0, limit)}\n${marker}` : text;
 }
 
 function isSkillContentSource(source: UntrustedContentSource): boolean {

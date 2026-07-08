@@ -8,6 +8,7 @@ import {
   cleanupWorktree,
   createReviewBundle,
   createImplementationWorktree,
+  diffGitWorkspace,
   diffWorktree,
   listManagedWorktrees,
   reapExpiredReviewBundles,
@@ -53,6 +54,16 @@ describe("orchestration worktrees", () => {
     expect(listManagedWorktrees(worktreeRoot).map((item) => item.taskId)).toEqual(["task-one"]);
     expect(cleanupWorktree(prepared.handle)).toMatchObject({ removed: true });
     expect(fs.existsSync(prepared.cwd)).toBe(false);
+  });
+
+  it("diffGitWorkspace returns the same diff whether or not a timeoutMs bound is supplied", () => {
+    fs.writeFileSync(path.join(repoDir, "changed.txt"), "hello\n");
+
+    const unbounded = diffGitWorkspace(repoDir);
+    const bounded = diffGitWorkspace(repoDir, [], 10_000);
+
+    expect(unbounded).toContain("changed.txt");
+    expect(bounded).toBe(unbounded); // a generous timeout doesn't change the result
   });
 
   it("downgrades non-git cwd to shared cwd without creating a worktree", () => {

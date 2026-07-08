@@ -4,6 +4,7 @@ import type { CuttlefishConfig, Employee, Engine } from "../../shared/types.js";
 vi.mock("../../shared/logger.js", () => ({
   logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
+const { logger: mockLogger } = await import("../../shared/logger.js");
 
 interface FakeSession {
   id: string;
@@ -78,15 +79,31 @@ const hoisted = vi.hoisted(() => {
 
   const getMessagesMock = vi.fn((id: string) => messagesById.get(id) ?? []);
 
+  /** Defaults to a fixed summary_only context (hermetic — no git call); tests
+   *  that care about mode transitions across passes override with
+   *  mockImplementationOnce/mockReturnValueOnce. */
+  interface FakeReviewContext {
+    mode: "diff" | "summary_only";
+    diffText?: string;
+    changedFiles: number;
+    reason?: string;
+  }
+  const buildReviewContextMock = vi.fn(
+    (): FakeReviewContext => ({ mode: "summary_only", changedFiles: 0, reason: "test: no diff" }),
+  );
+
   return {
     sessionsById, messagesById, script, dispatchCalls,
     dispatchWebSessionRunMock, createSessionMock, getSessionMock, updateSessionMock, insertMessageMock, getMessagesMock,
+    buildReviewContextMock,
     reset: () => {
       sessionsById.clear();
       messagesById.clear();
       script.length = 0;
       dispatchCalls.length = 0;
       nextId = 1;
+      buildReviewContextMock.mockReset();
+      buildReviewContextMock.mockImplementation(() => ({ mode: "summary_only" as const, changedFiles: 0, reason: "test: no diff" }));
     },
     seedTopSession: (overrides: Partial<FakeSession> = {}): FakeSession => {
       const id = `top-${nextId++}`;
@@ -126,7 +143,7 @@ vi.mock("../../sessions/registry.js", () => ({
 // Keep the loop hermetic: never shell out to git for diff context. Fake sessions
 // also have no cwd, so buildReviewContext would short-circuit anyway.
 vi.mock("../review-context.js", () => ({
-  buildReviewContext: () => ({ mode: "summary_only", changedFiles: 0, reason: "test: no diff" }),
+  buildReviewContext: hoisted.buildReviewContextMock,
 }));
 
 const { dispatchEmployeeSessionRun } = await import("../mid-pair-orchestrator.js");
@@ -180,6 +197,7 @@ beforeEach(() => {
   orgHoisted.orgEmployees.clear();
   hoisted.dispatchWebSessionRunMock.mockClear();
   hoisted.createSessionMock.mockClear();
+  (mockLogger.warn as ReturnType<typeof vi.fn>).mockClear();
 });
 
 describe("dispatchEmployeeSessionRun — solo passthrough", () => {
@@ -222,6 +240,40 @@ describe("dispatchEmployeeSessionRun — implementer turn fails", () => {
     const final = hoisted.sessionsById.get(top.id)!;
     expect((final.transportMeta as any).executionPhase).toBe("failed");
     expect(emitted.some((e) => e.event === "session:completed" && (e.payload as any).error)).toBe(true);
+  });
+});
+
+describe("dispatchEmployeeSessionRun — redispatch onto a session carrying a prior run's stale state", () => {
+  it("does not inherit a prior run's degraded/fallback/review-context flags into a clean new run", async () => {
+    // Simulates board-ticket recovery redispatching onto the same session id
+    // after a PRIOR mid_pair run left degraded/fallback state behind.
+    const top = hoisted.seedTopSession({
+      transportMeta: {
+        employeeRunId: "prior-run",
+        executionTier: "mid_pair",
+        executionPhase: "degraded",
+        executionDegraded: true,
+        executionDegradedReason: "reviewer output could not be parsed after one repair retry — stale from a previous run",
+        executionFallbackActive: true,
+        executionReviewContext: "summary_only",
+        executionReviewContextReason: "no changes detected in workspace",
+      },
+    });
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer approves cleanly, no fallback
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee());
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+    expect((final.transportMeta as any).executionDegraded).not.toBe(true);
+    expect((final.transportMeta as any).executionDegradedReason).toBeFalsy(); // reset to null (JSON.stringify drops it on real persist)
+    expect((final.transportMeta as any).executionFallbackActive).not.toBe(true);
+    // This run's own (mocked) review-context reason, not the prior run's stale one.
+    expect((final.transportMeta as any).executionReviewContextReason).not.toBe("no changes detected in workspace");
+    expect((final.transportMeta as any).executionReviewContextReason).toBe("test: no diff");
   });
 });
 
@@ -270,6 +322,46 @@ describe("dispatchEmployeeSessionRun — review loop", () => {
     expect((final.transportMeta as any).executionPhase).toBe("done");
     expect((final.transportMeta as any).executionPass).toBe(2);
     expect((final.transportMeta as any).executionChildCount).toBe(3);
+  });
+
+  it("propagates the parent's cwd to every spawned role session (reviewer AND revision-implementer)", async () => {
+    const top = hoisted.seedTopSession({ cwd: "/workspace/my-project" });
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1
+    hoisted.script.push({ status: "idle", assistantText: "v2 (revised)" }); // revision implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer pass 2
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "add healthz endpoint", fakeEngine(), baseConfig(), context, midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 2 } }));
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(3);
+    for (const call of hoisted.createSessionMock.mock.calls) {
+      expect(call[0].cwd).toBe("/workspace/my-project"); // every child (reviewer + revision-implementer) inherits it
+    }
+  });
+
+  it("clears a stale reviewContextReason once mode moves from summary_only to diff on a later pass", async () => {
+    // Pass 1 has no diff (e.g. a purely exploratory implementer turn); pass 2
+    // (after revision) has real changes. The final reviewContextReason must not
+    // be left over from pass 1's summary_only reason.
+    hoisted.buildReviewContextMock.mockReturnValueOnce({ mode: "summary_only", changedFiles: 0, reason: "no changes detected in workspace" });
+    hoisted.buildReviewContextMock.mockReturnValueOnce({ mode: "diff", diffText: "diff --git a/x b/x\n+y", changedFiles: 1 });
+
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: changesRequestedVerdict }); // reviewer pass 1 (summary_only)
+    hoisted.script.push({ status: "idle", assistantText: "v2 (revised)" }); // revision implementer
+    hoisted.script.push({ status: "idle", assistantText: approvedVerdict }); // reviewer pass 2 (diff)
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee({ execution: { tier: "mid_pair", maxInternalPasses: 2 } }));
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("done");
+    expect((final.transportMeta as any).executionReviewContext).toBe("diff");
+    expect((final.transportMeta as any).executionReviewContextReason).toBeUndefined(); // not the stale pass-1 reason
   });
 
   it("degrades when changes_requested but maxInternalPasses is exhausted (default 1) — no revision spawned", async () => {
@@ -411,6 +503,65 @@ describe("dispatchEmployeeSessionRun — reviewer verdict repair", () => {
     expect((final.transportMeta as any).executionPhase).toBe("degraded");
     expect((final.transportMeta as any).executionDegraded).toBe(true);
     expect((final.transportMeta as any).executionDegradedReason).toMatch(/could not be parsed after one repair retry/i);
+  });
+});
+
+describe("dispatchEmployeeSessionRun — loss-cause labeling reflects the LAST attempt, not just the primary", () => {
+  it("labels the reason as a parse failure when the primary was unavailable but the fallback was unparseable", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: "garbage" }); // fallback reviewer: not JSON
+    hoisted.script.push({ status: "idle", assistantText: "still garbage" }); // fallback repair: still not JSON
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: undefined, codex: fakeEngine() }); // primary (claude) missing
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          roles: { reviewer: { fallbackChain: [{ engine: "codex", model: "gpt-5.5" }] } },
+        },
+      }),
+    );
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(1); // primary engine missing -> only the fallback spawned
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    // Cause reflects the FALLBACK's failure (unparseable), not the primary's (unavailable).
+    expect((final.transportMeta as any).executionDegradedReason).toMatch(/could not be parsed after one repair retry/i);
+    // F5: the specific validation error is preserved in the fallback failure log, not just a generic message.
+    expect(mockLogger.warn).toHaveBeenCalledWith(expect.stringMatching(/did not produce a verdict.*reviewer response was not valid JSON/));
+  });
+
+  it("does not mislabel the reason as a parse failure when the primary was unparseable but the fallback's session errors", async () => {
+    const top = hoisted.seedTopSession();
+    hoisted.script.push({ status: "idle", assistantText: "v1" }); // implementer
+    hoisted.script.push({ status: "idle", assistantText: "garbage" }); // primary reviewer: not JSON
+    hoisted.script.push({ status: "idle", assistantText: "still garbage" }); // primary repair: still not JSON
+    hoisted.script.push({ status: "error" }); // fallback reviewer: engine registered, but its session errors
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted, { claude: fakeEngine(), codex: fakeEngine() }); // both engines available
+
+    await dispatchEmployeeSessionRun(
+      top as any, "task", fakeEngine(), baseConfig(), context,
+      midPairEmployee({
+        execution: {
+          tier: "mid_pair",
+          reviewerLossPolicy: "replace_then_degrade",
+          roles: { reviewer: { fallbackChain: [{ engine: "codex", model: "gpt-5.5" }] } },
+        },
+      }),
+    );
+
+    expect(hoisted.createSessionMock).toHaveBeenCalledTimes(2); // primary + fallback both spawned
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect((final.transportMeta as any).executionPhase).toBe("degraded");
+    // The LAST attempt (the fallback's session error) determines the cause, not the
+    // primary's earlier parse failure — must not falsely claim "could not be parsed".
+    expect((final.transportMeta as any).executionDegradedReason).not.toMatch(/could not be parsed/i);
+    expect((final.transportMeta as any).executionDegradedReason).toMatch(/degrading to solo/i);
   });
 });
 

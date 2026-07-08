@@ -347,19 +347,20 @@ function parseWorktreeMarker(raw: string, fallbackPath: string): WorktreeHandle 
   };
 }
 
-function findGitRoot(cwd: string): string | null {
+function findGitRoot(cwd: string, timeoutMs?: number): string | null {
   try {
-    return runGit(["rev-parse", "--show-toplevel"], cwd).trim();
+    return runGit(["rev-parse", "--show-toplevel"], cwd, timeoutMs).trim();
   } catch {
     return null;
   }
 }
 
-function runGit(args: string[], cwd: string): string {
+function runGit(args: string[], cwd: string, timeoutMs?: number): string {
   return execFileSync("git", args, {
     cwd,
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
+    ...(timeoutMs !== undefined ? { timeout: timeoutMs } : {}),
   });
 }
 
@@ -389,11 +390,18 @@ function makeWritable(target: string): void {
   }
 }
 
-export function diffGitWorkspace(cwd: string, excludedUntracked: string[] = []): string {
-  const gitRoot = findGitRoot(cwd);
+/**
+ * `timeoutMs` bounds the underlying git subprocess calls (SIGTERM if exceeded).
+ * Optional and undefined by default — omitting it preserves the historical
+ * unbounded behavior for existing callers (createReviewBundle, patchWorktree).
+ * Callers on a request-serving hot path (e.g. gateway/review-context.ts) should
+ * pass a bound so a pathological diff can't block the process indefinitely.
+ */
+export function diffGitWorkspace(cwd: string, excludedUntracked: string[] = [], timeoutMs?: number): string {
+  const gitRoot = findGitRoot(cwd, timeoutMs);
   if (!gitRoot) return "";
-  const diff = runGit(["diff", "HEAD", "--"], cwd);
-  const untracked = listUntrackedGitFiles(cwd, excludedUntracked);
+  const diff = runGit(["diff", "HEAD", "--"], cwd, timeoutMs);
+  const untracked = listUntrackedGitFiles(cwd, excludedUntracked, timeoutMs);
   if (untracked.length === 0) return diff;
   return [
     diff.trimEnd(),
@@ -403,9 +411,9 @@ export function diffGitWorkspace(cwd: string, excludedUntracked: string[] = []):
   ].filter((line, index) => index !== 0 || line.length > 0).join("\n");
 }
 
-function listUntrackedGitFiles(cwd: string, excludedUntracked: string[] = []): string[] {
+function listUntrackedGitFiles(cwd: string, excludedUntracked: string[] = [], timeoutMs?: number): string[] {
   const ignored = new Set(excludedUntracked);
-  return runGit(["ls-files", "--others", "--exclude-standard"], cwd)
+  return runGit(["ls-files", "--others", "--exclude-standard"], cwd, timeoutMs)
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !ignored.has(line));
