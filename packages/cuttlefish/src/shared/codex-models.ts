@@ -27,6 +27,10 @@ function reasoningEfforts(value: unknown): string[] {
   return Array.from(new Set(levels));
 }
 
+// The app-server `model/list` Model schema (verified via `codex app-server
+// generate-json-schema` against codex-cli 0.142.5) has no context-window/token-limit
+// field, so contextWindow is intentionally left unmapped here — configured fallback
+// metadata (models.codex.models[].contextWindow) is the only source for it.
 function modelInfoFromCodex(value: unknown): (ModelInfo & { isDefault: boolean }) | null {
   if (!isRecord(value)) return null;
   const id = str(value.id) ?? str(value.model);

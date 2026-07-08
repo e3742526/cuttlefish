@@ -45,6 +45,33 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+// setup.ts seeded models.codex.models[gpt-5.5].contextWindow as 258400 before GPT-5.5's
+// documented 1,050,000-token window was known; existing config.yaml files still carry that
+// stale value. Upgrade it on load so already-installed homes stop under-packing Codex
+// context — configs that set a different contextWindow (an intentional override) are left
+// untouched.
+const LEGACY_CODEX_GPT_5_5_CONTEXT_WINDOW = 258400;
+const CODEX_GPT_5_5_CONTEXT_WINDOW = 1_050_000;
+
+function upgradeLegacyCodexContextWindow(raw: unknown): unknown {
+  if (!isPlainRecord(raw)) return raw;
+  const models = raw.models;
+  if (!isPlainRecord(models)) return raw;
+  const codex = models.codex;
+  if (!isPlainRecord(codex) || !Array.isArray(codex.models)) return raw;
+  const isLegacyEntry = (m: unknown): m is Record<string, unknown> =>
+    isPlainRecord(m) && m.id === "gpt-5.5" && m.contextWindow === LEGACY_CODEX_GPT_5_5_CONTEXT_WINDOW;
+  if (!codex.models.some(isLegacyEntry)) return raw;
+
+  const config = structuredClone(raw) as Record<string, unknown>;
+  const configModels = config.models as Record<string, unknown>;
+  const configCodex = configModels.codex as Record<string, unknown>;
+  configCodex.models = (configCodex.models as unknown[]).map((m) =>
+    isLegacyEntry(m) ? { ...m, contextWindow: CODEX_GPT_5_5_CONTEXT_WINDOW } : m,
+  );
+  return config;
+}
+
 function stripLegacyConnectorConfig(raw: unknown): unknown {
   if (!isPlainRecord(raw)) return raw;
   const config = structuredClone(raw);
@@ -132,6 +159,7 @@ export function loadConfig(): CuttlefishConfig {
     throw new Error(`Invalid YAML in ${CONFIG_PATH}: ${(err as Error).message}`);
   }
   parsed = stripLegacyConnectorConfig(parsed);
+  parsed = upgradeLegacyCodexContextWindow(parsed);
   const problems = validateConfigShape(parsed);
   if (problems.length > 0) {
     throw new Error(

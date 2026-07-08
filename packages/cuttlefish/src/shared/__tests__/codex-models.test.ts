@@ -75,6 +75,31 @@ describe("discoverCodexModels", () => {
     });
   });
 
+  it("does not map a stray context-window-like field from the app-server payload", async () => {
+    readCodexAppServerResult.mockResolvedValueOnce({
+      data: [
+        {
+          id: "gpt-5.5",
+          displayName: "GPT-5.5 Codex",
+          isDefault: true,
+          contextWindow: 999,
+          context_window: 999,
+          tokenLimit: 999,
+          supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "Balanced" }],
+        },
+      ],
+      nextCursor: null,
+    });
+
+    const { discoverCodexModels } = await import("../codex-models.js");
+    const discovered = await discoverCodexModels(cfg());
+
+    expect(discovered.models).toEqual([
+      { id: "gpt-5.5", label: "GPT-5.5 Codex", supportsEffort: true, effortLevels: ["medium"] },
+    ]);
+    expect(discovered.models[0]).not.toHaveProperty("contextWindow");
+  });
+
   it("stops when model/list repeats a nextCursor", async () => {
     readCodexAppServerResult
       .mockResolvedValueOnce({

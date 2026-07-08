@@ -302,7 +302,7 @@ models:
     default: gpt-5.5
     effortMechanism: codex-config
     models:
-      - { id: gpt-5.5, label: "GPT-5.5 Codex", supportsEffort: true, effortLevels: [low, medium, high, xhigh], contextWindow: 258400 }
+      - { id: gpt-5.5, label: "GPT-5.5 Codex", supportsEffort: true, effortLevels: [low, medium, high, xhigh], contextWindow: 1050000 }
   grok:
     default: grok-build
     effortMechanism: grok-flag

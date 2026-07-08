@@ -616,6 +616,51 @@ describe("saveConfigAtomic", () => {
     });
   });
 
+  it("upgrades a legacy seeded gpt-5.5 Codex contextWindow (258400) to its documented 1,050,000 on load", async () => {
+    const configPath = path.join(tmpHome, "config.yaml");
+    fs.writeFileSync(configPath, yaml.dump({
+      engines: { claude: {}, codex: { bin: "codex", model: "gpt-5.5" } },
+      models: {
+        codex: {
+          default: "gpt-5.5",
+          models: [
+            { id: "gpt-5.5", label: "GPT-5.5 Codex", supportsEffort: true, effortLevels: ["low", "medium", "high", "xhigh"], contextWindow: 258400 },
+          ],
+        },
+      },
+    }));
+
+    const config = loadConfig();
+
+    expect(config.models?.codex?.models[0]).toMatchObject({ id: "gpt-5.5", contextWindow: 1050000 });
+
+    // Reset modules first so this picks up a fresh `models.js` instance — otherwise a prior
+    // test file that already populated the module-level `discoveredCodexModels` snapshot
+    // could push `buildRegistry` down the live-discovery branch instead of the config-block
+    // branch this assertion targets, making the result order-dependent.
+    vi.resetModules();
+    const { buildRegistry } = await import("../models.js");
+    const entry = buildRegistry(config).codex;
+    expect(entry.models.find((m) => m.id === "gpt-5.5")?.contextWindow).toBe(1050000);
+  });
+
+  it("leaves a Codex gpt-5.5 contextWindow untouched when it doesn't match the legacy 258400 value", () => {
+    const configPath = path.join(tmpHome, "config.yaml");
+    fs.writeFileSync(configPath, yaml.dump({
+      engines: { claude: {}, codex: { bin: "codex", model: "gpt-5.5" } },
+      models: {
+        codex: {
+          default: "gpt-5.5",
+          models: [{ id: "gpt-5.5", label: "GPT-5.5 Codex", contextWindow: 400000 }],
+        },
+      },
+    }));
+
+    const config = loadConfig();
+
+    expect(config.models?.codex?.models[0]).toMatchObject({ contextWindow: 400000 });
+  });
+
   // config.yaml holds plaintext connector secrets, so it must be owner-only
   // (0o600), never group/world-readable.
   it("writes config.yaml with owner-only (0o600) permissions", () => {

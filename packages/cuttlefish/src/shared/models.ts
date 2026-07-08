@@ -444,14 +444,25 @@ function mergeDiscoveredAiderModels(
   return models;
 }
 
-/** Union the discovered Codex models with any `models.codex` block entries and a pinned id. */
+/**
+ * Union the discovered Codex models with any `models.codex` block entries and a pinned id.
+ * Discovery stays authoritative for model availability, label, and effort support — the
+ * app-server protocol has no context-window field, so a matching configured entry's
+ * `contextWindow` is overlaid onto the discovered model to keep Cuttlefish's own context
+ * budget from under-packing configured Codex models.
+ */
 function mergeDiscoveredCodexModels(
   discovered: ModelInfo[],
   block: EngineModelsConfig | undefined,
   pinned: string | undefined,
 ): ModelInfo[] {
-  const seen = new Set(discovered.map((m) => m.id));
-  const models = [...discovered];
+  const configured = new Map(block?.models.map((m) => [m.id, m]) ?? []);
+  const seen = new Set<string>();
+  const models = discovered.map((model) => {
+    seen.add(model.id);
+    const contextWindow = configured.get(model.id)?.contextWindow;
+    return typeof contextWindow === "number" ? { ...model, contextWindow } : model;
+  });
   if (block) {
     for (const m of block.models) {
       if (seen.has(m.id)) continue;
