@@ -4,6 +4,7 @@ import type { OrchestrationRuntime } from "../../orchestration/runtime.js";
 import type { SessionNotificationSink } from "../../sessions/notification-sink.js";
 import type { SessionManager } from "../../sessions/manager.js";
 import type { EmailService } from "../../email/service.js";
+import type { Semaphore } from "../../shared/async-lock.js";
 
 export interface ApiContext {
   config: CuttlefishConfig;
@@ -58,4 +59,9 @@ export interface ApiContext {
     dualLaneStateDir?: string;
     recoveryDir?: string;
   };
+  /** Ledger-0007 Finding 2: bounds concurrent turn dispatches gateway-wide (the
+   *  default (non-orchestration) dispatch path had no cap). Optional so tests
+   *  that construct a minimal ApiContext keep working unchanged; absence means
+   *  "no cap enforced" at the one call site that reads it. */
+  runSemaphore?: Semaphore;
 }

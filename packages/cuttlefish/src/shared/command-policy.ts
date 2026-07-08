@@ -15,7 +15,7 @@ const DESTRUCTIVE: Array<{ re: RegExp; reason: string }> = [
   { re: /\b(?:python|python3|perl|ruby|node|sh|bash|zsh)\b[\s\S]{0,240}\brm\s+-[A-Za-z]*r[A-Za-z]*f?\s+(?:\/|~(?:\s|$)|\$HOME(?:\s|$))/i, reason: "Refusing interpreter-wrapped destructive removal of a home/root path" },
 ];
 
-const HOME_SECRET_PATH = /(?:~\/\.ssh|\$HOME\/\.ssh|\.ssh\/id_[a-z0-9._-]+|~\/\.cuttlefish\/secrets|\$HOME\/\.cuttlefish\/secrets|~\/\.env(?:\.[\w.-]+)?|\$HOME\/\.env(?:\.[\w.-]+)?)/i;
+const HOME_SECRET_PATH = /(?:~\/\.ssh|\$HOME\/\.ssh|\.ssh\/id_[a-z0-9._-]+|~\/\.cuttlefish\/secrets|\$HOME\/\.cuttlefish\/secrets|~\/\.cuttlefish\/gateway\.json|\$HOME\/\.cuttlefish\/gateway\.json|~\/\.env(?:\.[\w.-]+)?|\$HOME\/\.env(?:\.[\w.-]+)?)/i;
 const HOME_ENV_SEARCH = /\b(?:find|grep|rg|ripgrep)\b[\s\S]{0,160}(?:~|\$HOME)[\s\S]{0,160}\.env(?:\.[\w.-]+)?\b/i;
 const NETWORK_EGRESS = /\b(?:nc|ncat|netcat|scp|rsync|ftp|sftp)\b/i;
 const NETWORK_UPLOAD = /\b(?:curl|wget)\b[\s\S]{0,200}(?:--data(?:-binary|-raw|-urlencode)?\b|-d\b|--form\b|-F\b|--upload-file\b|-T\b)/i;

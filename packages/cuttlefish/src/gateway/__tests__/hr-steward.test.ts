@@ -318,4 +318,27 @@ describe("applyOrgChange", () => {
     expect(applied.ok).toBe(false);
     expect(getChangeRequest(request.id)!.status).toBe("rejected");
   });
+
+  it("serializes two concurrent applies of the same change request — exactly one wins (CON-001)", async () => {
+    const ctx = fakeContext();
+    const request = createChangeRequest({
+      changeType: "create_agent",
+      employeeName: "ui-test-reviewer",
+      proposed: VALID_HIRE,
+      status: "approved",
+    });
+
+    const [first, second] = await Promise.all([
+      applyOrgChange(request, ctx),
+      applyOrgChange(request, ctx),
+    ]);
+
+    const results = [first, second];
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const loser = results.find((r) => !r.ok)!;
+    expect(loser.error).toMatch(/applied.*cannot be applied|cannot be applied/i);
+    expect(getChangeRequest(request.id)!.status).toBe("applied");
+    // The org writer must have run exactly once, not twice.
+    expect(scanOrg().has("ui-test-reviewer")).toBe(true);
+  });
 });

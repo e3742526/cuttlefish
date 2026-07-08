@@ -12,6 +12,44 @@ describe("GET /api/config redaction", () => {
     expect(isSensitiveConfigKey("model")).toBe(false);
   });
 
+  it("recognizes the widened CF2-208 key list without over-matching ordinary keys", () => {
+    expect(isSensitiveConfigKey("GITHUB_PAT")).toBe(true);
+    expect(isSensitiveConfigKey("slack-pat")).toBe(true);
+    expect(isSensitiveConfigKey("SENTRY_DSN")).toBe(true);
+    expect(isSensitiveConfigKey("dbConnectionString")).toBe(true);
+    expect(isSensitiveConfigKey("Cookie")).toBe(true);
+    expect(isSensitiveConfigKey("x-auth-cookie")).toBe(true);
+    expect(isSensitiveConfigKey("bearerToken")).toBe(true);
+    expect(isSensitiveConfigKey("awsCredential")).toBe(true);
+    // Must NOT false-positive on ordinary keys that merely contain "pat" as a substring.
+    expect(isSensitiveConfigKey("path")).toBe(false);
+    expect(isSensitiveConfigKey("filePath")).toBe(false);
+    expect(isSensitiveConfigKey("pattern")).toBe(false);
+    expect(isSensitiveConfigKey("compatMode")).toBe(false);
+  });
+
+  it("redacts DSN/URL-userinfo values regardless of key name (CF2-208)", () => {
+    const sanitized = sanitizeConfigForApi({
+      database: { url: "postgresql://svc_user:sup3rSecret@db.internal:5432/prod" },
+      cache: { endpoint: "redis://:cachepass@redis.internal:6379/0" },
+      remotes: [{ id: "dev", token: "remote-secret", url: "http://127.0.0.1:8888" }],
+    });
+    expect(sanitized.database.url).toBe("***");
+    expect(sanitized.cache.endpoint).toBe("***");
+    // A userinfo-free URL must not be swept up by the value-shape check.
+    expect(sanitized.remotes[0].url).toBe("http://127.0.0.1:8888");
+  });
+
+  it("round-trips a value-shape-redacted DSN through deepMerge without corrupting it", () => {
+    const original = { database: { url: "postgresql://svc_user:sup3rSecret@db.internal:5432/prod", label: "primary" } };
+    const sanitized = sanitizeConfigForApi(original);
+    expect(sanitized.database.url).toBe("***");
+
+    const merged = deepMerge(original, { database: { url: "***", label: "primary (renamed)" } });
+    expect((merged.database as { url: string; label: string }).url).toBe("postgresql://svc_user:sup3rSecret@db.internal:5432/prod");
+    expect((merged.database as { url: string; label: string }).label).toBe("primary (renamed)");
+  });
+
   it("recursively redacts connector, engine, MCP, and remote secrets", () => {
     const sanitized = sanitizeConfigForApi({
       gateway: { port: 8888 },

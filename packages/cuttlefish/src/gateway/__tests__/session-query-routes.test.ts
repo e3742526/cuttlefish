@@ -92,6 +92,20 @@ async function setup() {
   return { api, reg };
 }
 
+/** New-session dispatch fires fire-and-forget through dispatchEmployeeSessionRun,
+ *  which now resolves dispatchWebSessionRun via a dynamic import (to avoid a
+ *  static import cycle with session-dispatch.ts) — an extra microtask hop
+ *  beyond handleApiRequest's own resolution. Poll instead of asserting
+ *  immediately. */
+async function waitForCall(fn: { mock: { calls: unknown[] } }, times = 1, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (fn.mock.calls.length >= times) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  if (fn.mock.calls.length < times) throw new Error(`waitForCall: expected ${times} call(s), got ${fn.mock.calls.length}`);
+}
+
 function makeCtx(api: Awaited<ReturnType<typeof setup>>["api"]) {
   return {
     getConfig: () => ({ gateway: {}, engines: {}, portal: {} }),
@@ -227,7 +241,9 @@ describe("session query routes", () => {
       "first",
       "second",
     ]);
+    await waitForCall(dispatchWebSessionRun);
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
+    await waitForCall(dispatchPendingWebQueueHeadForSessionKey);
     expect(dispatchPendingWebQueueHeadForSessionKey).toHaveBeenCalledWith(expect.anything(), "employee:hr-manager");
   });
 
@@ -325,6 +341,7 @@ describe("session query routes", () => {
     expect(cap.body.id).toBe(legacy.id);
     expect(reg.listSessions().filter((session) => session.employee === "hr-manager")).toHaveLength(1);
     expect(reg.getMessages(legacy.id).filter((message) => message.role === "user").map((message) => message.content)).toContain("reuse me");
+    await waitForCall(dispatchWebSessionRun);
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
   });
 

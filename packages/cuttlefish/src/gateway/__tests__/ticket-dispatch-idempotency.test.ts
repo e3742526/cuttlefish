@@ -7,6 +7,20 @@ import type { BoardTicket } from "../board-service.js";
 let tmpHome: string;
 const testHome = withTempCuttlefishHome("cuttlefish-ticket-dispatch-idempotency-");
 
+/** dispatchTicket() fires its dispatch fire-and-forget through
+ *  dispatchEmployeeSessionRun, which now resolves dispatchWebSessionRun via a
+ *  dynamic import (to avoid a static import cycle with session-dispatch.ts) —
+ *  an extra microtask hop beyond dispatchTicket()'s own resolution. Poll
+ *  instead of asserting immediately. */
+async function waitForCall(fn: { mock: { calls: unknown[] } }, times = 1, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (fn.mock.calls.length >= times) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  if (fn.mock.calls.length < times) throw new Error(`waitForCall: expected ${times} call(s), got ${fn.mock.calls.length}`);
+}
+
 function orgDir() {
   return path.join(tmpHome, "org");
 }
@@ -72,15 +86,17 @@ describe("ticket dispatch idempotency", () => {
     vi.doMock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun }));
     vi.doMock("../board-service.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../board-service.js")>();
+      const failableWrite = (dir: string, department: string, tickets: BoardTicket[]) => {
+        if (failNextBoardWrite) {
+          failNextBoardWrite = false;
+          throw new Error("injected board write failure");
+        }
+        return actual.writeBoardTicketsWithinLock(dir, department, tickets);
+      };
       return {
         ...actual,
-        writeBoardTickets: vi.fn((dir: string, department: string, tickets: BoardTicket[]) => {
-          if (failNextBoardWrite) {
-            failNextBoardWrite = false;
-            throw new Error("injected board write failure");
-          }
-          return actual.writeBoardTickets(dir, department, tickets);
-        }),
+        writeBoardTickets: vi.fn(failableWrite),
+        writeBoardTicketsWithinLock: vi.fn(failableWrite),
       };
     });
 
@@ -144,6 +160,52 @@ describe("ticket dispatch idempotency", () => {
       assignee: "worker",
       updatedAt: "2026-06-23T10:01:00.000Z",
     });
+    await waitForCall(dispatchWebSessionRun);
+    expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
+  }, 15_000);
+
+  it("serializes two concurrent dispatches of the same ticket — exactly one wins, no lost board update (CON-002)", async () => {
+    seedOrg();
+
+    const dispatchWebSessionRun = vi.fn(() => Promise.resolve());
+    vi.doMock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun }));
+
+    const { dispatchTicket } = await import("../ticket-dispatch.js");
+    const registry = await import("../../sessions/registry.js");
+    const context = {
+      getConfig: () => ({ gateway: {}, engines: { default: "claude", claude: { bin: "claude", model: "opus" } } }),
+      connectors: new Map(),
+      startTime: Date.now(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine: () => ({ run: vi.fn() }),
+        getQueue: () => ({ enqueue: vi.fn(), getPendingCount: () => 0, getTransportState: (_key: string, status: string) => status }),
+      },
+    } as any;
+
+    const deps = { context, orgDir: orgDir(), now: () => Date.parse("2026-06-23T10:00:00.000Z") };
+    const [first, second] = await Promise.all([
+      dispatchTicket("software-delivery", "ticket-1", { source: "board", routeToManager: false }, deps),
+      dispatchTicket("software-delivery", "ticket-1", { source: "board", routeToManager: false }, deps),
+    ]);
+
+    const results = [first, second];
+    const winners = results.filter((r) => r.ok);
+    const losers = results.filter((r) => !r.ok);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+    expect((losers[0] as { reason: string }).reason).toBe("already-running");
+
+    // The board must record exactly the winner's session — no torn/lost write.
+    const board = readBoard();
+    expect(board).toHaveLength(1);
+    expect(board[0].status).toBe("in_progress");
+    expect(board[0].sessionId).toBe((winners[0] as { sessionId: string }).sessionId);
+
+    // Only one session was ever created for this ticket.
+    const sessions = registry.listSessions();
+    expect(sessions).toHaveLength(1);
+    await waitForCall(dispatchWebSessionRun);
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
   }, 15_000);
 
@@ -216,6 +278,7 @@ describe("ticket dispatch idempotency", () => {
       assignee: "worker",
       updatedAt: "2026-06-23T10:00:00.000Z",
     });
+    await waitForCall(dispatchWebSessionRun);
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
   }, 15_000);
 });

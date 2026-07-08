@@ -5,12 +5,17 @@ import path from "node:path";
 import {
   BoardConflictError,
   DEFAULT_RECYCLE_BIN_RETENTION_DAYS,
+  boardLock,
+  boardPath,
   boardTicketComplexity,
   indexBoardTicketsById,
   mergeBoardTickets,
   parseBoardWritePayload,
   readBoardState,
+  writeBoardTickets,
+  writeBoardTicketsWithinLock,
   writeMergedBoard,
+  writeMergedBoardPartial,
   type BoardTicket,
 } from "../board-service.js";
 
@@ -284,4 +289,34 @@ describe("board-service mergeBoardTickets", () => {
     })).toThrow(/resourcePath or resourceUrl/);
   });
 
+});
+
+describe("board-service write lock (CON-002)", () => {
+  function freshOrgDir(): string {
+    const orgDir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-board-lock-"));
+    fs.mkdirSync(path.join(orgDir, "software-delivery"), { recursive: true });
+    return orgDir;
+  }
+
+  it("rejects writeBoardTickets/writeMergedBoard/writeMergedBoardPartial while the board is locked, but not writeBoardTicketsWithinLock", async () => {
+    const orgDir = freshOrgDir();
+    const file = boardPath(orgDir, "software-delivery");
+
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const held = boardLock.withLock(file, async () => { await gate; });
+
+    expect(() => writeBoardTickets(orgDir, "software-delivery", [ticket("a")])).toThrow(BoardConflictError);
+    expect(() => writeMergedBoard(orgDir, "software-delivery", { tickets: [ticket("a")] })).toThrow(BoardConflictError);
+    expect(() => writeMergedBoardPartial(orgDir, "software-delivery", { tickets: [ticket("a")] })).toThrow(BoardConflictError);
+    // The lock-bypass variant must still succeed for a caller that already holds the lock.
+    expect(() => writeBoardTicketsWithinLock(orgDir, "software-delivery", [ticket("a")])).not.toThrow();
+
+    release();
+    await held;
+
+    // Once released, the guarded functions work normally again.
+    expect(() => writeBoardTickets(orgDir, "software-delivery", [ticket("b")])).not.toThrow();
+    expect(readBoardState(orgDir, "software-delivery")?.tickets.map((t) => t.id)).toEqual(["b"]);
+  });
 });

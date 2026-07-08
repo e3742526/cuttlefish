@@ -31,7 +31,7 @@
  * first message, board dispatch) are wired through this orchestrator.
  */
 import { randomUUID } from "node:crypto";
-import { dispatchWebSessionRun } from "./api/session-dispatch.js";
+import type { dispatchWebSessionRun as DispatchWebSessionRunFn } from "./api/session-dispatch.js";
 import type { ApiContext } from "./api/context.js";
 import {
   applyReviewerLossPolicy,
@@ -55,6 +55,8 @@ import {
 import { buildReviewContext } from "./review-context.js";
 import { scanOrg } from "./org.js";
 import { createSession, getMessages, getSession, insertMessage, updateSession } from "../sessions/registry.js";
+import { notifyAttachedTalkSessions } from "../sessions/callbacks.js";
+import { maybeEmitTalkGraph } from "../talk/graph.js";
 import { logger } from "../shared/logger.js";
 import type {
   CuttlefishConfig,
@@ -75,7 +77,33 @@ export interface DispatchEmployeeSessionRunOpts {
   resourceContext?: string | null;
 }
 
-/** Drop-in replacement for `dispatchWebSessionRun` that adds the mid_pair loop when applicable. */
+// `session-dispatch.ts` now also needs `dispatchEmployeeSessionRun` (for the
+// mid_pair bypass fix on queue-replay and notification dispatch) and reaches
+// it via a dynamic import to avoid a static cycle with this file's own
+// dependency on `dispatchWebSessionRun`. Importing `dispatchWebSessionRun`
+// dynamically here too keeps this module free of ANY static edge to
+// session-dispatch.ts, so there is no circular module-graph edge in either
+// direction for a bundler/test-transform to trip over.
+let cachedDispatchWebSessionRun: typeof DispatchWebSessionRunFn | undefined;
+async function getDispatchWebSessionRun(): Promise<typeof DispatchWebSessionRunFn> {
+  if (!cachedDispatchWebSessionRun) {
+    ({ dispatchWebSessionRun: cachedDispatchWebSessionRun } = await import("./api/session-dispatch.js"));
+  }
+  return cachedDispatchWebSessionRun;
+}
+
+/**
+ * Drop-in replacement for `dispatchWebSessionRun` that adds the mid_pair loop
+ * when applicable.
+ *
+ * Like `dispatchWebSessionRun`, this never rejects: every existing and new
+ * call site (session-write.ts, ticket-dispatch.ts, and — as of the mid_pair
+ * bypass fix — queue-replay and notification dispatch too) calls this
+ * fire-and-forget with no `.catch()`, so an exception anywhere past the
+ * implementer turn (the review loop, a session lookup, a DB write) would
+ * otherwise surface as an unhandled rejection instead of a visible session
+ * error.
+ */
 export async function dispatchEmployeeSessionRun(
   session: Session,
   prompt: string,
@@ -85,7 +113,33 @@ export async function dispatchEmployeeSessionRun(
   employee: Employee | null | undefined,
   opts?: DispatchEmployeeSessionRunOpts,
 ): Promise<void> {
+  try {
+    await dispatchEmployeeSessionRunInner(session, prompt, engine, config, context, employee, opts);
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logger.error(`Employee session run ${session.id} dispatch error: ${errMsg}`);
+    const erroredOnDispatch = updateSession(session.id, {
+      status: "error",
+      lastActivity: new Date().toISOString(),
+      lastError: errMsg,
+    });
+    context.emit("session:completed", { sessionId: session.id, result: null, error: errMsg });
+    if (erroredOnDispatch) notifyAttachedTalkSessions(erroredOnDispatch, { error: errMsg }, { sink: context.notificationSink });
+    maybeEmitTalkGraph(session.id, "completed", { getSession, emit: context.emit });
+  }
+}
+
+async function dispatchEmployeeSessionRunInner(
+  session: Session,
+  prompt: string,
+  engine: Engine,
+  config: CuttlefishConfig,
+  context: ApiContext,
+  employee: Employee | null | undefined,
+  opts?: DispatchEmployeeSessionRunOpts,
+): Promise<void> {
   if (!shouldUseMidPairExecution(config, employee, session.transportMeta as Record<string, unknown> | null)) {
+    const dispatchWebSessionRun = await getDispatchWebSessionRun();
     return dispatchWebSessionRun(session, prompt, engine, config, context, opts);
   }
 
@@ -112,6 +166,7 @@ export async function dispatchEmployeeSessionRun(
     } as JsonObject,
   }) ?? session;
 
+  const dispatchWebSessionRun = await getDispatchWebSessionRun();
   await dispatchWebSessionRun(tagged, prompt, engine, config, context, opts);
 
   const settled = getSession(tagged.id);
@@ -354,6 +409,7 @@ async function runReviewerPass(params: ReviewerPassParams): Promise<ReviewerPass
     spawned += 1;
     const reviewerPrompt = `${buildReviewerSystemPrompt(exec.reviewerToolProfile ?? "read_only")}\n\n${buildReviewPacketPrompt(task, implementerSummary, diffContext)}`;
     insertMessage(reviewerSession.id, "user", reviewerPrompt);
+    const dispatchWebSessionRun = await getDispatchWebSessionRun();
     await dispatchWebSessionRun(reviewerSession, reviewerPrompt, reviewerEngine, config, context);
     let settled = getSession(reviewerSession.id);
     if (!settled || settled.status === "error" || settled.status === "interrupted") return { kind: "engine_lost" };
@@ -502,6 +558,7 @@ async function runRevisionPass(params: RevisionPassParams): Promise<RevisionPass
     spawned += 1;
     const revisionPrompt = buildRevisionPrompt(task, priorSummary, review);
     insertMessage(revisionSession.id, "user", revisionPrompt);
+    const dispatchWebSessionRun = await getDispatchWebSessionRun();
     await dispatchWebSessionRun(revisionSession, revisionPrompt, revisionEngine, config, context);
     const settled = getSession(revisionSession.id);
     if (settled && settled.status !== "error" && settled.status !== "interrupted") {

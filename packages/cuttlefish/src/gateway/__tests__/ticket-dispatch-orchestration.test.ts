@@ -9,6 +9,20 @@ let tmpHome: string;
 const testHome = withTempCuttlefishHome("cuttlefish-ticket-dispatch-orch-");
 const runtimes: OrchestrationRuntime[] = [];
 
+/** dispatchTicket() fires its dispatch fire-and-forget through
+ *  dispatchEmployeeSessionRun, which now resolves dispatchWebSessionRun via a
+ *  dynamic import (to avoid a static import cycle with session-dispatch.ts) —
+ *  an extra microtask hop beyond dispatchTicket()'s own resolution. Poll
+ *  instead of asserting immediately. */
+async function waitForCall(fn: { mock: { calls: unknown[] } }, times = 1, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (fn.mock.calls.length >= times) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  if (fn.mock.calls.length < times) throw new Error(`waitForCall: expected ${times} call(s), got ${fn.mock.calls.length}`);
+}
+
 function orgDir() {
   return path.join(tmpHome, "org");
 }
@@ -71,6 +85,7 @@ describe("ticket dispatch orchestration bridge", () => {
       },
     });
     expect(runtime.listLeases()).toEqual([expect.objectContaining({ state: "running" })]);
+    await waitForCall(dispatchWebSessionRun);
     expect(dispatchWebSessionRun).toHaveBeenCalledTimes(1);
 
     deferred.resolve();
@@ -98,15 +113,17 @@ describe("ticket dispatch orchestration bridge", () => {
     vi.doMock("../api/session-dispatch.js", () => ({ dispatchWebSessionRun }));
     vi.doMock("../board-service.js", async (importOriginal) => {
       const actual = await importOriginal<typeof import("../board-service.js")>();
+      const failableWrite = (dir: string, department: string, tickets: BoardTicket[]) => {
+        if (failNextBoardWrite) {
+          failNextBoardWrite = false;
+          throw new Error("injected board write failure");
+        }
+        return actual.writeBoardTicketsWithinLock(dir, department, tickets);
+      };
       return {
         ...actual,
-        writeBoardTickets: vi.fn((dir: string, department: string, tickets: BoardTicket[]) => {
-          if (failNextBoardWrite) {
-            failNextBoardWrite = false;
-            throw new Error("injected board write failure");
-          }
-          return actual.writeBoardTickets(dir, department, tickets);
-        }),
+        writeBoardTickets: vi.fn(failableWrite),
+        writeBoardTicketsWithinLock: vi.fn(failableWrite),
       };
     });
     const { dispatchTicket } = await import("../ticket-dispatch.js");
@@ -141,6 +158,7 @@ describe("ticket dispatch orchestration bridge", () => {
       },
     });
     expect(readBoard()[0]).toMatchObject({ status: "in_progress", sessionId: failedSession.id });
+    await waitForCall(dispatchWebSessionRun);
     await settle();
     expect(runtime.listLeases().filter((lease) => lease.state === "running")).toHaveLength(0);
   });

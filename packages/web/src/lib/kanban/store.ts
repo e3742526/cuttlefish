@@ -1,5 +1,5 @@
 
-import type { KanbanTicket, TicketStatus, TicketPriority, TicketComplexity, WorkState } from './types'
+import type { KanbanTicket, TicketStatus, TicketPriority, TicketComplexity, KanbanRunState } from './types'
 
 export type KanbanStore = Record<string, KanbanTicket>
 
@@ -8,7 +8,7 @@ const STORAGE_KEY = 'cuttlefish-kanban'
 const VALID_STATUSES = new Set<TicketStatus>(['backlog', 'todo', 'in-progress', 'review', 'blocked', 'done'])
 const VALID_PRIORITIES = new Set<TicketPriority>(['low', 'medium', 'high'])
 const VALID_COMPLEXITIES = new Set<TicketComplexity>(['low', 'medium', 'high'])
-const VALID_WORK_STATES = new Set<WorkState>(['idle', 'starting', 'working', 'done', 'failed'])
+const VALID_WORK_STATES = new Set<KanbanRunState>(['idle', 'starting', 'working', 'done', 'failed'])
 
 /** Validate and sanitize a ticket loaded from localStorage */
 function sanitizeTicket(id: string, raw: Record<string, unknown>): KanbanTicket | null {
@@ -18,7 +18,7 @@ function sanitizeTicket(id: string, raw: Record<string, unknown>): KanbanTicket 
   const status = (VALID_STATUSES.has(raw.status as TicketStatus) ? raw.status : 'backlog') as TicketStatus
   const priority = (VALID_PRIORITIES.has(raw.priority as TicketPriority) ? raw.priority : 'medium') as TicketPriority
   const complexity = (VALID_COMPLEXITIES.has(raw.complexity as TicketComplexity) ? raw.complexity : 'medium') as TicketComplexity
-  const workState = (VALID_WORK_STATES.has(raw.workState as WorkState) ? raw.workState : 'idle') as WorkState
+  const workState = (VALID_WORK_STATES.has(raw.workState as KanbanRunState) ? raw.workState : 'idle') as KanbanRunState
 
   return {
     id,

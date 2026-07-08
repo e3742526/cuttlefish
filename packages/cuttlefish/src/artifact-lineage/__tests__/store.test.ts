@@ -57,6 +57,37 @@ describe("ArtifactLineageStore", () => {
       expect(found?.locator).toBe("/b");
     });
 
+    it("snapshots the superseded content identity into artifact_versions on re-registration (DAT-INT-001)", () => {
+      store.registerArtifact({ artifactId: "art-versioned", canonicalKind: "file:generated", locator: "/a", sha256: "sha-a" });
+      store.registerArtifact({ artifactId: "art-versioned", canonicalKind: "file:generated", locator: "/b", sha256: "sha-b" });
+      store.registerArtifact({ artifactId: "art-versioned", canonicalKind: "file:generated", locator: "/c", sha256: "sha-c" });
+
+      const versions = store.listArtifactVersions("art-versioned");
+      expect(versions).toHaveLength(2);
+      expect(versions.map((v) => v.locator)).toEqual(["/a", "/b"]);
+      expect(versions.map((v) => v.sha256)).toEqual(["sha-a", "sha-b"]);
+      expect(versions.every((v) => v.artifactId === "art-versioned")).toBe(true);
+      expect(versions.every((v) => v.versionId)).toBeTruthy();
+
+      // Current content identity is untouched by the snapshot.
+      const current = store.getArtifact("art-versioned")!;
+      expect(current.locator).toBe("/c");
+      expect(current.sha256).toBe("sha-c");
+    });
+
+    it("does not snapshot a version when re-registration only changes metadata, not content identity", () => {
+      store.registerArtifact({ artifactId: "art-meta-only", canonicalKind: "file:generated", locator: "/a", sha256: "sha-a", mimeType: "text/plain" });
+      store.registerArtifact({ artifactId: "art-meta-only", canonicalKind: "file:generated", locator: "/a", sha256: "sha-a", mimeType: "text/markdown" });
+
+      expect(store.listArtifactVersions("art-meta-only")).toHaveLength(0);
+      expect(store.getArtifact("art-meta-only")?.mimeType).toBe("text/markdown");
+    });
+
+    it("first registration of a new artifactId never creates a version row", () => {
+      store.registerArtifact({ artifactId: "art-fresh", canonicalKind: "file:generated", locator: "/a" });
+      expect(store.listArtifactVersions("art-fresh")).toHaveLength(0);
+    });
+
     it("creates a run-artifact xref when producingRunId is provided", () => {
       store.registerArtifact({ artifactId: "art-run", canonicalKind: "file:generated", producingRunId: "run-1" });
       const xrefs = store.listRunArtifactXrefs("run-1");

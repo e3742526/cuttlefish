@@ -12,6 +12,7 @@ import { buildKnowledgeSink } from "../knowledge/sinks/index.js";
 import { knowledgeRelayOptions, relayPendingKnowledgeOutbox } from "../knowledge/outbox-service.js";
 import { invalidateModelRegistry, refreshAiderModels, refreshCodexModels, refreshGrokModels, refreshHermesModels, refreshPiModels } from "../shared/models.js";
 import { CLAUDE_SETTINGS_DIR, GATEWAY_INFO_FILE, HOOK_RELAY_SCRIPT, CUTTLEFISH_HOME, ORCH_DB, ORG_DIR } from "../shared/paths.js";
+import { Semaphore } from "../shared/async-lock.js";
 import { CodexEngine } from "../engines/codex.js";
 import { CodexInteractiveEngine } from "../engines/codex-interactive.js";
 import { InteractiveClaudeEngine } from "../engines/claude-interactive.js";
@@ -374,6 +375,11 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     }
   });
 
+  // Ledger-0007 Finding 2: default cap on concurrent turn dispatches; a
+  // per-call `sessions.maxConcurrentRuns` override (hot-reloadable) takes
+  // precedence at each acquire() — see session-dispatch.ts.
+  const DEFAULT_MAX_CONCURRENT_RUNS = 12;
+  const runSemaphore = new Semaphore(DEFAULT_MAX_CONCURRENT_RUNS);
   apiContext = {
     config: currentConfig,
     sessionManager,
@@ -390,6 +396,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     reloadOrg,
     backgroundActivity,
     gatewayAuthToken,
+    runSemaphore,
   };
   const emailService = new EmailService(currentConfig.email, {
     client: new ImapEmailMailboxClient(),
@@ -407,6 +414,35 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
         promptExcerpt: message.subject ?? message.fromAddress ?? `Email ${message.inboxId}`,
       });
       annotateEmailSession(session.id, message);
+
+      // CF2-205: email auto-ingest previously dispatched straight to the
+      // engine with only the soft wrapUntrustedMessage() wrapper
+      // (email/ingest.ts) applied — no heuristic/LLM classification,
+      // quarantine, or checkpoint, unlike the connector/cron path's
+      // untrustedContentGate (wired below via
+      // sessionManager.setUntrustedContentGate). Run the same
+      // screenUntrustedText gate here before dispatching.
+      const screened = await screenUntrustedText(
+        {
+          text: message.textBody,
+          source: "email_body",
+          location: sessionKey,
+          operatorIntent: message.subject ?? session.promptExcerpt ?? null,
+        },
+        apiContext,
+      );
+      const screenedMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
+      screenedMeta["latestUntrustedContentScreening"] = screeningMetaForSession(screened.screening);
+      updateSession(session.id, { transportMeta: screenedMeta as any });
+      if (screened.blocked) {
+        openUntrustedContentCheckpoint(
+          { sessionId: session.id, location: sessionKey, screening: screened.screening },
+          apiContext,
+        );
+        logger.info(`Email ${message.id} quarantined pending human review (session ${session.id})`);
+        return session.id;
+      }
+
       const runningSession = updateSession(session.id, {
         status: "running",
         lastActivity: new Date().toISOString(),
@@ -552,7 +588,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     bindOrchestrationRuntimeHandlers(orchestrationRuntime, apiContext);
   };
 
-  resumePendingWebQueueItems(apiContext);
+  void resumePendingWebQueueItems(apiContext);
   reconcileOrphanedTickets({ engines, orgDir: ORG_DIR, getSession, listSessions, emit, cause: "startup" });
   logBoardSummary(ORG_DIR, (msg) => logger.info(msg));
 
@@ -580,7 +616,6 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     apiContext,
     authRequiredNow,
     gatewayAuthToken,
-    gatewayInfoToken: gatewayInfo.token ?? "",
     gatewayName: `${gatewayName} (boot ${bootId})`,
     handleApiRequest: (req, res) => handleApiRequest(req, res, apiContext),
     host,

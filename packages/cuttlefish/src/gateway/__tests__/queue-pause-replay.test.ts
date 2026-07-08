@@ -17,6 +17,20 @@ async function setup() {
   return { dispatch, reg, SessionQueue };
 }
 
+/** Polls instead of a fixed sleep — the mid_pair bypass fix routes every
+ *  dispatch here through a couple of extra dynamic-import hops
+ *  (org.js, mid-pair-orchestrator.js), so a fixed short timeout is no
+ *  longer a reliable bound, especially with a fresh module graph per test
+ *  (vi.resetModules() in beforeEach) paying full re-evaluation cost. */
+async function waitFor(check: () => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  if (!check()) throw new Error("waitFor: condition not met in time");
+}
+
 let tmpHome: string;
 const testHome = withTempCuttlefishHome("cuttlefish-queue-pause-replay-");
 
@@ -53,8 +67,7 @@ describe("resumePendingWebQueueItems", () => {
       },
     } as any;
 
-    dispatch.resumePendingWebQueueItems(ctx);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await dispatch.resumePendingWebQueueItems(ctx);
 
     expect(reg.getQueueItem(itemId)?.status).toBe("pending");
     expect(getEngine).not.toHaveBeenCalled();
@@ -87,16 +100,15 @@ describe("resumePendingWebQueueItems", () => {
       },
     } as any;
 
-    dispatch.resumePendingWebQueueItems(ctx);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await dispatch.resumePendingWebQueueItems(ctx);
 
     expect(restartedQueue.isPaused(session.sessionKey)).toBe(true);
     expect(reg.getQueueItem(itemId)?.status).toBe("pending");
     expect(getEngine).not.toHaveBeenCalled();
 
     restartedQueue.resumeQueue(session.sessionKey);
-    dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey);
+    await waitFor(() => reg.getQueueItem(itemId)?.status === "completed");
 
     expect(getEngine).toHaveBeenCalledWith("claude");
     expect(reg.getQueueItem(itemId)?.status).toBe("completed");
@@ -128,8 +140,8 @@ describe("resumePendingWebQueueItems", () => {
       },
     } as any;
 
-    expect(dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey)).toBe(1);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(await dispatch.redispatchPendingWebQueueItemsForSessionKey(ctx, session.sessionKey)).toBe(1);
+    await waitFor(() => reg.getQueueItem(second)?.status === "completed");
 
     expect(vi.mocked(runWebSession).mock.calls.map((call) => call[1])).toEqual([
       "first pending",

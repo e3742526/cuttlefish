@@ -17,7 +17,7 @@ import {
 } from "../../sessions/registry.js";
 import { FILES_DIR } from "../../shared/paths.js";
 import { logger } from "../../shared/logger.js";
-import { isInterruptibleEngine, type ArchiveKind, type Engine, type CuttlefishConfig, type Session } from "../../shared/types.js";
+import { isInterruptibleEngine, type ArchiveKind, type Employee, type Engine, type CuttlefishConfig, type Session } from "../../shared/types.js";
 import { maybeEmitTalkGraph } from "../../talk/graph.js";
 import { runWebSession } from "../run-web-session.js";
 import type { ApiContext } from "./context.js";
@@ -88,11 +88,43 @@ export function teardownAndDeleteSession(context: ApiContext, session: Session, 
   return deleted;
 }
 
-export function resumePendingWebQueueItems(context: ApiContext): void {
+// Mid_pair reviewer bypass fix: queue-replay and notification dispatch below
+// previously called dispatchWebSessionRun directly, skipping the mid_pair
+// orchestrator (only a session's first dispatch, at creation, went through
+// it). `mid-pair-orchestrator.ts` statically imports dispatchWebSessionRun
+// from this file, so a static back-import would be circular — use the
+// codebase's established lazy-import pattern instead (same as this file's
+// callers use for org.js).
+async function resolveDispatchEmployeeForSession(
+  session: Session,
+  registry?: Map<string, Employee>,
+): Promise<Employee | undefined> {
+  if (!session.employee || session.parentSessionId) return undefined;
+  const orgRegistry = registry ?? (await importScanOrg()).scanOrg();
+  return orgRegistry.get(session.employee);
+}
+
+function importScanOrg() {
+  return import("../org.js");
+}
+
+function importDispatchEmployeeSessionRun() {
+  return import("../mid-pair-orchestrator.js");
+}
+
+export async function resumePendingWebQueueItems(context: ApiContext): Promise<void> {
   if (context.getConfig().sessions?.autoResumeOnBoot !== true) return;
 
   const pending = listAllPendingQueueItems();
   if (pending.length === 0) return;
+
+  // Memoize once for the whole boot-time replay rather than per item —
+  // scanOrg() reads every org YAML from disk.
+  const [{ scanOrg }, { dispatchEmployeeSessionRun }] = await Promise.all([
+    importScanOrg(),
+    importDispatchEmployeeSessionRun(),
+  ]);
+  const registry = scanOrg();
 
   let resumed = 0;
   for (const item of pending) {
@@ -115,7 +147,8 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
     }
 
     updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
-    dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
+    const employee = await resolveDispatchEmployeeForSession(session, registry);
+    dispatchEmployeeSessionRun(session, item.prompt, engine, config, context, employee, { queueItemId: item.id });
     resumed++;
   }
 
@@ -124,23 +157,23 @@ export function resumePendingWebQueueItems(context: ApiContext): void {
   }
 }
 
-export function redispatchPendingWebQueueItemsForSessionKey(
+export async function redispatchPendingWebQueueItemsForSessionKey(
   context: ApiContext,
   sessionKey: string,
-): number {
+): Promise<number> {
   if (!sessionKey || context.sessionManager.getQueue().isPaused(sessionKey)) return 0;
   if (queueHasScheduled(context, sessionKey)) return 0;
 
   const pending = listPendingQueueItems(sessionKey);
   if (pending.length === 0) return 0;
 
-  return dispatchPendingQueueItem(context, pending[0]) ? 1 : 0;
+  return (await dispatchPendingQueueItem(context, pending[0])) ? 1 : 0;
 }
 
 export function dispatchPendingWebQueueHeadForSessionKey(
   context: ApiContext,
   sessionKey: string,
-): number {
+): Promise<number> {
   return redispatchPendingWebQueueItemsForSessionKey(context, sessionKey);
 }
 
@@ -151,7 +184,7 @@ function queueHasScheduled(context: ApiContext, sessionKey: string): boolean {
     : queue.isRunning(sessionKey);
 }
 
-function dispatchPendingQueueItem(context: ApiContext, item: QueueItem): boolean {
+async function dispatchPendingQueueItem(context: ApiContext, item: QueueItem): Promise<boolean> {
   const existingSession = getSession(item.sessionId);
   if (!existingSession) {
     cancelQueueItem(item.id);
@@ -174,7 +207,11 @@ function dispatchPendingQueueItem(context: ApiContext, item: QueueItem): boolean
   }
 
   updateSession(session.id, { status: "running", lastActivity: new Date().toISOString(), lastError: null });
-  dispatchWebSessionRun(session, item.prompt, engine, config, context, { queueItemId: item.id });
+  const [employee, { dispatchEmployeeSessionRun }] = await Promise.all([
+    resolveDispatchEmployeeForSession(session),
+    importDispatchEmployeeSessionRun(),
+  ]);
+  dispatchEmployeeSessionRun(session, item.prompt, engine, config, context, employee, { queueItemId: item.id });
   return true;
 }
 
@@ -230,6 +267,16 @@ export function dispatchWebSessionRun(
 ): Promise<void> {
   const run = async () => {
     const sessionKey = session.sessionKey || session.sourceRef;
+    // Ledger-0007 Finding 2: bound concurrent turn dispatches gateway-wide.
+    // "A run" is one execution of this closure — the same try/finally already
+    // brackets every exit path (success, error, the queue's own skip-if-
+    // cancelled branch), so acquiring/releasing here covers all of them.
+    // Background callers (queue-replay, notifications, mid_pair's own review
+    // passes) block via `acquire()` rather than failing fast — there's no
+    // synchronous HTTP caller here to return a 429 to.
+    const release = context.runSemaphore
+      ? await context.runSemaphore.acquire(config.sessions?.maxConcurrentRuns)
+      : undefined;
     try {
       await context.sessionManager.getQueue().enqueue(sessionKey, async () => {
         context.emit("session:started", { sessionId: session.id });
@@ -237,6 +284,7 @@ export function dispatchWebSessionRun(
         await runWebSession(session, prompt, engine, config, context, opts?.attachments, opts?.resourceContext);
       }, opts?.queueItemId);
     } finally {
+      release?.();
       if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
       if (opts?.queueItemId) dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);
     }
@@ -269,12 +317,12 @@ export function dispatchWebSessionRun(
   return launch();
 }
 
-export function dispatchSessionNotification(
+export async function dispatchSessionNotification(
   sessionId: string,
   message: string,
   displayMessage: string | undefined,
   context: ApiContext,
-): void {
+): Promise<void> {
   const existingSession = getSession(sessionId);
   if (!existingSession) return;
   const session = maybeRevertEngineOverride(existingSession);
@@ -285,7 +333,11 @@ export function dispatchSessionNotification(
   insertMessage(session.id, "notification", banner);
   context.emit("session:notification", { sessionId: session.id, message: banner });
   context.sessionManager.getQueue().clearCancelled(session.sessionKey || session.sourceRef || session.id);
-  dispatchWebSessionRun(session, message, engine, context.getConfig(), context);
+  const [employee, { dispatchEmployeeSessionRun }] = await Promise.all([
+    resolveDispatchEmployeeForSession(session),
+    importDispatchEmployeeSessionRun(),
+  ]);
+  dispatchEmployeeSessionRun(session, message, engine, context.getConfig(), context, employee);
 }
 
 /** Resolve an array of file IDs to local filesystem paths for engine consumption. */

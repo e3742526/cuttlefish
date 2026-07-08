@@ -3,21 +3,21 @@ import fs from "node:fs";
 import path from "node:path";
 import type { WebSocket } from "ws";
 import { WebSocketServer } from "ws";
-import { authenticateGatewayRequest, authRequiredForRequest, isAuthenticatedRequest, isLoopbackHost, scopedTokenForbidden, scopedTokenSessionMismatch } from "../auth.js";
+import { isLoopbackHost } from "../auth.js";
 import { logger } from "../../shared/logger.js";
 import type { ApiContext } from "../api.js";
 import { attachPtyWebSocket } from "../pty-ws.js";
 import { startWsHeartbeat, trackHeartbeat } from "../ws-heartbeat.js";
 import type { Engine } from "../../shared/types.js";
 import type { PtyViewEngine } from "../../engines/pty-view-engine.js";
-import { serveStatic, setCorsHeaders } from "./http-static.js";
+import { isAllowedCorsOrigin, serveStatic, setCorsHeaders } from "./http-static.js";
 import { isBlockedCrossSiteWrite, isHostAllowed, isPtyUpgradeAllowed } from "./request-guards.js";
+import { resolvePrincipalGate } from "./auth-gate.js";
 
 interface GatewayTransportDeps {
   apiContext: ApiContext;
   authRequiredNow: () => boolean;
   gatewayAuthToken: string;
-  gatewayInfoToken: string;
   gatewayName: string;
   handleApiRequest: (req: http.IncomingMessage, res: http.ServerResponse) => void;
   host: string;
@@ -33,7 +33,6 @@ export function createGatewayTransports({
   apiContext,
   authRequiredNow,
   gatewayAuthToken,
-  gatewayInfoToken,
   gatewayName,
   handleApiRequest,
   host,
@@ -77,32 +76,27 @@ export function createGatewayTransports({
     }
 
     const pathname = url.split("?")[0];
-    if (authRequiredNow() && authRequiredForRequest(req.method, pathname)) {
-      const auth = authenticateGatewayRequest(req, gatewayAuthToken, cuttlefishHome);
-      if (!auth.ok) {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: auth.reason || "Unauthorized" }));
-        return;
-      }
-      if (auth.principal?.kind === "session" && scopedTokenForbidden(req.method, pathname)) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Forbidden for session-scoped tokens" }));
-        return;
-      }
-      // Confine a session-scoped token to its own session: it may drive
-      // /api/sessions/<its-own-id>/... but not another session's resource.
-      if (
-        auth.principal?.kind === "session" &&
-        scopedTokenSessionMismatch(auth.principal.sessionId, pathname)
-      ) {
-        res.writeHead(403, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "Forbidden: session-scoped token bound to a different session" }));
-        return;
-      }
-      // Attach principal so route handlers can apply per-principal scoping.
-      if (auth.principal) {
-        (req as http.IncomingMessage & { cuttlefishPrincipal?: unknown }).cuttlefishPrincipal = auth.principal;
-      }
+    // CF2-120: resolve the principal and enforce scoped-token constraints
+    // unconditionally — not just when authRequiredNow() is true — so a
+    // presented scoped session token is always honored as a constraint, even
+    // on the default (loopback, auth-not-required) deployment. See
+    // auth-gate.ts for the full rationale.
+    const gate = resolvePrincipalGate({
+      req,
+      method: req.method,
+      pathname,
+      authRequiredNow,
+      gatewayAuthToken,
+      cuttlefishHome,
+    });
+    if (gate.status !== 200) {
+      res.writeHead(gate.status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: gate.reason || (gate.status === 401 ? "Unauthorized" : "Forbidden") }));
+      return;
+    }
+    // Attach principal so route handlers can apply per-principal scoping.
+    if (gate.principal) {
+      (req as http.IncomingMessage & { cuttlefishPrincipal?: unknown }).cuttlefishPrincipal = gate.principal;
     }
 
     if (url.startsWith("/api/")) {
@@ -158,16 +152,39 @@ export function createGatewayTransports({
   server.on("upgrade", (req, socket, head) => {
     const reqUrl = req.url || "";
     const pathname = reqUrl.split("?")[0];
-    if (authRequiredNow() && authRequiredForRequest("GET", pathname)) {
-      const auth = authenticateGatewayRequest(req, gatewayAuthToken, cuttlefishHome);
-      if (!auth.ok) {
-        socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
-        socket.destroy();
-        return;
-      }
+
+    // DNS-rebinding guard — the HTTP handler above applies this to every
+    // request; `server.on("upgrade")` is a separate listener and previously
+    // had no equivalent check at all for the generic /ws path (CF2-102).
+    if (!isHostAllowed(boundLoopback, req.headers.host)) {
+      socket.write("HTTP/1.1 421 Misdirected Request\r\nConnection: close\r\n\r\n");
+      socket.destroy();
+      return;
     }
+
+    const gate = resolvePrincipalGate({
+      req,
+      method: "GET",
+      pathname,
+      authRequiredNow,
+      gatewayAuthToken,
+      cuttlefishHome,
+    });
+    if (gate.status !== 200) {
+      socket.write(`HTTP/1.1 ${gate.status} ${gate.status === 401 ? "Unauthorized" : "Forbidden"}\r\nConnection: close\r\n\r\n`);
+      socket.destroy();
+      return;
+    }
+
     if (reqUrl === "/ws") {
-      if (authRequiredNow() && !isAuthenticatedRequest(req, gatewayInfoToken)) {
+      // CF2-102 (Cross-Site WebSocket Hijacking): WebSocket handshakes bypass
+      // CORS/SOP, so without an explicit Origin check any page open in the
+      // operator's browser could open `new WebSocket("ws://127.0.0.1:.../ws")`
+      // and receive the live event stream. `resolvePrincipalGate` above
+      // already confines a *presented* scoped token; this adds the same
+      // Origin allowlist `/ws/pty` already enforces via `isPtyUpgradeAllowed`.
+      if (!isAllowedCorsOrigin(req.headers.origin, req.headers.host)) {
+        socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
         socket.destroy();
         return;
       }

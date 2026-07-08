@@ -6,7 +6,13 @@ export type TicketPriority = 'low' | 'medium' | 'high'
 
 export type TicketComplexity = 'low' | 'medium' | 'high'
 
-export type WorkState = 'idle' | 'starting' | 'working' | 'done' | 'failed'
+// CROSS-001: this was previously named `WorkState`, colliding with the
+// daemon's canonical `WorkState` contract type (packages/cuttlefish's
+// shared/work-state.ts, also mirrored at packages/web/src/lib/api.ts) which
+// has a completely different value set — a same-named-different-values type
+// pair is a silent cross-type-confusion risk. Renamed to a kanban-local name;
+// the daemon-matching `WorkState` in lib/api.ts is untouched.
+export type KanbanRunState = 'idle' | 'starting' | 'working' | 'done' | 'failed'
 
 export interface KanbanTicket {
   id: string
@@ -22,7 +28,7 @@ export interface KanbanTicket {
   source?: string
   sessionId?: string
   department: string | null // department for API persistence
-  workState: WorkState
+  workState: KanbanRunState
   createdAt: number
   updatedAt: number
   /** Last server-observed board version used for optimistic concurrency. */

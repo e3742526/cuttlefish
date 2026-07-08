@@ -509,3 +509,15 @@
 - The manager panel exposes direct-chat launch buttons that reuse the existing chat deep-link shape `/?employee=<slug>` instead of a new messaging flow.
 - The agent usage panel rolls up per-agent session activity for day/week/month windows from persisted session fields: session count, accumulated cost, total turns, and summed `lastContextTokens` as an observed token-volume proxy.
 - Ticket status counts are board-derived and link back to `/kanban`; cron count links to `/cron`; agent counts link to `/org`.
+
+### Security-patch pass (2026-07-08)
+- `packages/cuttlefish/src/gateway/api/routes/session-write.ts`
+- `POST /api/sessions` can now return `429 { error, retryAfterMs }` before creating a
+  session row when the gateway-wide concurrent-run cap is exhausted. New config field
+  `sessions.maxConcurrentRuns` (default 12) sets the cap.
+- Inbound email that fails untrusted-content screening now opens a human-review
+  checkpoint instead of always auto-dispatching the agent turn; see the checkpoints UI.
+- `PATCH /api/org/employees/:name` with `managerName` set now returns `403` when a
+  session-scoped caller claims a manager identity other than its own bound employee.
+- An employee's `execution.maxToolCalls` (if configured) is now enforced per engine
+  session via the internal hook endpoint instead of being silently ignored.

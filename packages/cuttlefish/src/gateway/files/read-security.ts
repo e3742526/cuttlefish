@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { redactText } from "../../shared/redact.js";
 import type { ApiContext } from "../api/context.js";
+import { GATEWAY_INFO_FILE } from "../../shared/paths.js";
 import { CUTTLEFISH_HOME, expandPath, mimeFromFilename } from "./storage.js";
 
 export const MAX_READ_SIZE = 5 * 1024 * 1024;
@@ -77,13 +78,18 @@ function assessSingleResolvedPath(resolved: string): FileReadAssessment {
   const home = realpathOrResolved(os.homedir());
   const cuttlefishHome = realpathOrResolved(CUTTLEFISH_HOME);
   if (base.startsWith(".env")) return { allowed: false, reason: "Refusing to read environment secret files" };
-  if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key|auth\.json|credentials(?:\.json)?|token(?:\.json|\.txt)?)$/i.test(base)) {
-    return { allowed: false, reason: "Refusing to read private keys or token files" };
+  if (/^(?:id_rsa|id_dsa|id_ecdsa|id_ed25519|.*\.pem|.*\.key|auth\.json|credentials(?:\.json)?|\.credentials(?:\.json)?|token(?:\.json|\.txt)?|application_default_credentials\.json|\.npmrc|\.netrc|\.git-credentials)$/i.test(base)) {
+    return { allowed: false, reason: "Refusing to read private keys, credentials, or token files" };
   }
   if (isInsidePath(resolved, path.join(home, ".ssh"))) return { allowed: false, reason: "Refusing to read SSH secrets" };
   if (isInsidePath(resolved, path.join(cuttlefishHome, "secrets"))) return { allowed: false, reason: "Refusing to read Cuttlefish secrets" };
-  if (segments.includes(".claude") && base.startsWith("auth")) return { allowed: false, reason: "Refusing to read Claude auth files" };
+  if (isInsidePath(resolved, GATEWAY_INFO_FILE)) return { allowed: false, reason: "Refusing to read the Cuttlefish gateway admin token" };
+  if (segments.includes(".claude") && (base.startsWith("auth") || base.startsWith(".credentials"))) return { allowed: false, reason: "Refusing to read Claude auth files" };
   if (segments.includes(".codex") && base === "auth.json") return { allowed: false, reason: "Refusing to read Codex auth files" };
+  if (segments.includes(".aws") && base === "credentials") return { allowed: false, reason: "Refusing to read AWS credentials" };
+  if (segments.includes(".kube") && base === "config") return { allowed: false, reason: "Refusing to read kubeconfig" };
+  if (segments.includes(".docker") && base === "config.json") return { allowed: false, reason: "Refusing to read Docker registry credentials" };
+  if (segments.includes("gcloud") && base === "application_default_credentials.json") return { allowed: false, reason: "Refusing to read gcloud application default credentials" };
   return { allowed: true };
 }
 

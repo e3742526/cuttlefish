@@ -5,7 +5,8 @@ import { ORG_DIR } from "../../../shared/paths.js";
 import { logger } from "../../../shared/logger.js";
 import { createSession, getSession, insertMessage, listSessions } from "../../../sessions/registry.js";
 import { readJsonBody } from "../../http-helpers.js";
-import { authorizeManagerScope } from "../../manager-auth.js";
+import { authorizeManagerScope, isManagerNameAuthorizedForPrincipal } from "../../manager-auth.js";
+import type { GatewayPrincipal } from "../../auth.js";
 import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
@@ -482,6 +483,11 @@ export async function handleOrgRoutes(
     }
     const managerName = typeof body.managerName === "string" ? body.managerName.trim() : "";
     if (managerName) {
+      const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+      if (!isManagerNameAuthorizedForPrincipal(managerName, principal)) {
+        json(res, { error: "Session-scoped callers may only act as their own bound manager identity" }, 403);
+        return true;
+      }
       const auth = authorizeManagerScope(registry, managerName, [params.name], context.getConfig().portal?.portalName);
       if (!auth.ok) {
         json(res, { error: auth.error }, 403);

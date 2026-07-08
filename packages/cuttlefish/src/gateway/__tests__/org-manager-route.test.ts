@@ -178,4 +178,49 @@ describe("PATCH /api/org/employees/:name manager scope", () => {
     expect(cap.status).toBe(403);
     expect(cap.body.error).toContain("outside boss's hierarchy");
   });
+
+  it("rejects a session-scoped principal claiming a manager identity that isn't its own (Ledger-0007 Finding 4)", async () => {
+    writeEmployee(tmpHome, "platform", "boss", "manager");
+    writeEmployee(tmpHome, "platform", "worker", "employee", ["reportsTo: boss"]);
+
+    const api = await import("../api.js");
+    const reg = await import("../../sessions/registry.js");
+    reg.initDb();
+    const impostorSession = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:impostor", employee: "worker", prompt: "hi" });
+
+    const req = makeJsonReq("PATCH", "/api/org/employees/worker", {
+      managerName: "boss",
+      model: "sonnet",
+    });
+    (req as any).cuttlefishPrincipal = { kind: "session", sessionId: impostorSession.id };
+
+    const cap = makeRes();
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(403);
+    expect(cap.body.error).toContain("own bound manager identity");
+    expect(readEmployee(tmpHome, "platform", "worker")).not.toContain("model: sonnet");
+  });
+
+  it("allows a session-scoped principal to claim its own bound manager identity", async () => {
+    writeEmployee(tmpHome, "platform", "boss", "manager");
+    writeEmployee(tmpHome, "platform", "worker", "employee", ["reportsTo: boss"]);
+
+    const api = await import("../api.js");
+    const reg = await import("../../sessions/registry.js");
+    reg.initDb();
+    const bossSession = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:boss", employee: "boss", prompt: "hi" });
+
+    const req = makeJsonReq("PATCH", "/api/org/employees/worker", {
+      managerName: "boss",
+      model: "sonnet",
+    });
+    (req as any).cuttlefishPrincipal = { kind: "session", sessionId: bossSession.id };
+
+    const cap = makeRes();
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(200);
+    expect(readEmployee(tmpHome, "platform", "worker")).toContain("model: sonnet");
+  });
 });

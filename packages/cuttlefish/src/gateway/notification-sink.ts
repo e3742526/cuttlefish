@@ -6,7 +6,7 @@ import { dispatchSessionNotification } from "./api/session-dispatch.js";
 export function createGatewayNotificationSink(context: ApiContext): SessionNotificationSink {
   return {
     async sendSessionNotification(sessionId, message, displayMessage) {
-      dispatchSessionNotification(sessionId, message, displayMessage, context);
+      await dispatchSessionNotification(sessionId, message, displayMessage, context);
     },
 
     async sendConnectorNotification(message) {

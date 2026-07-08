@@ -10,7 +10,7 @@ import {
 } from "../orchestration/telemetry.js";
 import { dispatchEmployeeSessionRun } from "./mid-pair-orchestrator.js";
 import { findEmployee, isActiveEmployee, scanOrg } from "./org.js";
-import { readBoardArray, writeBoardTickets, type BoardTicket } from "./board-service.js";
+import { boardLock, boardPath, readBoardArray, writeBoardTicketsWithinLock, type BoardTicket } from "./board-service.js";
 import type { ApiContext } from "./api/context.js";
 import { orgWorkerIdForName, orgWorkerRoleForName } from "./org-worker-bridge.js";
 import {
@@ -314,45 +314,54 @@ export async function dispatchTicket(
     return { ok: false, reason: leaseGuard.reason };
   }
 
-  let refreshed: ReturnType<typeof refreshDispatchTicket>;
-  try {
-    refreshed = refreshDispatchTicket(deps.orgDir, department, ticketId, reusableSession);
-  } catch (err) {
-    leaseGuard?.release();
-    logger.warn(`[ticket-dispatch] failed to refresh ${department}/board.json: ${err instanceof Error ? err.message : String(err)}`);
-    return { ok: false, reason: "not-found" };
-  }
-  if ("reason" in refreshed) {
-    leaseGuard?.release();
-    return { ok: false, reason: refreshed.reason };
-  }
+  // CON-002: the claim check above, the (awaited) lease allocation, and the
+  // eventual board write all read/write the same board file with two async
+  // gaps in between (lease allocation, resource resolution) — a concurrent
+  // dispatch of the same or another ticket could land in either gap and be
+  // silently clobbered by this call's stale in-memory `tickets` snapshot.
+  // Hold `boardLock` from the refresh-read through the board write + session
+  // status update — i.e. the actual board critical section — but release it
+  // before `dispatchEmployeeSessionRun` below, which can run for minutes and
+  // must not serialize unrelated tickets behind it.
+  const locked = await boardLock.withLock(boardPath(deps.orgDir, department), async (): Promise<
+    | { ok: false; reason: DispatchTicketFailureReason }
+    | { ok: true; session: Session; runningSession: Session; resolvedResources: Awaited<ReturnType<typeof resolveTicketResources>>; prompt: string }
+  > => {
+    let refreshed: ReturnType<typeof refreshDispatchTicket>;
+    try {
+      refreshed = refreshDispatchTicket(deps.orgDir, department, ticketId, reusableSession);
+    } catch (err) {
+      logger.warn(`[ticket-dispatch] failed to refresh ${department}/board.json: ${err instanceof Error ? err.message : String(err)}`);
+      return { ok: false, reason: "not-found" };
+    }
+    if ("reason" in refreshed) {
+      return { ok: false, reason: refreshed.reason };
+    }
 
-  tickets = refreshed.tickets;
-  const dispatchTicket = refreshed.ticket;
-  const now = deps.now?.() ?? Date.now();
-  const iso = new Date(now).toISOString();
-  const prompt = ticketPrompt(dispatchTicket);
-  let resolvedResources;
-  try {
-    resolvedResources = await resolveTicketResources(dispatchTicket, deps.context);
-  } catch (err) {
-    logger.info(`[ticket-dispatch] skipped ${department}/${ticketId}: invalid-resource`);
-    return { ok: false, reason: "invalid-resource" };
-  }
-  const dispatchTransportMeta = {
-    ...(resolvedResources.attachments.length > 0
-      ? setRunAttachmentsOnTransportMeta(reusableSession?.transportMeta ?? null, resolvedResources.attachments)
-      : (reusableSession?.transportMeta ?? {})),
-    ...(leaseGuard?.transportMeta ?? {}),
-    boardDepartment: department,
-    boardTicketId: ticketId,
-    boardDispatchState: "session_created",
-    dispatchSource: opts.source,
-    routedToManager: opts.routeToManager,
-  };
-  let session: Session;
-  try {
-    session = reusableSession ?? createSession({
+    const lockedTickets = refreshed.tickets;
+    const dispatchTicket = refreshed.ticket;
+    const now = deps.now?.() ?? Date.now();
+    const iso = new Date(now).toISOString();
+    const prompt = ticketPrompt(dispatchTicket);
+    let resolvedResources;
+    try {
+      resolvedResources = await resolveTicketResources(dispatchTicket, deps.context);
+    } catch (err) {
+      logger.info(`[ticket-dispatch] skipped ${department}/${ticketId}: invalid-resource`);
+      return { ok: false, reason: "invalid-resource" };
+    }
+    const dispatchTransportMeta = {
+      ...(resolvedResources.attachments.length > 0
+        ? setRunAttachmentsOnTransportMeta(reusableSession?.transportMeta ?? null, resolvedResources.attachments)
+        : (reusableSession?.transportMeta ?? {})),
+      ...(leaseGuard?.transportMeta ?? {}),
+      boardDepartment: department,
+      boardTicketId: ticketId,
+      boardDispatchState: "session_created",
+      dispatchSource: opts.source,
+      routedToManager: opts.routeToManager,
+    };
+    const session: Session = reusableSession ?? createSession({
       engine: employee.engine,
       source: opts.source,
       sourceRef: `${opts.source}:${department}:${ticketId}:${now}`,
@@ -372,7 +381,7 @@ export async function dispatchTicket(
     dispatchTicket.sessionId = session.id;
     dispatchTicket.assignee = employee.name;
     dispatchTicket.updatedAt = iso;
-    writeBoardTickets(deps.orgDir, department, tickets);
+    writeBoardTicketsWithinLock(deps.orgDir, department, lockedTickets);
 
     const runningSession = updateSession(session.id, {
       status: "running",
@@ -393,51 +402,60 @@ export async function dispatchTicket(
       } as JsonObject,
     };
 
-    deps.context.emit("board:updated", { department });
-    deps.context.emit("ticket:dispatched", {
-      department,
-      ticketId,
-      sessionId: session.id,
-      employee: employee.name,
-      source: opts.source,
-      routeToManager: opts.routeToManager,
-    });
-
-    let completion: CapturedCompletion | undefined;
-    let runError: unknown;
-    const telemetryContext = leaseGuard
-      ? contextWithCompletionCapture(deps.context, runningSession.id, (payload) => {
-        completion = payload;
-      })
-      : deps.context;
-    const run = dispatchEmployeeSessionRun(
-      runningSession,
-      prompt,
-      engine,
-      deps.context.getConfig(),
-      telemetryContext,
-      employee,
-      {
-        attachments: resolvedResources.engineAttachments,
-        resourceContext: resolvedResources.promptBlock,
-      },
-    );
-    if (leaseGuard) {
-      void run.then(
-        () => {
-          appendBoardDispatchTelemetrySafely(buildBoardDispatchTelemetry(leaseGuard, runningSession.id, employee.model, opts.source, completion, null));
-          leaseGuard.release();
-        },
-        (err) => {
-          runError = err;
-          appendBoardDispatchTelemetrySafely(buildBoardDispatchTelemetry(leaseGuard, runningSession.id, employee.model, opts.source, completion, runError));
-          leaseGuard.release();
-        },
-      );
-    }
-  } catch (err) {
+    return { ok: true, session, runningSession, resolvedResources, prompt };
+  }).catch((err) => {
     leaseGuard?.release();
     throw err;
+  });
+
+  if (!locked.ok) {
+    leaseGuard?.release();
+    return { ok: false, reason: locked.reason };
+  }
+
+  const { session, runningSession, resolvedResources, prompt } = locked;
+
+  deps.context.emit("board:updated", { department });
+  deps.context.emit("ticket:dispatched", {
+    department,
+    ticketId,
+    sessionId: session.id,
+    employee: employee.name,
+    source: opts.source,
+    routeToManager: opts.routeToManager,
+  });
+
+  let completion: CapturedCompletion | undefined;
+  let runError: unknown;
+  const telemetryContext = leaseGuard
+    ? contextWithCompletionCapture(deps.context, runningSession.id, (payload) => {
+      completion = payload;
+    })
+    : deps.context;
+  const run = dispatchEmployeeSessionRun(
+    runningSession,
+    prompt,
+    engine,
+    deps.context.getConfig(),
+    telemetryContext,
+    employee,
+    {
+      attachments: resolvedResources.engineAttachments,
+      resourceContext: resolvedResources.promptBlock,
+    },
+  );
+  if (leaseGuard) {
+    void run.then(
+      () => {
+        appendBoardDispatchTelemetrySafely(buildBoardDispatchTelemetry(leaseGuard, runningSession.id, employee.model, opts.source, completion, null));
+        leaseGuard.release();
+      },
+      (err) => {
+        runError = err;
+        appendBoardDispatchTelemetrySafely(buildBoardDispatchTelemetry(leaseGuard, runningSession.id, employee.model, opts.source, completion, runError));
+        leaseGuard.release();
+      },
+    );
   }
 
   return { ok: true, sessionId: session.id };

@@ -1,6 +1,7 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { handleHookPost, isLoopback, type HookEndpointCtx } from "../hook-endpoint.js";
 import { HookRegistry } from "../hook-registry.js";
+import { CUTTLEFISH_HOME, setCuttlefishHomeForTest } from "../../shared/paths.js";
 
 describe("isLoopback", () => {
   it("accepts loopback addresses in their common forms", () => {
@@ -132,6 +133,143 @@ describe("handleHookPost", () => {
     );
     expect(res.status).toBe(200);
     expect(seen).toEqual(["PreToolUse"]);
+  });
+
+  describe("control-plane Write/Edit/Read protection (CF2-101)", () => {
+    let originalHome: string;
+    let home: string;
+    beforeEach(() => {
+      originalHome = CUTTLEFISH_HOME;
+      const paths = setCuttlefishHomeForTest("/tmp/cf2-101-test-home");
+      home = paths.CUTTLEFISH_HOME;
+    });
+    afterEach(() => {
+      setCuttlefishHomeForTest(originalHome);
+    });
+
+    it("blocks Write to the control plane (org roster) before delivery", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: `${home}/org/self.yaml`, content: "mcp: true" } } });
+      expect(res.status).toBe(451);
+      expect(seen).toEqual([]);
+    });
+
+    it("blocks Edit to gateway.json before delivery", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: `${home}/gateway.json` } } });
+      expect(res.status).toBe(451);
+      expect(seen).toEqual([]);
+    });
+
+    it("blocks Read of gateway.json (admin token disclosure) before delivery", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: `${home}/gateway.json` } } });
+      expect(res.status).toBe(451);
+      expect(seen).toEqual([]);
+    });
+
+    it("blocks Read under the secrets directory", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: `${home}/secrets/anything.json` } } });
+      expect(res.status).toBe(451);
+      expect(seen).toEqual([]);
+    });
+
+    it("allows Read of an unrelated project file", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/home/user/project/README.md" } } });
+      expect(res.status).toBe(200);
+      expect(seen).toEqual(["PreToolUse"]);
+    });
+
+    it("allows Write outside the control plane", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const res = handleHookPost({ reg, secret: "sek", remoteAddress: "127.0.0.1" },
+        "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "/home/user/project/src/index.ts", content: "" } } });
+      expect(res.status).toBe(200);
+      expect(seen).toEqual(["PreToolUse"]);
+    });
+  });
+
+  describe("maxToolCalls enforcement", () => {
+    it("allows tool calls up to the configured limit and blocks the one after", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const ctx = { reg, secret: "sek", remoteAddress: "127.0.0.1", getMaxToolCalls: () => 2 };
+      const call = () => handleHookPost(ctx, "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/a.txt" } } });
+
+      expect(call().status).toBe(200);
+      expect(call().status).toBe(200);
+      const third = call();
+      expect(third.status).toBe(451);
+      expect(third.body).toMatch(/Tool-call limit/);
+      expect(seen).toEqual(["PreToolUse", "PreToolUse"]);
+    });
+
+    it("does not count or limit tool calls when the session has no configured cap", () => {
+      const reg = makeReg();
+      const seen: string[] = [];
+      reg.register("s1", (h) => seen.push(h.hook_event_name));
+      const ctx = { reg, secret: "sek", remoteAddress: "127.0.0.1", getMaxToolCalls: () => undefined };
+      for (let i = 0; i < 5; i++) {
+        const res = handleHookPost(ctx, "sek", { cuttlefishSessionId: "s1", hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/a.txt" } } });
+        expect(res.status).toBe(200);
+      }
+      expect(seen).toHaveLength(5);
+    });
+
+    it("resets the count on SessionStart", () => {
+      const reg = makeReg();
+      const sessionId = "reset-start-1";
+      const ctx = { reg, secret: "sek", remoteAddress: "127.0.0.1", getMaxToolCalls: () => 1 };
+      const preToolUse = () => handleHookPost(ctx, "sek", { cuttlefishSessionId: sessionId, hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/a.txt" } } });
+
+      expect(preToolUse().status).toBe(200);
+      expect(preToolUse().status).toBe(451);
+
+      handleHookPost(ctx, "sek", { cuttlefishSessionId: sessionId, hook: { hook_event_name: "SessionStart" } });
+      expect(preToolUse().status).toBe(200);
+    });
+
+    it("resets the count on Stop", () => {
+      const reg = makeReg();
+      const sessionId = "reset-stop-1";
+      const ctx = { reg, secret: "sek", remoteAddress: "127.0.0.1", getMaxToolCalls: () => 1 };
+      const preToolUse = () => handleHookPost(ctx, "sek", { cuttlefishSessionId: sessionId, hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/a.txt" } } });
+
+      expect(preToolUse().status).toBe(200);
+      handleHookPost(ctx, "sek", { cuttlefishSessionId: sessionId, hook: { hook_event_name: "Stop" } });
+      expect(preToolUse().status).toBe(200);
+    });
+
+    it("tracks tool-call counts independently per session", () => {
+      const reg = makeReg();
+      const ctx = { reg, secret: "sek", remoteAddress: "127.0.0.1", getMaxToolCalls: () => 1 };
+      const preToolUse = (sessionId: string) => handleHookPost(ctx, "sek", { cuttlefishSessionId: sessionId, hook: { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/tmp/a.txt" } } });
+
+      expect(preToolUse("per-session-a").status).toBe(200);
+      expect(preToolUse("per-session-b").status).toBe(200);
+      expect(preToolUse("per-session-a").status).toBe(451);
+      expect(preToolUse("per-session-b").status).toBe(451);
+    });
   });
 
   it("returns 401 when the server secret is empty (defense-in-depth)", () => {

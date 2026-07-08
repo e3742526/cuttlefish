@@ -142,6 +142,26 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
     expect(hoisted.dispatchWebSessionRun).not.toHaveBeenCalled();
   });
 
+  it("fails fast with 429 (no session created) when the concurrent-run cap is already exhausted (Ledger-0007 Finding 2)", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    ctx.getConfig = () => ({ gateway: {}, engines: { default: "claude", claude: { bin: "claude", model: "sonnet" } }, portal: {}, sessions: { maxConcurrentRuns: 1 } }) as any;
+    const { Semaphore } = await import("../../shared/async-lock.js");
+    const runSemaphore = new Semaphore(1);
+    const held = runSemaphore.tryAcquire(1);
+    expect(held).not.toBeNull();
+    (ctx as any).runSemaphore = runSemaphore;
+
+    const before = reg.listSessions().length;
+    const cap = makeRes();
+    await api.handleApiRequest(makeJsonReq("POST", "/api/sessions", { prompt: "hello" }), cap.res, ctx);
+
+    expect(cap.status).toBe(429);
+    expect(reg.listSessions()).toHaveLength(before);
+    expect(hoisted.dispatchWebSessionRun).not.toHaveBeenCalled();
+    expect(hoisted.dispatchEmployeeSessionRun).not.toHaveBeenCalled();
+  });
+
   it("still accepts a real prompt with surrounding whitespace", async () => {
     const { api } = await setup();
     const ctx = makeCtx(api);

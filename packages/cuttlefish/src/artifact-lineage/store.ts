@@ -7,11 +7,13 @@ import {
   type AddLineageEdgeInput,
   type AddQuarantineRecordInput,
   type ArtifactRecord,
+  type ArtifactVersion,
   type LineageEdge,
   type QuarantineRecord,
   type RegisterArtifactInput,
   type RunArtifactXref,
   artifactRecordSchema,
+  artifactVersionSchema,
   lineageEdgeSchema,
   quarantineRecordSchema,
   runArtifactXrefSchema,
@@ -133,6 +135,29 @@ export class ArtifactLineageStore {
     const createdAt = input.createdAt ?? new Date().toISOString();
     const existing = this.getArtifact(input.artifactId);
     if (existing) {
+      // DAT-INT-001: re-registering an existing artifact_id previously
+      // overwrote its content identity (locator/sha256) in place with no
+      // history — artifact_versions was defined in the schema but never
+      // written. Snapshot the row being superseded before the UPDATE,
+      // but only when the content identity actually changes (locator or
+      // sha256 differs); a re-registration that only touches metadata like
+      // mimeType isn't a content change worth versioning.
+      const contentChanged =
+        existing.locator !== (input.locator ?? null) ||
+        existing.sha256 !== (input.sha256 ?? null);
+      if (contentChanged) {
+        this.db.prepare(`
+          INSERT INTO artifact_versions (version_id, artifact_id, locator, sha256, created_at, note)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(
+          uuidv4(),
+          existing.artifactId,
+          existing.locator,
+          existing.sha256,
+          createdAt,
+          "superseded by re-registration",
+        );
+      }
       this.db.prepare(`
         UPDATE artifacts SET canonical_kind = ?, locator = ?, sha256 = ?, size_bytes = ?,
           mime_type = ?, updated_at = ? WHERE artifact_id = ?
@@ -222,6 +247,13 @@ export class ArtifactLineageStore {
     return rows.map(parseQuarantineRow);
   }
 
+  listArtifactVersions(artifactId: string): ArtifactVersion[] {
+    const rows = this.db.prepare(
+      "SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY created_at, rowid",
+    ).all(artifactId) as Record<string, unknown>[];
+    return rows.map(parseArtifactVersionRow);
+  }
+
   listLineageEdges(artifactId: string): LineageEdge[] {
     const rows = this.db.prepare(`
       SELECT * FROM lineage_edges WHERE from_artifact_id = ? OR to_artifact_id = ? ORDER BY created_at
@@ -283,6 +315,17 @@ function parseArtifactRow(row: Record<string, unknown>): ArtifactRecord {
     mimeType: row.mime_type ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  });
+}
+
+function parseArtifactVersionRow(row: Record<string, unknown>): ArtifactVersion {
+  return artifactVersionSchema.parse({
+    versionId: row.version_id,
+    artifactId: row.artifact_id,
+    locator: row.locator ?? null,
+    sha256: row.sha256 ?? null,
+    createdAt: row.created_at,
+    note: row.note ?? null,
   });
 }
 

@@ -46,6 +46,7 @@ import {
 import type { ApiContext } from "./api/context.js";
 import type { OrgChangeRequest, OrgChangeType } from "../shared/types.js";
 import { type CritiqueResult, defaultRunCritique } from "./hr-critique-dispatch.js";
+import { KeyedMutex } from "../shared/async-lock.js";
 
 export type { CritiqueResult } from "./hr-critique-dispatch.js";
 
@@ -207,12 +208,31 @@ export function recordHrDecisionMessage(
   context?.emit?.("session:updated", { sessionId });
 }
 
+// CON-001: org-change apply has 4 independent entry points (approvals.ts's
+// org-change branch, org.ts's :id/approve and :id/apply routes, and
+// finishCritique's auto-apply branch above) that each do their own
+// get -> check-status -> apply sequence with no shared lock. Two
+// near-simultaneous calls for the same change request could both pass their
+// status check and both run the org-writer side effect. Since all four
+// funnel through this one function, keying a mutex on the change-request id
+// here — plus a fresh disk re-read of status taken *inside* the lock —
+// serializes them and makes the loser's re-read see "applied" and bail
+// cleanly, with no code changes needed at any of the four call sites.
+const orgChangeApplyLock = new KeyedMutex();
+
 /**
  * Apply an approved (or auto-appliable) change to the org. Re-checks the guards +
  * validation against the LIVE roster (it may have shifted since submission), then
  * dispatches to the existing org writers, hot-reloads, and records `applied`.
  */
-export async function applyOrgChange(request: OrgChangeRequest, context: ApiContext): Promise<ApplyResult> {
+export async function applyOrgChange(requestInput: OrgChangeRequest, context: ApiContext): Promise<ApplyResult> {
+  return orgChangeApplyLock.withLock(requestInput.id, () => applyOrgChangeLocked(requestInput, context));
+}
+
+async function applyOrgChangeLocked(requestInput: OrgChangeRequest, context: ApiContext): Promise<ApplyResult> {
+  // Re-read fresh from disk now that we hold the lock — the caller's `request`
+  // snapshot may predate another racer's apply that just completed.
+  const request = getChangeRequest(requestInput.id) ?? requestInput;
   if (!["pending_approval", "approved"].includes(request.status)) {
     return { ok: false, error: `Change request is '${request.status}' and cannot be applied` };
   }

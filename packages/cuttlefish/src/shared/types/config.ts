@@ -178,6 +178,10 @@ export interface CuttlefishConfig {
     rateLimitStrategy?: "wait" | "fallback";
     fallbackEngine?: "claude" | "codex" | "antigravity" | "grok" | "pi" | "kiro" | "hermes" | "ollama" | "kilo" | "aider";
     autoResumeOnBoot?: boolean;
+    /** Ledger-0007 Finding 2: cap on concurrent turn dispatches across the whole
+     *  gateway (the default (non-orchestration) dispatch path had no cap at all —
+     *  one caller could spawn unbounded parallel runs). Default 12. */
+    maxConcurrentRuns?: number;
   };
   boardWorker?: BoardWorkerConfig;
   cron?: {

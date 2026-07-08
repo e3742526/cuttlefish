@@ -6,6 +6,7 @@ import { getFile } from "../../sessions/registry.js";
 import type { ApiContext } from "../api/context.js";
 import { logger } from "../../shared/logger.js";
 import { badRequest, json, readBody } from "./responses.js";
+import { assessFileRead, isAllowedReadPath } from "./read-security.js";
 import { FILES_DIR, expandPath } from "./storage.js";
 
 interface TransferSpec {
@@ -24,10 +25,20 @@ interface TransferResult {
 const MAX_TRANSFER_SIZE = 50 * 1024 * 1024;
 type RemoteConfig = { remotes?: Record<string, { url: string; label?: string; token?: string }> };
 
-function resolveFileSpec(spec: TransferSpec): { buffer: Buffer; filename: string; relativePath: string | null } {
+// CF2-202: transfer.ts reads an arbitrary local file and ships it to a
+// configured remote — mirror the checks run-attachments.ts already applies
+// before any local-path read reaches this handler.
+export function resolveFileSpec(spec: TransferSpec, context: ApiContext): { buffer: Buffer; filename: string; relativePath: string | null } {
   const expanded = expandPath(spec.file);
 
   if (fs.existsSync(expanded)) {
+    const assessment = assessFileRead(expanded, { authenticated: true });
+    if (!assessment.allowed) {
+      throw new Error(assessment.reason || `Refusing to transfer ${spec.file}`);
+    }
+    if (!isAllowedReadPath(expanded, context)) {
+      throw new Error(`File ${spec.file} is outside the configured fileReadRoots`);
+    }
     const stat = fs.statSync(expanded);
     if (stat.size > MAX_TRANSFER_SIZE) {
       throw new Error(`File ${spec.file} is ${(stat.size / 1024 / 1024).toFixed(1)} MB — exceeds 50 MB transfer limit`);
@@ -137,7 +148,7 @@ export async function handleTransfer(req: HttpRequest, res: ServerResponse, cont
   const results: TransferResult[] = [];
   for (const spec of fileSpecs) {
     try {
-      const { buffer, filename } = resolveFileSpec(spec);
+      const { buffer, filename } = resolveFileSpec(spec, context);
       const targetPath = spec.remotePath || null;
       const uploadBody = buildRemoteUploadBody(filename, buffer, targetPath);
 

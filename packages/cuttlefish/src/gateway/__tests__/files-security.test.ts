@@ -33,6 +33,20 @@ describe("file read secret protection", () => {
     expect(files.assessFileRead(normal, { authenticated: true }).allowed).toBe(true);
   });
 
+  it("blocks the gateway admin-token file and the expanded credential blocklist (CF2-101/CF2-201)", () => {
+    expect(files.assessFileRead(paths.GATEWAY_INFO_FILE, { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".claude", ".credentials.json"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".aws", "credentials"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".kube", "config"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".docker", "config.json"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".npmrc"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".netrc"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".git-credentials"), { authenticated: true }).allowed).toBe(false);
+    expect(files.assessFileRead(path.join(os.homedir(), ".config", "gcloud", "application_default_credentials.json"), { authenticated: true }).allowed).toBe(false);
+    // A same-named "config" file outside .kube must not be swept up by the scoped rule.
+    expect(files.assessFileRead(path.join(tmpHome, "project", "config"), { authenticated: true }).allowed).toBe(true);
+  });
+
   it("blocks symlink bypasses that point at denied secret files", () => {
     const secretDir = path.join(tmpHome, "secrets");
     const secret = path.join(secretDir, "plain-name.txt");

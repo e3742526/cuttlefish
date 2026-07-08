@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import Busboy from "busboy";
 import { safeFetch, SsrfError } from "../../shared/ssrf-guard.js";
-import { assessFileRead } from "./read-security.js";
+import { assessFileRead, isAllowedReadPath } from "./read-security.js";
 import { logger } from "../../shared/logger.js";
 import {
   getFilesByIds,
@@ -210,6 +210,12 @@ async function handleAttachmentJson(
     // that blocks .env, private keys, ~/.ssh, and stored auth/credential files.
     const assessment = assessFileRead(expanded);
     if (!assessment.allowed) return badRequest(res, assessment.reason || "Refusing to read this file");
+    // CF2-103 (remaining gap): the secret-file blocklist above was the only
+    // check here — a configured gateway.fileReadRoots allowlist was never
+    // consulted, unlike run-attachments.ts's equivalent local-path check.
+    if (!isAllowedReadPath(expanded, context)) {
+      return badRequest(res, `File is outside the configured fileReadRoots: ${localPath}`);
+    }
     if (!fs.existsSync(expanded) || !fs.statSync(expanded).isFile()) {
       return badRequest(res, `File not found: ${localPath}`);
     }

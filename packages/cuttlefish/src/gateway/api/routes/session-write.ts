@@ -44,7 +44,6 @@ import { matchRoute } from "../match-route.js";
 import { badRequest, json, notFound, serverError } from "../responses.js";
 import { serializeSession } from "../serialize-session.js";
 import {
-  dispatchWebSessionRun,
   dispatchPendingWebQueueHeadForSessionKey,
   killSessionEngines,
   maybeRevertEngineOverride,
@@ -393,7 +392,7 @@ export async function handleSessionWriteRoutes(
     }
     const sessionKey = session.sessionKey || session.sourceRef || session.id;
     context.sessionManager.getQueue().resumeQueue(sessionKey);
-    const redispatched = redispatchPendingWebQueueItemsForSessionKey(context, sessionKey);
+    const redispatched = await redispatchPendingWebQueueItemsForSessionKey(context, sessionKey);
     context.emit("queue:updated", { sessionId: params.id, sessionKey, paused: false });
     json(res, { status: "resumed", sessionId: params.id, redispatched });
     return true;
@@ -460,6 +459,22 @@ export async function handleSessionWriteRoutes(
     if (!prompt) {
       badRequest(res, "prompt or message is required");
       return true;
+    }
+    // Ledger-0007 Finding 2: fail fast with 429 before creating a session row
+    // if the gateway-wide concurrent-run cap already looks full. This is a
+    // best-effort pre-check (the permit is released immediately after the
+    // probe) — the authoritative acquire/hold happens inside
+    // dispatchWebSessionRun's own run() closure moments later, so a
+    // concurrent request landing in the gap between this probe and that real
+    // acquire will still be correctly serialized there, just without the
+    // early 429.
+    if (context.runSemaphore) {
+      const probeRelease = context.runSemaphore.tryAcquire(context.getConfig().sessions?.maxConcurrentRuns);
+      if (!probeRelease) {
+        json(res, { error: "Too many concurrent runs — retry shortly", retryAfterMs: 2000 }, 429);
+        return true;
+      }
+      probeRelease();
     }
     const config = context.getConfig();
     let workspaceProfile: ResolvedWorkspaceProfile | undefined;
@@ -730,7 +745,18 @@ export async function handleSessionWriteRoutes(
     if (queueItemId && hasPendingQueueItemBefore(sessionKey, queueItemId)) {
       dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);
     } else {
-      dispatchWebSessionRun(session, prompt, engine, config, context, {
+      // Mid_pair reviewer bypass fix: follow-up messages on an existing
+      // session previously called dispatchWebSessionRun directly, skipping
+      // the mid_pair orchestrator entirely — only the session's *first*
+      // dispatch (above, at session creation) went through it. Resolve the
+      // employee the same way the creation path does so a mid_pair-tier
+      // employee's follow-up turns get reviewed too.
+      let followUpEmployee: import("../../../shared/types.js").Employee | undefined;
+      if (session.employee && !session.parentSessionId) {
+        const { scanOrg: scanOrgForFollowUp } = await import("../../org.js");
+        followUpEmployee = scanOrgForFollowUp().get(session.employee);
+      }
+      dispatchEmployeeSessionRun(session, prompt, engine, config, context, followUpEmployee, {
         queueItemId,
         attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
         resourceContext: attached.promptBlock,

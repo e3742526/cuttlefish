@@ -6,6 +6,8 @@ import { handleFilesRequest } from "./files.js";
 import { readJsonBody } from "./http-helpers.js";
 import { handleHookPost, isLoopback } from "./hook-endpoint.js";
 import { openSecurityCheckpoint } from "./security-review.js";
+import { scanOrg } from "./org.js";
+import { resolveEffectiveExecution } from "./employee-execution.js";
 import type { ApiContext } from "./api/context.js";
 import { json, notFound, serverError } from "./api/responses.js";
 import { handleSessionQueryRoutes } from "./api/session-query-routes.js";
@@ -38,6 +40,16 @@ export { loadRawTranscript, scheduleTranscriptBackfill } from "./transcript-back
 
 const HOOK_BODY_MAX_BYTES = 64 * 1024;
 const SESSION_LIST_PER_GROUP = 50;
+
+/** maxToolCalls was accepted on an employee's execution profile but never
+ *  enforced — resolve it here for the hook endpoint's PreToolUse counter. */
+function resolveMaxToolCallsForSession(cuttlefishSessionId: string): number | undefined {
+  const session = getSession(cuttlefishSessionId);
+  if (!session?.employee) return undefined;
+  const employee = scanOrg().get(session.employee);
+  if (!employee) return undefined;
+  return resolveEffectiveExecution(employee).maxToolCalls;
+}
 
 type ResWithEncoding = ServerResponse & { __acceptEncoding?: string };
 
@@ -105,6 +117,7 @@ export async function handleApiRequest(
           secret: context.hookSecret,
           remoteAddress: remote,
           onSecurityReview: (input) => openSecurityCheckpoint(input, context),
+          getMaxToolCalls: resolveMaxToolCallsForSession,
         },
         req.headers["x-cuttlefish-hook-secret"] as string | undefined,
         hookBody,

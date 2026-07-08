@@ -243,6 +243,27 @@ describe("dispatchEmployeeSessionRun — implementer turn fails", () => {
   });
 });
 
+describe("dispatchEmployeeSessionRun — never rejects, even on an internal exception", () => {
+  it("marks the session errored and resolves instead of rejecting when something inside the review loop throws", async () => {
+    const top = hoisted.seedTopSession();
+    // Deliberately leave hoisted.script empty — the mocked dispatchWebSessionRun
+    // throws "unscripted dispatchWebSessionRun call ..." on the first call,
+    // simulating an exception occurring after the implementer-turn boundary
+    // that dispatchWebSessionRun's own swallow-all catch cannot cover.
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    await expect(
+      dispatchEmployeeSessionRun(top as any, "do the task", fakeEngine(), baseConfig(), context, midPairEmployee()),
+    ).resolves.toBeUndefined();
+
+    const final = hoisted.sessionsById.get(top.id)!;
+    expect(final.status).toBe("error");
+    expect(final.lastError).toMatch(/unscripted dispatchWebSessionRun call/);
+    expect(emitted.some((e) => e.event === "session:completed" && (e.payload as any).error)).toBe(true);
+  });
+});
+
 describe("dispatchEmployeeSessionRun — redispatch onto a session carrying a prior run's stale state", () => {
   it("does not inherit a prior run's degraded/fallback/review-context flags into a clean new run", async () => {
     // Simulates board-ticket recovery redispatching onto the same session id

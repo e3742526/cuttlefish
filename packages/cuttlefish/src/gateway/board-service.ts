@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { safeWriteFile } from "../shared/safe-write.js";
+import { KeyedMutex } from "../shared/async-lock.js";
 
 export type BoardTicketStatus = "backlog" | "todo" | "in_progress" | "review" | "done" | "blocked";
 export type BoardTicketPriority = "low" | "medium" | "high";
@@ -71,6 +72,30 @@ export function clampRecycleBinRetentionDays(value: unknown): number {
 
 export function boardPath(orgDir: string, department: string): string {
   return path.join(orgDir, department, "board.json");
+}
+
+// CON-002 / board-JSON RMW race: every write function below is internally
+// synchronous (no `await`), so two direct calls can never interleave their
+// own read-modify-write — but a caller that holds an *async* gap open across
+// its own read (e.g. ticket-dispatch.ts's dispatchTicket, which awaits a
+// lease allocation between reading the board and writing it back) can be
+// raced by any other write landing in that gap and silently clobbered by the
+// stale in-memory snapshot's eventual write. `boardLock` lives here — inside
+// board-service.ts, keyed by board file path — so every write to a given
+// board file is guarded in one place rather than ad hoc at each call site.
+// It's a synchronous guard (throw `BoardConflictError` if locked), not an
+// async acquire, so these functions keep their existing synchronous
+// signatures; `writeBoardTicketsWithinLock` lets a caller that already holds
+// the lock (ticket-dispatch.ts) write without tripping its own guard.
+export const boardLock = new KeyedMutex();
+
+function assertBoardNotLocked(file: string): void {
+  if (boardLock.isLocked(file)) {
+    throw new BoardConflictError(
+      "Board is being updated by another in-flight operation — retry shortly",
+      [],
+    );
+  }
 }
 
 export function defaultBoardState(retentionDays = DEFAULT_RECYCLE_BIN_RETENTION_DAYS): BoardState {
@@ -402,6 +427,7 @@ export function writeMergedBoard(
   options: BoardMergeOptions = {},
 ): BoardTicket[] {
   const file = boardPath(orgDir, department);
+  assertBoardNotLocked(file);
   const current = readBoardState(orgDir, department) ?? defaultBoardState();
   const { tickets, deletedIds, deletedVersions, retentionDays } = parseBoardWritePayload(payload);
   assertValidBoardTickets(tickets);
@@ -432,6 +458,7 @@ export function writeMergedBoardPartial(
   options: BoardMergeOptions = {},
 ): WriteMergedBoardPartialResult {
   const file = boardPath(orgDir, department);
+  assertBoardNotLocked(file);
   const current = readBoardState(orgDir, department) ?? defaultBoardState();
   const { tickets: rawTickets, deletedIds, deletedVersions, retentionDays } = parseBoardWritePayload(payload);
   const { valid, rejected } = partitionBoardTickets(rawTickets);
@@ -451,6 +478,20 @@ export function writeMergedBoardPartial(
 }
 
 export function writeBoardTickets(orgDir: string, department: string, tickets: BoardTicket[]): void {
+  assertBoardNotLocked(boardPath(orgDir, department));
+  performWriteBoardTickets(orgDir, department, tickets);
+}
+
+/**
+ * Same as `writeBoardTickets`, but skips the lock guard — for a caller
+ * (ticket-dispatch.ts's `dispatchTicket`) that already holds `boardLock` for
+ * this board file and is writing from inside its own critical section.
+ */
+export function writeBoardTicketsWithinLock(orgDir: string, department: string, tickets: BoardTicket[]): void {
+  performWriteBoardTickets(orgDir, department, tickets);
+}
+
+function performWriteBoardTickets(orgDir: string, department: string, tickets: BoardTicket[]): void {
   const current = readBoardState(orgDir, department) ?? defaultBoardState();
   const file = boardPath(orgDir, department);
   safeWriteFile(file, serializeBoardState({
