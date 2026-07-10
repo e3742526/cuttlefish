@@ -1,4 +1,4 @@
-import { useMemo, useRef, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, type ReactNode } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -13,8 +13,8 @@ export interface DataTableColumn<T> {
   key: string
   label: string
   render: (row: T) => ReactNode
-  /** Omit for a non-sortable column. */
-  sortValue?: (row: T) => string | number
+  /** Omit for a non-sortable column. A nullish return sorts to the end. */
+  sortValue?: (row: T) => string | number | null | undefined
   align?: "left" | "right" | "center"
   /** CSS width, e.g. "140px". Omit for a flexible (1fr) column. */
   width?: string
@@ -84,6 +84,10 @@ export function DataTable<T>({
     return [...rows].sort((a, b) => {
       const av = sortValue(a)
       const bv = sortValue(b)
+      if (av === bv) return 0
+      // Nullish values always sort to the end, regardless of direction.
+      if (av === null || av === undefined) return 1
+      if (bv === null || bv === undefined) return -1
       if (av < bv) return -1 * sign
       if (av > bv) return 1 * sign
       return 0
@@ -99,6 +103,13 @@ export function DataTable<T>({
     overscan: 8,
     enabled: shouldVirtualize,
   })
+
+  // @tanstack/react-virtual caches measured row heights; a density change
+  // alone wouldn't otherwise invalidate them, leaving stale (wrong-height)
+  // rows until the next scroll-driven remeasure.
+  useEffect(() => {
+    if (shouldVirtualize) virtualizer.measure()
+  }, [density, shouldVirtualize, virtualizer])
 
   function toggleSort(column: DataTableColumn<T>) {
     if (!column.sortValue || !onSortChange) return

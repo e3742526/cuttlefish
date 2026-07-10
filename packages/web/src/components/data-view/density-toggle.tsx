@@ -30,6 +30,7 @@ export function DensityToggle({ density, onChange, className }: DensityTogglePro
             type="button"
             role="radio"
             aria-checked={isActive}
+            tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(option.key)}
             className={cn(
               "rounded-full px-2.5 py-1 text-[length:var(--text-caption1)] font-medium transition-colors",

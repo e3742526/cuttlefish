@@ -108,4 +108,38 @@ describe("DataTable", () => {
     render(<DataTable columns={COLUMNS} rows={manyRows} getRowKey={(r) => r.id} virtualizeThreshold={50} />)
     expect(screen.getByRole("table")).toBeTruthy()
   })
+
+  it("sorts nullish sortValue results to the end regardless of direction", () => {
+    interface NullableRow {
+      id: string
+      value: number | null
+    }
+    const columns: DataTableColumn<NullableRow>[] = [
+      { key: "id", label: "ID", render: (r) => r.id, required: true },
+      { key: "value", label: "Value", render: (r) => String(r.value), sortValue: (r) => r.value },
+    ]
+    const rows: NullableRow[] = [
+      { id: "has-2", value: 2 },
+      { id: "null", value: null },
+      { id: "has-1", value: 1 },
+    ]
+
+    const { rerender } = render(
+      <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} sort={{ key: "value", direction: "asc" }} />,
+    )
+    let ids = within(screen.getByRole("table"))
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.textContent)
+    expect(ids?.at(-1)).toContain("null")
+
+    rerender(
+      <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} sort={{ key: "value", direction: "desc" }} />,
+    )
+    ids = within(screen.getByRole("table"))
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => row.textContent)
+    expect(ids?.at(-1)).toContain("null")
+  })
 })

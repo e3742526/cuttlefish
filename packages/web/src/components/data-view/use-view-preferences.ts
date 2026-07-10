@@ -17,11 +17,17 @@ export interface ViewPreferences<TFilters = Record<string, unknown>> {
   pinnedViewId: string | null
 }
 
-const DEFAULT_PREFERENCES: ViewPreferences<never> = {
-  density: "comfortable",
-  hiddenColumns: [],
-  savedViews: [],
-  pinnedViewId: null,
+// A factory, not a shared constant — `{ ...DEFAULT_PREFERENCES }` would only
+// shallow-copy the top level, leaving every surface's default `hiddenColumns`
+// and `savedViews` arrays pointing at the SAME reference, so mutating one
+// surface's array-in-place could corrupt another's.
+function createDefaultPreferences<TFilters>(): ViewPreferences<TFilters> {
+  return {
+    density: "comfortable",
+    hiddenColumns: [],
+    savedViews: [],
+    pinnedViewId: null,
+  }
 }
 
 // Namespaced under the fleetview.prefs.v1 root the plan specifies (Section
@@ -34,7 +40,7 @@ function storageKey(surfaceKey: string): string {
 function readPreferences<TFilters>(surfaceKey: string): ViewPreferences<TFilters> {
   try {
     const raw = localStorage.getItem(storageKey(surfaceKey))
-    if (!raw) return { ...DEFAULT_PREFERENCES }
+    if (!raw) return createDefaultPreferences<TFilters>()
     const parsed = JSON.parse(raw) as Partial<ViewPreferences<TFilters>>
     return {
       density: parsed.density === "compact" ? "compact" : "comfortable",
@@ -43,7 +49,7 @@ function readPreferences<TFilters>(surfaceKey: string): ViewPreferences<TFilters
       pinnedViewId: typeof parsed.pinnedViewId === "string" ? parsed.pinnedViewId : null,
     }
   } catch {
-    return { ...DEFAULT_PREFERENCES }
+    return createDefaultPreferences<TFilters>()
   }
 }
 
@@ -120,7 +126,7 @@ export function useViewPreferences<TFilters = Record<string, unknown>>(surfaceKe
     [persist, preferences],
   )
 
-  const resetToDefaults = useCallback(() => persist({ ...DEFAULT_PREFERENCES }), [persist])
+  const resetToDefaults = useCallback(() => persist(createDefaultPreferences<TFilters>()), [persist])
 
   return {
     preferences,

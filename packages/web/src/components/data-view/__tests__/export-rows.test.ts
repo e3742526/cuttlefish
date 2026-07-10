@@ -52,6 +52,12 @@ describe("exportRowsAsCsv / exportRowsAsJson", () => {
     expect(lines[2]).toBe("Bravo,plain,5")
   })
 
+  it("quotes a cell containing a bare carriage return (no accompanying \\n)", async () => {
+    exportRowsAsCsv([{ name: "Windows", note: "line one\rline two", count: 1 }], COLUMNS, "test-export")
+    const text = await createdBlobs[0].text()
+    expect(text).toContain('"line one\rline two"')
+  })
+
   it("produces JSON keyed by column key", async () => {
     exportRowsAsJson(ROWS, COLUMNS, "test-export")
     expect(clickSpy).toHaveBeenCalledOnce()
