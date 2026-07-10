@@ -35,6 +35,13 @@ absence of shared empty/error-state primitives).
   primitives, DataView system, and all other roadmap items await approval and
   implementation, each of which should receive its own ledger entry when executed.
 
+## Follow-up (2026-07-10, same session)
+Addressed four review-bot suggestions on PR #25 with doc-only amendments: keyboard-
+accessible alternative for org-chart `reportsTo` reassignment (Section 6.4), query-key
+coverage for promoted domains (Section 7.2), multi-tab `storage`-event sync for
+persisted preferences (Section 7.4), and full-filtered-dataset export semantics on
+paginated surfaces (Section 11).
+
 ## Provenance
 Authored directly in this session (remote cloud agent) from a same-day read-only
 codebase survey; not reconstructed from archives or prior session logs.

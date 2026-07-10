@@ -251,9 +251,11 @@ the same vocabulary module, guaranteeing label consistency.
   retained; collapse/expand subtree on manager nodes (essential once depth grows past
   the 4-rank visual assumption).
 - Node affordances: hover reveals quick actions (chat with, view sessions, edit);
-  context menu for add-report/reassign; **reassign `reportsTo` via drag with explicit
-  drop confirmation** ("Move Growth Scout under Lead Developer?") — structure edits are
-  never silently committed.
+  context menu for add-report/reassign; **reassign `reportsTo` via drag or via a
+  keyboard-accessible "Move under…" action in the context menu/inspector, both with
+  explicit confirmation** ("Move Growth Scout under Lead Developer?") — structure
+  edits are never silently committed, and every structural edit has a pointer-free
+  path (WCAG target, Section 10).
 - Live presence layer: subtle status ring (working / idle / failed) driven by the
   existing WebSocket feed; motion respects `prefers-reduced-motion`.
 
@@ -291,7 +293,9 @@ Every data surface must implement all five states, via shared primitives (Sectio
 
 ### 7.2 Server-state conventions (TanStack Query — presentation only)
 
-- Centralize all query keys in `lib/query-keys.ts` (exists — enforce exclusivity).
+- Centralize all query keys in `lib/query-keys.ts` (exists — enforce exclusivity, and
+  extend it with keys for the promoted domains it doesn't yet cover, e.g. Orchestration
+  and Activity).
 - Freshness policy per data class: live entities (sessions, approvals) are
   WS-invalidated; slow entities (skills, cron definitions) get sane `staleTime`;
   document the mapping in a short `packages/web/docs/data-freshness.md`.
@@ -308,7 +312,9 @@ Every mutation defines its rollback and its failure toast copy at the call site.
 
 - View preferences (filters, saved views, density, column sets, UTC, landing surface)
   persist per-user in `localStorage` under a versioned, namespaced schema
-  (`fleetview.prefs.v1`), with a reset-to-defaults in Settings.
+  (`fleetview.prefs.v1`), with a reset-to-defaults in Settings. Preferences sync
+  across open tabs via the window `storage` event so a theme/UTC/density change in
+  one tab never leaves siblings stale.
 - URL is the source of truth for shareable state: active filters, selected entity
   (inspector), org department tab all serialize to query params so any view is a
   pasteable link.
@@ -409,8 +415,11 @@ may be warm ("All clear"), errors never cute.
 4. **Density toggle** (Section 9.3) and **UTC/local time toggle** (global).
 5. **Landing surface preference**: Chat (default) or Command Center; plus the
    attention-aware auto-landing rule (Journey 1) as an opt-in.
-6. **Export**: CSV/JSON export on every table (client-side from the loaded/queried
-   set, clearly labeled with applied filters and timestamp).
+6. **Export**: CSV/JSON export on every table, clearly labeled with applied filters
+   and timestamp. Client-side from the queried set when the full filtered result is
+   already local; on paginated/virtualized surfaces the export fetches the complete
+   filtered dataset through the existing read API (never silently exporting only the
+   loaded page), with a row-count preview before download.
 7. **Theme** (exists) + accent/department-palette override for color-vision needs.
 8. **Notification preferences** surfaced in Settings: which events badge, toast, or
    stay silent — per event class, not per page.
