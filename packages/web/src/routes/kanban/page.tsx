@@ -380,6 +380,11 @@ export default function KanbanPage() {
     (
       store: KanbanStore,
       targets: DepartmentBoardSaveTarget[],
+      // Most callers are fine with the default "refetch the whole board"
+      // recovery. Interactive drag-and-drop passes a targeted rollback
+      // instead, so a failed move reverts just that one optimistic change
+      // rather than discarding any other still-unsaved local edit too.
+      onFailure?: () => void,
     ) => {
       setSaveError(null)
       void persistToApi(store, targets)
@@ -398,7 +403,8 @@ export default function KanbanPage() {
         })
         .catch((err) => {
           setSaveError(err instanceof Error ? err.message : 'Failed to save board changes.')
-          loadData()
+          if (onFailure) onFailure()
+          else loadData()
         })
     },
     [persistToApi, loadData],
@@ -446,8 +452,14 @@ export default function KanbanPage() {
 
   function handleMoveTicket(ticketId: string, status: TicketStatus) {
     setTickets((prev) => {
+      const previousStatus = prev[ticketId]?.status
       const next = moveTicket(prev, ticketId, status)
-      persistBoardChange(next, targetForTicket(next[ticketId]))
+      persistBoardChange(next, targetForTicket(next[ticketId]), () => {
+        if (previousStatus === undefined) return
+        // Revert just this ticket's column instead of loadData()'s full
+        // refetch — a true optimistic-update rollback.
+        setTickets((current) => moveTicket(current, ticketId, previousStatus))
+      })
       return next
     })
   }

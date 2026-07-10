@@ -204,6 +204,18 @@ export default function OrgPage() {
     setCreating(false);
   }, [loadData]);
 
+  // Drag-to-reassign from the map (see OrgMap's onReassign) — a single new
+  // primary supervisor, matching the plan's "drag with explicit drop
+  // confirmation" interaction. Multi-supervisor reassignment stays in the
+  // full employee editor form.
+  const handleReassignEmployee = useCallback(
+    async (employee: Employee, newManagerName: string) => {
+      await api.updateEmployee(employee.name, { reportsTo: [newManagerName] });
+      loadData();
+    },
+    [loadData],
+  );
+
   const visibleOrg = useMemo(
     () => buildVisibleOrgView(employees, hierarchy, activeDepartment),
     [activeDepartment, employees, hierarchy],
@@ -363,6 +375,7 @@ export default function OrgPage() {
                 hierarchy={visibleOrg.hierarchy}
                 selectedName={selected?.name ?? null}
                 onNodeClick={handleSelectEmployee}
+                onReassign={handleReassignEmployee}
               />
             </Suspense>
           )}

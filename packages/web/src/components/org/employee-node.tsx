@@ -1,11 +1,16 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react"
-import { MessageSquare } from "lucide-react"
+import { MessageSquare, ChevronDown, ChevronUp } from "lucide-react"
 import { Link } from "react-router-dom"
 import type { Employee } from "@/lib/api"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
 import { deptHue } from "@/components/org/layout/dept-color"
 
-type EmployeeNodeData = Employee & Record<string, unknown>
+type EmployeeNodeData = Employee &
+  Record<string, unknown> & {
+    /** Present (and true when the subtree is hidden) only on nodes with reports. */
+    collapsed?: boolean
+    onToggleCollapse?: () => void
+  }
 
 function roleLabel(emp: EmployeeNodeData): string {
   if (emp.rank === "executive") return "COO"
@@ -26,8 +31,14 @@ export function EmployeeNode({ data, selected }: NodeProps) {
   const modelTitle = employee.model || ""
   const execSummary = employee.executionProfileSummary as { tier?: string } | undefined
   const execProfileLabel = executionProfileLabel(execSummary?.tier)
+  const hasReports = typeof employee.onToggleCollapse === "function"
+  const reportCount = Array.isArray(employee.directReports) ? employee.directReports.length : 0
 
   return (
+    // The inner card clips its own content (rounded corners, COO stripe);
+    // the collapse toggle sits just outside that box, so it lives on this
+    // unclipped outer wrapper instead — sized to the card via inline-block.
+    <div className="relative inline-block">
     <div
       className="group hover-lift relative flex h-[78px] w-[240px] items-center gap-[10px] overflow-hidden rounded-[var(--radius-md)] bg-[var(--material-regular)] px-[var(--space-3)] backdrop-blur-[20px] backdrop-saturate-[180%] [-webkit-backdrop-filter:blur(20px)_saturate(180%)] cursor-pointer"
       style={{
@@ -102,6 +113,23 @@ export function EmployeeNode({ data, selected }: NodeProps) {
 
       <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
       <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+    </div>
+      {hasReports && (
+        <button
+          type="button"
+          aria-label={employee.collapsed ? `Show ${reportCount} direct report${reportCount === 1 ? "" : "s"}` : "Collapse direct reports"}
+          aria-expanded={!employee.collapsed}
+          title={employee.collapsed ? `Show ${reportCount} direct report${reportCount === 1 ? "" : "s"}` : "Collapse direct reports"}
+          className="nodrag nopan absolute -bottom-[9px] left-1/2 z-10 flex h-[18px] w-[18px] -translate-x-1/2 items-center justify-center rounded-full border border-[var(--separator)] bg-[var(--material-thick)] text-[var(--text-tertiary)] shadow-[var(--shadow-subtle)] transition-colors hover:text-[var(--accent)]"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            employee.onToggleCollapse?.()
+          }}
+        >
+          {employee.collapsed ? <ChevronDown size={12} aria-hidden /> : <ChevronUp size={12} aria-hidden />}
+        </button>
+      )}
     </div>
   )
 }

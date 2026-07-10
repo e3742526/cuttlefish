@@ -5,7 +5,10 @@ import { ReactFlowProvider } from "@xyflow/react"
 import { EmployeeNode } from "./employee-node"
 import type { Employee } from "@/lib/api"
 
-function renderNode(employee: Employee, onWrapperClick?: () => void) {
+function renderNode(
+  employee: Employee & { collapsed?: boolean; onToggleCollapse?: () => void },
+  onWrapperClick?: () => void,
+) {
   const nodeProps = {
     data: employee as Employee & Record<string, unknown>,
     id: employee.name,
@@ -147,5 +150,48 @@ describe("EmployeeNode quick chat affordance", () => {
     expect(screen.getByText("profile")).toBeTruthy()
     expect(screen.getByTitle("Review profile configured")).toBeTruthy()
     expect(screen.queryByTitle("Built-in review")).toBeNull()
+  })
+})
+
+describe("EmployeeNode collapse toggle", () => {
+  const managerBase: Employee = {
+    name: "manager",
+    displayName: "Manager",
+    department: "Engineering",
+    rank: "manager",
+    engine: "claude",
+    model: "opus",
+    persona: "Leads the team",
+    directReports: ["report-a", "report-b"],
+  }
+
+  it("does not render a toggle for a node with no reports", () => {
+    renderNode({ ...managerBase, directReports: [] })
+    expect(screen.queryByRole("button", { name: /direct report/i })).toBeNull()
+  })
+
+  it("does not render a toggle when onToggleCollapse isn't wired (e.g. no reassign/collapse context)", () => {
+    renderNode(managerBase)
+    expect(screen.queryByRole("button", { name: /direct report/i })).toBeNull()
+  })
+
+  it("renders an expanded-state toggle that calls onToggleCollapse and doesn't select the node", () => {
+    const onToggleCollapse = vi.fn()
+    const onWrapperClick = vi.fn()
+    renderNode({ ...managerBase, collapsed: false, onToggleCollapse }, onWrapperClick)
+
+    const toggle = screen.getByRole("button", { name: "Collapse direct reports" })
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+
+    fireEvent.pointerDown(toggle)
+    fireEvent.click(toggle)
+
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+    expect(onWrapperClick).not.toHaveBeenCalled()
+  })
+
+  it("labels a collapsed manager with the hidden report count", () => {
+    renderNode({ ...managerBase, collapsed: true, onToggleCollapse: () => {} })
+    expect(screen.getByRole("button", { name: "Show 2 direct reports" })).toBeTruthy()
   })
 })
