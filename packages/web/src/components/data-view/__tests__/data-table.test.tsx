@@ -32,10 +32,11 @@ describe("DataTable", () => {
 
   it("also renders every row as a mobile card, mirroring the table", () => {
     render(<DataTable columns={COLUMNS} rows={ROWS} getRowKey={(r) => r.id} />)
-    // The card list is the second `role="row"` group in the DOM (CSS, not
+    // The card list is a `role="list"` of `role="listitem"` cards (CSS, not
     // jsdom, decides which is visible at a given viewport width).
     const rows = screen.getAllByText("Alpha")
     expect(rows.length).toBe(2)
+    expect(within(screen.getByRole("list")).getAllByRole("listitem").length).toBe(ROWS.length)
   })
 
   it("renders the empty state instead of a table when there are no rows", () => {
@@ -133,7 +134,7 @@ describe("DataTable", () => {
     const onRowClick = vi.fn()
     render(<DataTable columns={COLUMNS} rows={ROWS} getRowKey={(r) => r.id} onRowClick={onRowClick} />)
     const cards = screen.getAllByText("Alpha")
-    const card = cards[1].closest('[role="row"]')
+    const card = cards[1].closest('[role="listitem"]')
     expect(card).toBeTruthy()
     fireEvent.click(card!)
     expect(onRowClick).toHaveBeenCalledWith(ROWS[1])

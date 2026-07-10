@@ -209,7 +209,7 @@ export function DataTable<T>({
     return (
       <div
         key={key}
-        role="row"
+        role="listitem"
         {...rowInteractionProps(row)}
         className={cn(
           "flex flex-col gap-[var(--space-2)] border-b border-[var(--separator)] p-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)]",
@@ -265,6 +265,7 @@ export function DataTable<T>({
       </div>
       {!shouldVirtualize && (
         <div
+          role="list"
           className={cn(
             "flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--separator)] md:hidden",
             className,
