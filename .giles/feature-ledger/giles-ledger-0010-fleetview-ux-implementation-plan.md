@@ -20,6 +20,8 @@ absence of shared empty/error-state primitives).
 
 ## Touched Files
 - `docs/plans/2026-07-10-fleetview-ux-implementation-plan.md` (new) — the plan.
+- `docs/INDEX.md` — added "Active Proposals" section referencing the plan.
+- `docs/DOCUMENTATION_INVENTORY.md` — inventory row marking the plan current (proposed).
 - `.giles/feature-ledger/giles-ledger-0010-fleetview-ux-implementation-plan.md` (this entry).
 
 ## Validation Run
