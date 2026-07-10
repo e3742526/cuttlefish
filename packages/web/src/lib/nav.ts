@@ -1,18 +1,5 @@
-import {
-  Archive,
-  MessageSquare,
-  AudioLines,
-  Users,
-  Clock,
-  LayoutGrid,
-  Activity,
-  Gauge,
-  Zap,
-  Settings,
-  ShieldCheck,
-  Network,
-} from "lucide-react"
 import type { LucideIcon } from "lucide-react"
+import { VOCABULARY } from "./vocabulary"
 
 export interface NavItem {
   href: string
@@ -20,18 +7,21 @@ export interface NavItem {
   icon: LucideIcon
 }
 
+// Labels and icons are sourced from the vocabulary module (lib/vocabulary.ts)
+// so a nav entry can never say something different than the page it points
+// to — one canonical name per concept, enforced at the type level.
 export const NAV_ITEMS: NavItem[] = [
-  { href: "/", label: "Chat", icon: MessageSquare },
-  { href: "/talk", label: "Talk", icon: AudioLines },
-  { href: "/org", label: "Organization", icon: Users },
-  { href: "/kanban", label: "Kanban", icon: LayoutGrid },
-  { href: "/approvals", label: "Approvals", icon: ShieldCheck },
-  { href: "/archive", label: "Archive", icon: Archive },
-  { href: "/cron", label: "Cron", icon: Clock },
-  { href: "/limits", label: "Limits", icon: Gauge },
-  { href: "/logs", label: "Activity", icon: Activity },
-  { href: "/skills", label: "Skills", icon: Zap },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/", label: VOCABULARY.chat.label, icon: VOCABULARY.chat.icon },
+  { href: "/talk", label: VOCABULARY.talk.label, icon: VOCABULARY.talk.icon },
+  { href: "/org", label: VOCABULARY.organization.label, icon: VOCABULARY.organization.icon },
+  { href: "/kanban", label: VOCABULARY.kanban.label, icon: VOCABULARY.kanban.icon },
+  { href: "/approvals", label: VOCABULARY.approval.plural, icon: VOCABULARY.approval.icon },
+  { href: "/archive", label: VOCABULARY.archive.label, icon: VOCABULARY.archive.icon },
+  { href: "/cron", label: VOCABULARY.cron.label, icon: VOCABULARY.cron.icon },
+  { href: "/limits", label: VOCABULARY.limits.label, icon: VOCABULARY.limits.icon },
+  { href: "/activity", label: VOCABULARY.activity.label, icon: VOCABULARY.activity.icon },
+  { href: "/skills", label: VOCABULARY.skill.plural, icon: VOCABULARY.skill.icon },
+  { href: "/settings", label: VOCABULARY.settings.label, icon: VOCABULARY.settings.icon },
 ]
 
 // Curated 5 for the mobile bottom tab bar (iOS caps at 5). Long-tail nav

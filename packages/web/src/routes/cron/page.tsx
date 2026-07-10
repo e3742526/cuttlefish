@@ -11,6 +11,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { WeeklySchedule } from "@/components/crons/weekly-schedule"
 import { PipelineGraph } from "@/components/crons/pipeline-graph"
 import { EmployeeAvatar } from "@/components/ui/employee-avatar"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
+import { StalePill } from "@/components/ui/stale-pill"
+import { Clock } from "lucide-react"
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -324,6 +328,7 @@ export default function CronPage() {
             </div>
             <ToolbarActions>
               <div className="flex items-center gap-[var(--space-3)]">
+                <StalePill />
                 <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
                   Updated {updatedAgo}
                 </span>
@@ -345,18 +350,11 @@ export default function CronPage() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto px-[var(--space-6)] pt-[var(--space-4)] pb-[var(--space-6)]">
           {error && jobs.length === 0 ? (
-            <div
-              className="border border-[var(--system-red)] rounded-[var(--radius-md)] p-[var(--space-4)] text-[var(--system-red)] text-[length:var(--text-footnote)] mb-[var(--space-4)]"
-              style={{ background: "color-mix(in srgb, var(--system-red) 8%, transparent)" }}
-            >
-              Failed to load cron jobs: {error}
-              <button
-                onClick={refresh}
-                className="ml-[var(--space-3)] underline bg-none border-none text-inherit cursor-pointer text-[length:inherit]"
-              >
-                Retry
-              </button>
-            </div>
+            <ErrorState
+              className="mb-[var(--space-4)]"
+              message={`Failed to load cron jobs: ${error}`}
+              onRetry={refresh}
+            />
           ) : loading ? (
             <div>
               <div className="grid grid-cols-4 gap-[var(--space-3)] mb-[var(--space-4)]">
@@ -412,14 +410,16 @@ export default function CronPage() {
 
                 {/* Job list grouped by employee */}
                 {filtered.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-[200px] text-[var(--text-secondary)] gap-[var(--space-2)]">
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-tertiary)] mb-[var(--space-2)]">
-                      <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-                    </svg>
-                    <span className="text-[length:var(--text-subheadline)] font-medium">
-                      {jobs.length === 0 ? "No cron jobs configured" : "No jobs match this filter"}
-                    </span>
-                  </div>
+                  <EmptyState
+                    className="h-[200px]"
+                    icon={Clock}
+                    title={jobs.length === 0 ? "No cron jobs configured" : "No jobs match this filter"}
+                    description={
+                      jobs.length === 0
+                        ? "Schedule a job to have an employee run on a recurring timer."
+                        : undefined
+                    }
+                  />
                 ) : (
                   <div className="flex flex-col gap-[var(--space-3)]">
                     {Array.from(groupedByEmployee.entries()).map(([empKey, empJobs]) => {
