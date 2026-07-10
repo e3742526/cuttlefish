@@ -29,4 +29,46 @@ Priority directive: **reliability & function first, then security — but repair
 - **H12/H13 performance:** unproven measure-first hypotheses; cannot profile safely here → deferred with note.
 
 ## Per-stage results
-(appended as stages complete)
+
+Baseline: typecheck green. Closeout full-suite regression: **2128 passed, 1 skipped, 0 failed**.
+
+| Stage | Defects fixed | Key files | Validation | Commit |
+|-------|---------------|-----------|-----------|--------|
+| R1 content-screening | D-F1, D-F2/G-03, D-F3/G-07, D-F4/G-09, G-04 | content-screening.ts, ticket-dispatch.ts, email/ingest.ts, server.ts, api/routes/org.ts | +hardening & run-attachments tests | 9a17481 (+refine cf967a1) |
+| R2 daemon/process failsafe | E1, E2, E6, E7 | process-guards.ts, cron/scheduler.ts, sessions/queue.ts, notification-sink.ts, shared/process-health.ts | +queue & process-health tests | cadf69f |
+| R3 operator signal & GUI truth | H1, H3, H6 | api/routes/status.ts, connector-reply.ts, board-worker.ts | +process-health & reply-dropped tests | 7835faa |
+| S1 config→exec escalation | A-F2/F-10, F-03/G-01, G-06, F-11 | shared/cli-flag-policy.ts, org.ts, engines/*, hook-endpoint.ts, files/read-security.ts | +cli-flag, onboarding, bash-cp tests | 62b3b35 |
+| S2 exfil / file exposure | G-02/I-3, D-F9/F-06, H7 | talk/card-validate.ts, files/read-security.ts, email/client.ts | +card-url test | 5c31dbe |
+| Q1 orchestration + hygiene | A-F3, §7.2 delete-guard, B-DEAD-002 | mid-pair-orchestrator.ts, org.ts, api.ts | +delete-guard test | 56ddfd0 |
+
+**Modularization:** none performed mid-campaign — the only 1000–2000-line file touched
+(`gateway/org.ts`, 1283) received only localized additions (the cliFlags denylist and the
+delete guard), which does not meet the "heavily edit multiple functions" bar; a dedicated
+`repair-source-modularization` follow-up for `org.ts` is routed (B-ARC-001).
+
+## Routed for decision / deferred (not repaired here, with reason)
+
+- **F-01** (auth-off loopback default): intended local-first single-operator design; flipping
+  the default breaks local UX. The *composed* escalation paths it enables (F-02/F-10/F-03/G-01/
+  G-06, config.yaml read) are now hardened, so the RCE/exfil surface is removed without changing
+  the default. Auth-required is an owner decision.
+- **F-02 / G-05** (custom MCP `command` allowlist / package version pinning): custom MCP servers
+  legitimately run arbitrary local binaries; an allowlist breaks the feature, and pinning to
+  unverified versions offline would break function. Gated on the F-01 auth decision.
+- **I-2** (mid_pair bypass on follow-up turns), **C-01/I-5** (cross-process scheduler blind delta /
+  ID double-grant), **R4 orchestration CAS set** (C-02/C-03/C-04/C-05/C-11/C-10), **I-4**
+  (transport_meta atomic patch): orchestration-state changes that need careful multi-writer /
+  restart testing beyond this campaign's regression surface — routed to a dedicated orchestration
+  repair pass.
+- **I-3 renderer** (remote-image auto-load / host allowlist), **D-F12/F-07** (fs-browse empty-roots
+  default; needs deployment context), **H8** (STT SHA pin; needs known per-model checksums),
+  **I-10** (never-run → "completed"; needs a durable ever-ran signal): each needs a web-package
+  change, deployment context, or a data signal not available here.
+- **H12/H13** performance: unproven measure-first hypotheses; not profilable here.
+
+## Final status
+
+`completed_with_partial_verification` — all in-scope reliability/function and bounded security
+defects repaired, tested, and committed as bisectable stages; the full package suite is green.
+The routed items above are architecturally larger or need context/decisions outside this campaign
+and are enumerated for a follow-up pass.
