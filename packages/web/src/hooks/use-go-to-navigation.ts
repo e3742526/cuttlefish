@@ -59,6 +59,16 @@ export function useGoToNavigation(enabled = true) {
       if (isEditableTarget(document.activeElement)) return
       if (document.querySelector('[role="dialog"]')) return
 
+      // Checked before the armed-target lookup so a repeated "g" re-arms
+      // (resets the window) instead of being treated as an unmapped target
+      // that disarms the sequence.
+      if (e.key.toLowerCase() === "g") {
+        armed.current = true
+        window.clearTimeout(timeoutRef.current)
+        timeoutRef.current = window.setTimeout(disarm, LEADER_TIMEOUT_MS)
+        return
+      }
+
       if (armed.current) {
         const target = GO_TO_TARGETS.find((t) => t.key === e.key.toLowerCase())
         disarm()
@@ -66,12 +76,6 @@ export function useGoToNavigation(enabled = true) {
           e.preventDefault()
           navigate(target.href)
         }
-        return
-      }
-
-      if (e.key.toLowerCase() === "g") {
-        armed.current = true
-        timeoutRef.current = window.setTimeout(disarm, LEADER_TIMEOUT_MS)
       }
     }
 

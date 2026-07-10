@@ -2,13 +2,15 @@
 import { lazy, Suspense } from "react"
 import { NavRibbon, PillNav } from "./pill-nav"
 import { MobileTabBar } from "./chat/mobile-tab-bar"
+import { GlobalShortcuts } from "./global-shortcuts"
 import { cn } from "@/lib/utils"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 
 const GlobalSearch = lazy(() => import("./global-search").then(m => ({ default: m.GlobalSearch })))
 const LiveStreamWidget = lazy(() => import("./live-stream-widget").then(m => ({ default: m.LiveStreamWidget })))
 const OnboardingWizard = lazy(() => import("./onboarding-wizard").then(m => ({ default: m.OnboardingWizard })))
-const GlobalShortcuts = lazy(() => import("./global-shortcuts").then(m => ({ default: m.GlobalShortcuts })))
+// Static (not lazy): it registers the g-then-key listener on mount, and a
+// lazy chunk load would leave that listener briefly missing on page load.
 
 export function ToolbarActions({ children }: { children?: React.ReactNode }) {
   return (
@@ -53,11 +55,7 @@ export function PageLayout({
       </Suspense>
       {/* g-then-key navigation + the "?" shortcut sheet. Chat draws its own
           richer, page-local shortcut layer instead (chromeless). */}
-      {!chromeless && (
-        <Suspense fallback={null}>
-          <GlobalShortcuts />
-        </Suspense>
-      )}
+      {!chromeless && <GlobalShortcuts />}
       {/* Global desktop nav rail (hidden < lg from inside NavRibbon). Sibling of
           <main> so its per-icon label pills can escape rightward over content. */}
       {!chromeless && <NavRibbon />}
