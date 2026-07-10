@@ -7,6 +7,19 @@ import type { ApiContext } from "./api/context.js";
 import { dispatchTicket, findDepartmentManager } from "./ticket-dispatch.js";
 import { scanOrg } from "./org.js";
 
+/** Throttle the board-worker usage-skip signal so an exhausted-quota department
+ *  logs its reason at most once per interval instead of every tick (audit H6). */
+const USAGE_SKIP_LOG_INTERVAL_MS = 15 * 60 * 1000;
+const lastUsageSkipLogAt = new Map<string, number>();
+function logBoardWorkerUsageSkip(department: string, engine: string, now: number): void {
+  const last = lastUsageSkipLogAt.get(department) ?? 0;
+  if (now - last < USAGE_SKIP_LOG_INTERVAL_MS) return;
+  lastUsageSkipLogAt.set(department, now);
+  logger.warn(
+    `[board-worker] ${department}: idle — reason=usage-exhausted engine=${engine}; TODO tickets are held until quota recovers`,
+  );
+}
+
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const PRIORITY_RANK: Record<string, number> = { low: 1, medium: 2, high: 3 };
 const INTERACTIVE_SOURCES = new Set(["web", "talk"]);
@@ -148,7 +161,13 @@ async function buildCandidates(
 
     const status = await getEngineUsageStatus(manager.engine, deps.context.getConfig(), { now });
     const usageMode = usageModeForStatus(status, boardWorkerConfig.usage.minRemainingPercent);
-    if (usageMode === "skip") continue;
+    if (usageMode === "skip") {
+      // Audit H6: a usage-exhausted skip previously wrote nothing, so TODO tickets
+      // simply sat and the pause looked like a bug/stall. Emit a throttled, structured
+      // signal so an operator can tell quota (not a defect) is why work isn't moving.
+      logBoardWorkerUsageSkip(department, manager.engine, now);
+      continue;
+    }
 
     const todoTickets = tickets.filter((ticket) => ticket.status === "todo" && ticket.manualOnly !== true);
     const filtered = usageMode === "low-only"

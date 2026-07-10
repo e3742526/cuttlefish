@@ -8,6 +8,7 @@ import { ORG_DIR } from "../../../shared/paths.js";
 import { getModelRegistry } from "../../../shared/models.js";
 import { listSessions } from "../../../sessions/registry.js";
 import { deriveWorkState, emptyWorkCounts } from "../../../shared/work-state.js";
+import { getProcessHealth } from "../../../shared/process-health.js";
 import { listApprovals } from "../../approvals.js";
 import { summarizeWorkspaceProfiles } from "../../workspace-profiles.js";
 import type { ApiContext } from "../context.js";
@@ -258,6 +259,41 @@ export async function handleStatusRoutes(
           ? { detail: `Default engine ${config.engines.default} is unavailable` }
           : {}),
     });
+    // Audit H1: the health surface previously never observed the orchestration
+    // runtime, so `/api/status` stayed green while every orchestration-backed
+    // dispatch failed with a 409. Probe it when orchestration is enabled.
+    if (config.orchestration?.enabled === true) {
+      const runtime = context.orchestration?.runtime;
+      if (!runtime) {
+        checks.push({ name: "orchestration", status: "error", detail: "orchestration is enabled but its runtime is unavailable" });
+      } else {
+        try {
+          runtime.hasActiveWork();
+          checks.push({ name: "orchestration", status: "ok" });
+        } catch (err) {
+          checks.push({ name: "orchestration", status: "error", detail: err instanceof Error ? err.message : String(err) });
+        }
+      }
+    }
+
+    // Audit E1/H1: after an uncaught exception Node's state is undefined, so the
+    // daemon (kept alive by design) must not report a clean healthy status.
+    // Dropped operator notifications (E7) also surface here as degraded.
+    const health = getProcessHealth();
+    if (health.uncaughtExceptions > 0) {
+      checks.push({
+        name: "process_stability",
+        status: "degraded",
+        detail: `${health.uncaughtExceptions} uncaught exception(s) since start; last: ${health.lastUncaughtMessage ?? "unknown"}`,
+      });
+    } else if (health.droppedNotifications > 0) {
+      checks.push({
+        name: "process_stability",
+        status: "degraded",
+        detail: `${health.droppedNotifications} operator notification(s) dropped; last reason: ${health.lastDroppedNotificationReason ?? "unknown"}`,
+      });
+    }
+
     const overall: "ok" | "degraded" | "error" = checks.some((check) => check.status === "error")
       ? "error"
       : checks.some((check) => check.status === "degraded")

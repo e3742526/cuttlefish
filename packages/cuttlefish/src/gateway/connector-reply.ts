@@ -1,5 +1,6 @@
 import { logger } from "../shared/logger.js";
 import type { Session, Connector } from "../shared/types.js";
+import { recordDroppedNotification } from "../shared/process-health.js";
 
 /**
  * Connector identity + reply relay helpers.
@@ -73,13 +74,21 @@ export async function deliverConnectorReply(
   const attempts = Math.max(1, Math.floor(options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS));
   const retryDelayMs = Math.max(0, Math.floor(options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS));
 
+  let lastError = "connector returned no message id (delivery not confirmed)";
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const target = connector.reconstructTarget(session.replyContext);
-      await connector.replyMessage(target, text);
-      return;
+      // Audit H3: Slack/WhatsApp replyMessage() swallow send errors and return
+      // `undefined` instead of throwing, so a swallowed failure previously looked
+      // like success here. Treat a missing message id as a delivery failure so
+      // the retry engages and — if all attempts fail — the drop is SURFACED, not
+      // silently reported as answered.
+      const messageId = await connector.replyMessage(target, text);
+      if (messageId !== undefined) return; // delivery confirmed
+      throw new Error(lastError);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      lastError = message;
       options.emit?.("connector:reply_failed", {
         sessionId: session.id ?? null,
         connector: session.connector,
@@ -95,4 +104,17 @@ export async function deliverConnectorReply(
       if (attempt < attempts && retryDelayMs > 0) await sleep(retryDelayMs);
     }
   }
+  // All attempts exhausted — the operator's reply never reached the channel.
+  // Emit a terminal signal and record the drop so it is observable in health.
+  options.emit?.("connector:reply_dropped", {
+    sessionId: session.id ?? null,
+    connector: session.connector,
+    source: session.source,
+    attempts,
+    error: lastError,
+  });
+  logger.error(
+    `Connector reply for session ${session.id ?? "?"} was NOT delivered after ${attempts} attempt(s): ${lastError}`,
+  );
+  recordDroppedNotification(`connector "${session.connector}" reply undeliverable after ${attempts} attempt(s)`);
 }

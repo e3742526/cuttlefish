@@ -6,7 +6,9 @@ import type { Connector, Session } from "../../shared/types.js";
 function makeConnector(name: string) {
   const target = { channel: "C123", thread: "T1" };
   const reconstructTarget = vi.fn(() => target);
-  const replyMessage = vi.fn(async () => undefined);
+  // A confirmed send returns a message id (Slack ts / WhatsApp id). `undefined`
+  // now means "not delivered" (audit H3), so success must return a truthy id.
+  const replyMessage = vi.fn(async () => "1700000000.0002" as string | undefined);
   const connector = { name, reconstructTarget, replyMessage } as unknown as Connector;
   return { connector, reconstructTarget, replyMessage, target };
 }
@@ -92,4 +94,15 @@ describe("deliverConnectorReply", () => {
       error: "boom",
     }));
   });
+
+  it("treats an undefined replyMessage return as a delivery failure: retries then emits reply_dropped (audit H3)", async () => {
+    slack.replyMessage.mockResolvedValue(undefined);
+    const events: Array<{ event: string; payload: unknown }> = [];
+    await deliverConnectorReply(makeSession(), "hello", map, {
+      emit: (event: string, payload: unknown) => events.push({ event, payload }),
+    } as any);
+    expect(slack.replyMessage).toHaveBeenCalledTimes(2); // DEFAULT_MAX_ATTEMPTS
+    expect(events.some((e) => e.event === "connector:reply_dropped")).toBe(true);
+  });
+
 });
