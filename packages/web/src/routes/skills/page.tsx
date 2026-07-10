@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { renderMarkdown } from "@/lib/sanitize";
 import { PageLayout } from "@/components/page-layout";
@@ -15,6 +15,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Zap } from "lucide-react";
 import { useSettings } from "@/routes/settings-provider";
 import { useToast } from "@/components/ui/toast";
@@ -36,24 +38,39 @@ export default function SkillsPage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [skillContent, setSkillContent] = useState<string | null>(null);
+  const [skillContentError, setSkillContentError] = useState<string | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  // Tracks which skill's content fetch is the most recently requested, so a
+  // slower earlier response can't overwrite a newer selection if a user
+  // clicks multiple skill cards in quick succession.
+  const activeSkillRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const loadSkills = useCallback(() => {
+    setLoading(true);
+    setError(null);
     api
       .getSkills()
       .then((data) => setSkills(data as Skill[]))
-      .catch((err) => setError(err.message))
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load skills."))
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    loadSkills();
+  }, [loadSkills]);
+
   function openSkill(skill: Skill) {
+    activeSkillRef.current = skill.name;
     setSelectedSkill(skill);
     setDialogOpen(true);
     setContentLoading(true);
+    setSkillContentError(null);
+    setSkillContent(null);
     api
       .getSkill(skill.name)
       .then((data) => {
+        if (activeSkillRef.current !== skill.name) return;
         const d = data as Record<string, unknown>;
         setSkillContent(
           (d.content as string) ||
@@ -61,14 +78,21 @@ export default function SkillsPage() {
             JSON.stringify(d, null, 2),
         );
       })
-      .catch(() => setSkillContent("Failed to load skill content"))
-      .finally(() => setContentLoading(false));
+      .catch((err) => {
+        if (activeSkillRef.current !== skill.name) return;
+        setSkillContentError(err instanceof Error ? err.message : "Failed to load skill content.");
+      })
+      .finally(() => {
+        if (activeSkillRef.current === skill.name) setContentLoading(false);
+      });
   }
 
   function closeDialog() {
+    activeSkillRef.current = null;
     setDialogOpen(false);
     setSelectedSkill(null);
     setSkillContent(null);
+    setSkillContentError(null);
   }
 
   return (
@@ -102,17 +126,7 @@ export default function SkillsPage() {
         </div>
 
         {error && (
-          <div
-            className="mb-[var(--space-4)] rounded-[var(--radius-md,12px)] py-[var(--space-3)] px-[var(--space-4)] text-[length:var(--text-body)] text-[var(--system-red)]"
-            style={{
-              background:
-                "color-mix(in srgb, var(--system-red) 10%, transparent)",
-              border:
-                "1px solid color-mix(in srgb, var(--system-red) 30%, transparent)",
-            }}
-          >
-            Failed to load skills: {error}
-          </div>
+          <ErrorState className="mb-[var(--space-4)]" message={`Failed to load skills: ${error}`} onRetry={loadSkills} />
         )}
 
         {loading ? (
@@ -120,18 +134,11 @@ export default function SkillsPage() {
             Loading...
           </div>
         ) : skills.length === 0 && !error ? (
-          <Card>
-            <CardContent>
-              <div className="text-center p-[var(--space-6)]">
-                <p className="text-[length:var(--text-body)] text-[var(--text-tertiary)]">
-                  No skills yet
-                </p>
-                <p className="text-[length:var(--text-caption1)] text-[var(--text-quaternary)] mt-[var(--space-1)]">
-                  Chat with {portalName} to teach new skills
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={Zap}
+            title="No skills yet"
+            description={`Chat with ${portalName} to teach new skills.`}
+          />
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-[var(--space-4)]">
             {skills.map((skill) => (
@@ -178,6 +185,11 @@ export default function SkillsPage() {
                 <p className="text-[length:var(--text-body)] text-[var(--text-tertiary)]">
                   Loading...
                 </p>
+              ) : skillContentError ? (
+                <ErrorState
+                  message={skillContentError}
+                  onRetry={selectedSkill ? () => openSkill(selectedSkill) : undefined}
+                />
               ) : skillContent ? (
                 <div
                   className="text-[length:var(--text-body)] leading-[1.7] text-[var(--text-secondary)]"

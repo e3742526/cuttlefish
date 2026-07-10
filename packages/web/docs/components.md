@@ -57,19 +57,53 @@ cause, never silently indistinguishable from "no data."
 - **Do:** pass the real error message as `message`; reserve `detail` for
   stack traces or payloads a user doesn't need at a glance.
 - **Don't:** use `ErrorState` for the *app-level* "gateway unreachable" case —
-  that gets a persistent top-level banner (Phase 2), not a per-widget card.
+  that's `GatewayOfflineBanner`, a persistent top-level banner, not a
+  per-widget card.
+
+## `useDisconnected` (`hooks/use-connection-status.ts`)
+
+Not a component — the shared, debounced read of the gateway WebSocket's
+connection state that both `StalePill` and `GatewayOfflineBanner` build on.
+True only once `connected` has been continuously false for a grace period
+(1.5s default). Raw `useGateway().connected` is false for a brief moment on
+every page load and can blip during ordinary network hiccups; without this
+debounce, disconnected-state UI would flash on nearly every navigation.
+
+- **Do:** use this (not raw `useGateway().connected`) for any new
+  disconnected-state UI.
+- **Don't:** invent a second grace period — pass a custom `graceMs` to this
+  hook if a surface genuinely needs a different threshold, rather than
+  rolling your own timer.
 
 ## `StalePill`
 
-Renders nothing while the gateway WebSocket is connected (`useGateway().connected
-=== true`). Renders an amber "Live updates paused — reconnecting" pill the
-moment it drops, so data on screen is visibly non-live rather than silently
-stale.
+Renders nothing while `useDisconnected()` is false. Renders an amber "Live
+updates paused — reconnecting" pill once a disconnect actually persists, so
+data on screen is visibly non-live rather than silently stale.
 
 - **Do:** drop `<StalePill />` next to any "Updated Xm ago" / live-refresh
-  indicator on a page that relies on WS push updates (see `cron/page.tsx`).
+  indicator on a page that relies on WS push updates (see `cron/page.tsx`,
+  `kanban/page.tsx`).
 - **Don't:** wrap it in your own loading/error branching — it self-manages
-  via `useGateway()` and is safe to render unconditionally.
+  and is safe to render unconditionally. Don't add it to a page whose data
+  comes from TanStack Query polling rather than the gateway WebSocket
+  (e.g. `archive/page.tsx`, `limits/page.tsx`) — it would report a
+  connection state unrelated to that page's actual data freshness.
+
+## `GatewayOfflineBanner`
+
+The app-level counterpart to `StalePill`: a persistent, impossible-to-miss
+banner (fixed to the top of the viewport, `role="alert"`) for when the
+gateway itself is unreachable, not just one widget's data going stale.
+Mounted once, unconditionally, in `PageLayout` — covers every route
+including chat. Shares `useDisconnected()`, so it appears in lockstep with
+any `StalePill`s on screen.
+
+- **Do:** leave it exactly where it is (`PageLayout`) — it should never be
+  mounted per-page.
+- **Don't:** build a second "gateway unreachable" banner elsewhere; this is
+  the one, satisfying the Phase 2 acceptance criterion that killing the
+  gateway produces the banner everywhere, never blank panes.
 
 ## `StatusChip`
 
@@ -116,3 +150,48 @@ while mounted.
   "resolved at" columns sitting next to a "created at" column).
 - **Don't:** hand-format dates with `toLocaleString`/`Date.now()` diffing in a
   new component — import `Timestamp` instead.
+
+## DataView (`src/components/data-view/`)
+
+The shared body of the Queue/Table page template (plan Section 5.2/11):
+search, sortable + virtualized table, column visibility, density, saved
+views, and CSV/JSON export, all backed by one persisted preferences hook.
+Import everything from the barrel: `import { DataTable, useViewPreferences,
+... } from "@/components/data-view"`.
+
+- **`useViewPreferences(surfaceKey)`** — persisted, per-surface density /
+  hidden-columns / saved-views state. Storage key is
+  `fleetview.prefs.v1:dataview.<surfaceKey>`; pick a stable, unique
+  `surfaceKey` per page (or per tab, if a page's tabs have unrelated column
+  sets). Syncs across tabs via the `storage` event and degrades gracefully
+  if `localStorage.setItem` throws (private browsing, full quota) — the
+  in-memory state still applies for that tab.
+- **`DataTable`** — generic table: pass `columns` (each with a `render` and
+  an optional `sortValue`; mark the primary identifying column `required`
+  so `ColumnConfigMenu` can't hide it), `rows`, and `getRowKey`. Virtualizes
+  automatically past `virtualizeThreshold` (default 50) via
+  `@tanstack/react-virtual` — the same library and pattern as
+  `chat-sidebar.tsx`. Sorting/density/column-visibility are fully
+  controlled: the table has no state of its own beyond scroll position.
+- **`DensityToggle`**, **`ColumnConfigMenu`** — small controlled inputs over
+  `useViewPreferences`' `density`/`hiddenColumns`.
+- **`SavedViewsMenu`** — save/apply/delete named presets of a surface's
+  current filters + sort + hidden columns. Filters are typed as an opaque
+  `TFilters` generic — the surface defines its own filter shape.
+- **`ExportMenu`** / **`exportRowsAsCsv`** / **`exportRowsAsJson`** — export
+  exactly the rows passed in (the caller's already-filtered set) — never a
+  larger unfiltered dataset. `ExportMenu` shows the row count before export
+  so what's downloaded is never a surprise.
+
+**Reference implementation:** `routes/orchestration/page.tsx`'s Workers tab
+(`WorkersTab`) is the flagship — full toolbar (search, density, columns,
+export) over a sortable/virtualized `DataTable`. The Worktrees and Telemetry
+tabs share `DataTable`'s rendering (retiring the page's old
+`columns: string[]; rows: string[][]` local `Table` helper entirely) but
+don't carry the full toolbar — see the Phase 3 ledger entry for what's
+deliberately deferred there.
+
+- **Do:** give every `DataTable` an `emptyState` (usually a plain
+  `EmptyState`) — it renders instead of the table shell when `rows` is empty.
+- **Don't:** build a second ad hoc `<table>` for a new tabular surface —
+  migrate onto `DataTable`, even if you don't wire the full toolbar yet.

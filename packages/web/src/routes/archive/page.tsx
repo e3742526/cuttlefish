@@ -13,6 +13,8 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
 import { useArchive, useArchives, useDeleteArchive } from '@/hooks/use-archives'
 import type { ArchivedMessage, ArchivedSessionSnapshot, ProjectArchive } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -91,9 +93,7 @@ function SessionSnapshot({ session }: { session: ArchivedSessionSnapshot }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {session.messages.length === 0 ? (
-          <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-            No transcript messages were captured.
-          </div>
+          <EmptyState title="No transcript messages were captured." />
         ) : (
           session.messages.map((message, index) => (
             <MessageBubble key={`${session.id}-${message.timestamp}-${index}`} message={message} />
@@ -137,11 +137,11 @@ function ArchiveListCard({
 
 export default function ArchivePage() {
   useBreadcrumbs([{ label: 'Archive' }])
-  const { data: archives, isLoading, error: archivesError } = useArchives()
+  const { data: archives, isLoading, error: archivesError, refetch: refetchArchives } = useArchives()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const activeId = selectedId ?? archives?.[0]?.id ?? null
-  const { data: detail, isLoading: detailLoading, error: detailError } = useArchive(activeId)
+  const { data: detail, isLoading: detailLoading, error: detailError, refetch: refetchDetail } = useArchive(activeId)
   const deleteArchive = useDeleteArchive()
 
   useEffect(() => {
@@ -208,13 +208,12 @@ export default function ArchivePage() {
                 <Skeleton className="h-28 w-full" />
               </div>
             ) : archivesError ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                {archivesError instanceof Error ? archivesError.message : 'Failed to load previous projects.'}
-              </div>
+              <ErrorState
+                message={archivesError instanceof Error ? archivesError.message : 'Failed to load previous projects.'}
+                onRetry={() => void refetchArchives()}
+              />
             ) : !archives || archives.length === 0 ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                No previous projects.
-              </div>
+              <EmptyState icon={Archive} title="No previous projects." />
             ) : (
               <div className="flex flex-col gap-3">
                 {archives.map((archive) => (
@@ -236,13 +235,12 @@ export default function ArchivePage() {
                 <Skeleton className="h-72 w-full" />
               </div>
             ) : detailError ? (
-              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-                {detailError instanceof Error ? detailError.message : 'Failed to load archive detail.'}
-              </div>
+              <ErrorState
+                message={detailError instanceof Error ? detailError.message : 'Failed to load archive detail.'}
+                onRetry={() => void refetchDetail()}
+              />
             ) : !detail ? (
-              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
-                Select a previous project.
-              </div>
+              <EmptyState icon={MessageSquareText} title="Select a previous project." />
             ) : (
               <div className="flex flex-col gap-4">
                 <Card className="rounded-lg">

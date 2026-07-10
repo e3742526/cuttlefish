@@ -1,6 +1,6 @@
 
 import { useEffect, useState, useCallback } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import type { DepartmentBoardResponse, DepartmentBoardTicket, Employee, OrgData } from '@/lib/api'
 import { useGateway } from '@/hooks/use-gateway'
@@ -24,6 +24,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
+import { StalePill } from '@/components/ui/stale-pill'
 import { KanbanBoard } from '@/components/kanban/kanban-board'
 import { CreateTicketModal } from '@/components/kanban/create-ticket-modal'
 import { TicketDetailPanel } from '@/components/kanban/ticket-detail-panel'
@@ -598,21 +601,8 @@ export default function KanbanPage() {
   if (error) {
     return (
       <PageLayout>
-        <div
-          className="flex flex-col items-center justify-center h-full gap-[var(--space-4)] text-[var(--text-tertiary)]"
-        >
-          <div
-            className="rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--system-red)_10%,transparent)] border border-[color-mix(in_srgb,var(--system-red)_30%,transparent)] px-[var(--space-4)] py-[var(--space-3)] text-[length:var(--text-body)] text-[var(--system-red)]"
-          >
-            Failed to load employees: {error}
-          </div>
-          <button
-            onClick={loadData}
-            className="px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md)] border-none cursor-pointer text-[length:var(--text-body)] font-[var(--weight-semibold)]"
-            style={{ background: 'var(--accent-bg)', color: 'var(--accent-contrast)', boxShadow: 'var(--accent-glow)' }}
-          >
-            Retry
-          </button>
+        <div className="flex h-full items-center justify-center p-[var(--space-6)]">
+          <ErrorState className="max-w-md" message={`Failed to load employees: ${error}`} onRetry={loadData} />
         </div>
       </PageLayout>
     )
@@ -651,6 +641,7 @@ export default function KanbanPage() {
             </div>
 
             <ToolbarActions>
+              <StalePill />
               <label className="flex items-center gap-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--text-secondary)]">
                 <span>Recycle bin</span>
                 <select
@@ -685,17 +676,14 @@ export default function KanbanPage() {
           )}
 
           {saveError && (
-            <div className="mx-[var(--space-5)] mt-[var(--space-3)] rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--system-red)_35%,transparent)] bg-[color-mix(in_srgb,var(--system-red)_10%,transparent)] px-[var(--space-3)] py-[var(--space-2)] text-[length:var(--text-caption1)] text-[var(--system-red)] flex items-center justify-between gap-[var(--space-3)]">
-              <span className="min-w-0 break-words">Board save failed: {saveError}</span>
-              <button
-                onClick={() => {
+            <div className="mx-[var(--space-5)] mt-[var(--space-3)]">
+              <ErrorState
+                message={`Board save failed: ${saveError}`}
+                onRetry={() => {
                   setSaveError(null)
                   loadData()
                 }}
-                className="shrink-0 rounded-[var(--radius-sm)] border border-current bg-transparent px-[var(--space-2)] py-[2px] text-[length:var(--text-caption2)] font-semibold cursor-pointer"
-              >
-                Reload
-              </button>
+              />
             </div>
           )}
 
@@ -782,9 +770,7 @@ export default function KanbanPage() {
               </span>
             </div>
             {deletedTickets.length === 0 ? (
-              <div className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-                No deleted tickets waiting for purge.
-              </div>
+              <EmptyState icon={Trash2} title="No deleted tickets waiting for purge." />
             ) : (
               <div className="max-h-[220px] space-y-[var(--space-2)] overflow-y-auto pr-[var(--space-1)]">
                 {deletedTickets.map((ticket) => (

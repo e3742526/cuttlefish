@@ -2,6 +2,19 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { AlertTriangle, CheckCircle2, GitBranch, Network, Pause, Play, RefreshCw, RotateCcw, Square } from "lucide-react"
 import { PageLayout, ToolbarActions } from "@/components/page-layout"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  DataTable,
+  DensityToggle,
+  ColumnConfigMenu,
+  ExportMenu,
+  useViewPreferences,
+  type DataTableColumn,
+  type SortState,
+  type ExportColumn,
+} from "@/components/data-view"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   applyDualLaneWinner,
@@ -21,9 +34,30 @@ import {
   type ContinuationSummary,
   type DualLaneSummary,
   type OrchestrationDashboardData,
+  type WorkerSummary,
+  type WorktreeSummary,
+  type TelemetryBucket,
 } from "@/lib/orchestration-api"
 
 const TABS = ["Overview", "Workers", "Queue", "Holds", "Continuations", "Dual-lane", "Recovery", "Worktrees", "Telemetry"] as const
+
+const WORKER_COLUMNS: DataTableColumn<WorkerSummary>[] = [
+  { key: "id", label: "Worker", render: (w) => w.id, sortValue: (w) => w.id, required: true },
+  { key: "provider", label: "Provider", render: (w) => w.provider, sortValue: (w) => w.provider },
+  { key: "family", label: "Family", render: (w) => w.family, sortValue: (w) => w.family },
+  { key: "tier", label: "Tier", render: (w) => w.tier, sortValue: (w) => w.tier },
+  { key: "cost", label: "Cost", render: (w) => w.costClass, sortValue: (w) => w.costClass },
+  { key: "workspace", label: "Workspace", render: (w) => w.workspacePolicy },
+  { key: "capabilities", label: "Capabilities", render: (w) => w.capabilities.join(", ") },
+]
+
+const WORKTREE_COLUMNS: DataTableColumn<WorktreeSummary>[] = [
+  { key: "taskId", label: "Task", render: (w) => w.taskId, sortValue: (w) => w.taskId, required: true },
+  { key: "lane", label: "Lane", render: (w) => w.lane, sortValue: (w) => w.lane },
+  { key: "branch", label: "Branch", render: (w) => w.branch },
+  { key: "path", label: "Path", render: (w) => w.path },
+  { key: "created", label: "Created", render: (w) => formatDate(w.createdAt), sortValue: (w) => w.createdAt },
+]
 
 export default function OrchestrationPage() {
   useBreadcrumbs([{ label: "Orchestration" }])
@@ -35,6 +69,11 @@ export default function OrchestrationPage() {
   const [actionKey, setActionKey] = useState<string | null>(null)
   const [artifactText, setArtifactText] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [workersSearch, setWorkersSearch] = useState("")
+  const [workersSort, setWorkersSort] = useState<SortState | null>(null)
+  const [worktreesSort, setWorktreesSort] = useState<SortState | null>(null)
+  const [telemetrySort, setTelemetrySort] = useState<SortState | null>(null)
+  const { preferences: viewPrefs, setDensity, setHiddenColumns } = useViewPreferences("orchestration")
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -122,7 +161,14 @@ export default function OrchestrationPage() {
 
         <div className="flex-1 overflow-y-auto px-[var(--space-6)] py-[var(--space-4)] min-h-0">
           {(error || actionError) && (
-            <Banner tone="error" text={error ?? actionError ?? ""} />
+            <ErrorState
+              className="mb-[var(--space-3)]"
+              message={error ?? actionError ?? ""}
+              onRetry={() => {
+                setActionError(null)
+                void refresh()
+              }}
+            />
           )}
           {data && (
             <div className="mb-[var(--space-3)] lg:hidden">
@@ -138,9 +184,13 @@ export default function OrchestrationPage() {
             </div>
           )}
           {loading ? (
-            <EmptyState text="Loading orchestration state..." />
+            <OrchestrationLoadingSkeleton />
           ) : !data ? (
-            <EmptyState text="No orchestration state available." />
+            <EmptyState
+              icon={Network}
+              title="No orchestration state available."
+              description="Try refreshing, or check the gateway's orchestration configuration."
+            />
           ) : (
             <Tabs defaultValue="Overview" className="gap-[var(--space-4)]">
               <TabsList className="flex flex-wrap h-auto justify-start bg-[var(--material-regular)] border border-[var(--separator)]">
@@ -161,20 +211,17 @@ export default function OrchestrationPage() {
                 />
               </TabsContent>
               <TabsContent value="Workers">
-                <Section title="Workers" count={data.workers.length}>
-                  <Table
-                    columns={["Worker", "Provider", "Family", "Tier", "Cost", "Workspace", "Capabilities"]}
-                    rows={data.workers.map((worker) => [
-                      worker.id,
-                      worker.provider,
-                      worker.family,
-                      worker.tier,
-                      worker.costClass,
-                      worker.workspacePolicy,
-                      worker.capabilities.join(", "),
-                    ])}
-                  />
-                </Section>
+                <WorkersTab
+                  workers={data.workers}
+                  search={workersSearch}
+                  onSearchChange={setWorkersSearch}
+                  sort={workersSort}
+                  onSortChange={setWorkersSort}
+                  density={viewPrefs.density}
+                  onDensityChange={setDensity}
+                  hiddenColumns={viewPrefs.hiddenColumns}
+                  onHiddenColumnsChange={setHiddenColumns}
+                />
               </TabsContent>
               <TabsContent value="Queue">
                 <Section title="Queue" count={data.queue.length}>
@@ -255,21 +302,19 @@ export default function OrchestrationPage() {
               </TabsContent>
               <TabsContent value="Worktrees">
                 <Section title="Managed worktrees" count={data.worktrees.length}>
-                  <Table
-                    columns={["Task", "Lane", "Branch", "Path", "Created"]}
-                    rows={data.worktrees.map((worktree) => [
-                      worktree.taskId,
-                      worktree.lane,
-                      worktree.branch,
-                      worktree.path,
-                      formatDate(worktree.createdAt),
-                    ])}
-                    empty="No managed worktrees."
+                  <DataTable
+                    columns={WORKTREE_COLUMNS}
+                    rows={data.worktrees}
+                    getRowKey={(w) => `${w.taskId}:${w.lane}`}
+                    density={viewPrefs.density}
+                    sort={worktreesSort}
+                    onSortChange={setWorktreesSort}
+                    emptyState={<EmptyState title="No managed worktrees." />}
                   />
                 </Section>
               </TabsContent>
               <TabsContent value="Telemetry">
-                <Telemetry data={data} />
+                <Telemetry data={data} sort={telemetrySort} onSortChange={setTelemetrySort} />
               </TabsContent>
             </Tabs>
           )}
@@ -290,10 +335,10 @@ function Overview({ data, failedContinuations, selectableRuns, actionKey, onStop
   const runningLeases = data.leases.filter((lease) => lease.state === "running")
   return (
     <div className="grid gap-[var(--space-4)]">
-      {data.status.degradedReason && <Banner tone="warn" text={data.status.degradedReason} />}
-      {data.status.disabledReason && <Banner tone="warn" text={data.status.disabledReason} />}
+      {data.status.degradedReason && <Banner text={data.status.degradedReason} />}
+      {data.status.disabledReason && <Banner text={data.status.disabledReason} />}
       {data.status.queuePaused && (
-        <Banner tone="warn" text={`Queue paused${data.status.pauseReason ? `: ${data.status.pauseReason}` : ""}`} />
+        <Banner text={`Queue paused${data.status.pauseReason ? `: ${data.status.pauseReason}` : ""}`} />
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-[var(--space-3)]">
         <Metric label="Workers" value={data.workers.length} icon={<Network size={16} />} />
@@ -312,12 +357,97 @@ function Overview({ data, failedContinuations, selectableRuns, actionKey, onStop
   )
 }
 
+const WORKER_EXPORT_COLUMNS: ExportColumn<WorkerSummary>[] = [
+  { key: "id", label: "Worker", value: (w) => w.id },
+  { key: "provider", label: "Provider", value: (w) => w.provider },
+  { key: "family", label: "Family", value: (w) => w.family },
+  { key: "tier", label: "Tier", value: (w) => w.tier },
+  { key: "cost", label: "Cost", value: (w) => w.costClass },
+  { key: "workspace", label: "Workspace", value: (w) => w.workspacePolicy },
+  { key: "capabilities", label: "Capabilities", value: (w) => w.capabilities.join(", ") },
+]
+
+// The Phase 3 flagship DataView surface: search, sortable/virtualized table,
+// column visibility, density, and CSV/JSON export, all backed by
+// useViewPreferences. Worktrees/Telemetry share DataTable's rendering but
+// keep their own (simpler) local Table-less markup rather than the full
+// toolbar — see the Phase 3 ledger entry for what's deliberately deferred.
+function WorkersTab({
+  workers,
+  search,
+  onSearchChange,
+  sort,
+  onSortChange,
+  density,
+  onDensityChange,
+  hiddenColumns,
+  onHiddenColumnsChange,
+}: {
+  workers: WorkerSummary[]
+  search: string
+  onSearchChange: (value: string) => void
+  sort: SortState | null
+  onSortChange: (sort: SortState | null) => void
+  density: "comfortable" | "compact"
+  onDensityChange: (density: "comfortable" | "compact") => void
+  hiddenColumns: string[]
+  onHiddenColumnsChange: (hiddenColumns: string[]) => void
+}) {
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    if (!query) return workers
+    return workers.filter((w) =>
+      [w.id, w.provider, w.family, w.tier, w.costClass, w.workspacePolicy, ...w.capabilities]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    )
+  }, [workers, search])
+
+  return (
+    <Section
+      title="Workers"
+      count={filtered.length}
+      actions={
+        <div className="flex flex-wrap items-center gap-[var(--space-2)]">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search workers…"
+            aria-label="Search workers"
+            className="focus-ring h-8 rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-thin)] px-3 text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none"
+          />
+          <DensityToggle density={density} onChange={onDensityChange} />
+          <ColumnConfigMenu
+            columns={WORKER_COLUMNS.map((c) => ({ key: c.key, label: c.label, required: c.required }))}
+            hiddenColumns={hiddenColumns}
+            onChange={onHiddenColumnsChange}
+          />
+          <ExportMenu rows={filtered} columns={WORKER_EXPORT_COLUMNS} filenamePrefix="orchestration-workers" />
+        </div>
+      }
+    >
+      <DataTable
+        columns={WORKER_COLUMNS}
+        rows={filtered}
+        getRowKey={(w) => w.id}
+        hiddenColumns={hiddenColumns}
+        density={density}
+        sort={sort}
+        onSortChange={onSortChange}
+        emptyState={<EmptyState title="No workers match this search." />}
+      />
+    </Section>
+  )
+}
+
 function RunningLeaseList({ leases, actionKey, onStopLease }: {
   leases: OrchestrationDashboardData["leases"]
   actionKey: string | null
   onStopLease: (leaseId: string) => void
 }) {
-  if (leases.length === 0) return <EmptyState text="No running leases." />
+  if (leases.length === 0) return <EmptyState title="No running leases." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {leases.map((lease) => {
@@ -370,7 +500,7 @@ function ContinuationList({ continuations, actionKey, onRetry }: {
   actionKey: string | null
   onRetry: (entry: ContinuationSummary) => void
 }) {
-  if (continuations.length === 0) return <EmptyState text="No durable continuations." />
+  if (continuations.length === 0) return <EmptyState title="No durable continuations." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {continuations.map((entry) => {
@@ -410,7 +540,7 @@ function QueueList({ queue, pauses, actionKey, onPause, onResume }: {
   onPause: (item: OrchestrationDashboardData["queue"][number]) => void
   onResume: (item: OrchestrationDashboardData["queue"][number]) => void
 }) {
-  if (queue.length === 0) return <EmptyState text="No blocked queue items." />
+  if (queue.length === 0) return <EmptyState title="No blocked queue items." />
   const paused = new Set(pauses.map((pause) => `${pause.taskId}:${pause.coordinatorId}`))
   return (
     <div className="grid gap-[var(--space-2)]">
@@ -473,7 +603,7 @@ function HoldsPanel({ data, actionKey, onCreate, onExtend, onCancel }: {
       >
         Create hold
       </button>
-      {data.holds.length === 0 ? <EmptyState text="No orchestration holds." /> : (
+      {data.holds.length === 0 ? <EmptyState title="No orchestration holds." /> : (
         <div className="grid gap-[var(--space-2)]">
           {data.holds.map((hold) => (
             <Row key={hold.holdId}>
@@ -515,7 +645,7 @@ function DualLaneList({ runs, actionKey, onSelect, onApply, onArtifact }: {
   onApply: (run: DualLaneSummary, lane: "openai" | "anthropic") => void
   onArtifact: (run: DualLaneSummary, kind: "diff" | "prompt" | "output") => void
 }) {
-  if (runs.length === 0) return <EmptyState text="No dual-lane manifests." />
+  if (runs.length === 0) return <EmptyState title="No dual-lane manifests." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {runs.map((run) => {
@@ -578,7 +708,7 @@ function RecoveryPanel({ notices, actionKey, onRequeue }: {
   actionKey: string | null
   onRequeue: (manifestPath: string, taskId: string, coordinatorId: string, managerName: string) => void
 }) {
-  if (notices.length === 0) return <EmptyState text="No recovery notices." />
+  if (notices.length === 0) return <EmptyState title="No recovery notices." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {notices.map((notice) => (
@@ -608,9 +738,39 @@ function RecoveryPanel({ notices, actionKey, onRequeue }: {
   )
 }
 
-function Telemetry({ data }: { data: OrchestrationDashboardData }) {
+interface TelemetryProviderRow {
+  provider: string
+  bucket: TelemetryBucket
+}
+
+const TELEMETRY_COLUMNS: DataTableColumn<TelemetryProviderRow>[] = [
+  { key: "provider", label: "Provider", render: (r) => r.provider, sortValue: (r) => r.provider, required: true },
+  { key: "runs", label: "Runs", render: (r) => r.bucket.count, sortValue: (r) => r.bucket.count, align: "right" },
+  { key: "score", label: "Score", render: (r) => r.bucket.score, sortValue: (r) => r.bucket.score, align: "right" },
+  { key: "cost", label: "Cost", render: (r) => `$${r.bucket.totalCost.toFixed(3)}`, sortValue: (r) => r.bucket.totalCost, align: "right" },
+  {
+    key: "failures",
+    label: "Failures",
+    render: (r) => r.bucket.dispositions.failed ?? 0,
+    sortValue: (r) => r.bucket.dispositions.failed ?? 0,
+    align: "right",
+  },
+]
+
+function Telemetry({
+  data,
+  sort,
+  onSortChange,
+}: {
+  data: OrchestrationDashboardData
+  sort: SortState | null
+  onSortChange: (sort: SortState | null) => void
+}) {
   const summary = data.telemetry.summary
-  const providers = Object.entries(summary.byProvider)
+  const rows: TelemetryProviderRow[] = Object.entries(summary.byProvider).map(([provider, bucket]) => ({
+    provider,
+    bucket,
+  }))
   return (
     <Section title="Telemetry summary" count={summary.totals.count}>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-[var(--space-3)] mb-[var(--space-3)]">
@@ -619,50 +779,30 @@ function Telemetry({ data }: { data: OrchestrationDashboardData }) {
         <Metric label="Avg latency" value={summary.totals.avgLatencyMs === null ? "-" : `${summary.totals.avgLatencyMs}ms`} />
         <Metric label="Skipped lines" value={summary.skippedLines} tone={summary.skippedLines ? "warn" : undefined} />
       </div>
-      <Table
-        columns={["Provider", "Runs", "Score", "Cost", "Failures"]}
-        rows={providers.map(([provider, bucket]) => [
-          provider,
-          String(bucket.count),
-          String(bucket.score),
-          `$${bucket.totalCost.toFixed(3)}`,
-          String(bucket.dispositions.failed ?? 0),
-        ])}
-        empty="No telemetry records."
+      <DataTable
+        columns={TELEMETRY_COLUMNS}
+        rows={rows}
+        getRowKey={(r) => r.provider}
+        sort={sort}
+        onSortChange={onSortChange}
+        emptyState={<EmptyState title="No telemetry records." />}
       />
     </Section>
   )
 }
 
-function Section({ title, count, children }: { title: string; count: number; children: ReactNode }) {
+function Section({ title, count, actions, children }: { title: string; count: number; actions?: ReactNode; children: ReactNode }) {
   return (
     <section className="grid gap-[var(--space-3)]">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-primary)]">{title}</h2>
-        <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{count}</span>
+      <div className="flex items-center justify-between gap-[var(--space-3)]">
+        <div className="flex items-center gap-[var(--space-2)]">
+          <h2 className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-primary)]">{title}</h2>
+          <span className="text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">{count}</span>
+        </div>
+        {actions}
       </div>
       {children}
     </section>
-  )
-}
-
-function Table({ columns, rows, empty = "No rows." }: { columns: string[]; rows: string[][]; empty?: string }) {
-  if (rows.length === 0) return <EmptyState text={empty} />
-  return (
-    <div className="overflow-x-auto border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--material-thin)]">
-      <table className="w-full text-left text-[length:var(--text-footnote)]">
-        <thead className="text-[var(--text-tertiary)] bg-[var(--material-regular)]">
-          <tr>{columns.map((column) => <th key={column} className="px-3 py-2 font-[var(--weight-semibold)] whitespace-nowrap">{column}</th>)}</tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={index} className="border-t border-[var(--separator)]">
-              {row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 max-w-[28rem] truncate">{cell || "-"}</td>)}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }
 
@@ -689,11 +829,15 @@ function Pill({ text, tone }: { text: string; tone: "neutral" | "warn" | "error"
   return <span className="px-2 py-1 rounded-[var(--radius-sm)] bg-[var(--material-regular)] text-[length:var(--text-caption1)]" style={{ color }}>{text}</span>
 }
 
-function Banner({ tone, text }: { tone: "warn" | "error"; text: string }) {
+// Informational/warning banner (degraded, disabled, queue-paused reasons) —
+// distinct from ErrorState (components/ui/error-state.tsx), which is
+// reserved for actual request/action failures and is always red with
+// role="alert". This stays amber and non-alerting on purpose.
+function Banner({ text }: { text: string }) {
   return (
     <div className="mb-[var(--space-3)] px-3 py-2 rounded-[var(--radius-md)] border text-[length:var(--text-footnote)]"
       style={{
-        color: tone === "error" ? "var(--system-red)" : "var(--system-orange)",
+        color: "var(--system-orange)",
         borderColor: "var(--separator)",
         background: "var(--material-thin)",
       }}
@@ -703,8 +847,22 @@ function Banner({ tone, text }: { tone: "warn" | "error"; text: string }) {
   )
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <div className="border border-dashed border-[var(--separator)] rounded-[var(--radius-md)] p-6 text-center text-[var(--text-tertiary)]">{text}</div>
+function OrchestrationLoadingSkeleton() {
+  return (
+    <div className="grid gap-[var(--space-4)]">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-[var(--space-3)]">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--material-thin)] p-3">
+            <Skeleton className="h-3 w-16 mb-2" />
+            <Skeleton className="h-5 w-10" />
+          </div>
+        ))}
+      </div>
+      {[1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-12 rounded-[var(--radius-md)]" />
+      ))}
+    </div>
+  )
 }
 
 function statusText(data: OrchestrationDashboardData | null): string {

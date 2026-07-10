@@ -13,6 +13,16 @@ vi.mock("./chat/mobile-tab-bar", () => ({
   MobileTabBar: () => <div>mobile-tab-bar</div>,
 }))
 
+vi.mock("@/hooks/use-gateway", () => ({
+  useGateway: () => ({
+    events: [],
+    connected: true,
+    connectionSeq: 0,
+    skillsVersion: 0,
+    subscribe: () => () => {},
+  }),
+}))
+
 function PageWithBreadcrumb() {
   useBreadcrumbs([{ label: "Approvals" }])
   return <PageLayout><div>content</div></PageLayout>

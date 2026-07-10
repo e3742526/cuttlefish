@@ -1,5 +1,6 @@
 
 import { useState } from "react"
+import { EmptyState } from "@/components/ui/empty-state"
 
 /* ── Types ───────────────────────────────────────────────────── */
 
@@ -133,18 +134,15 @@ export function LogBrowser({ lines }: LogBrowserProps) {
 
       {/* Entry list */}
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-[200px] text-[var(--text-secondary)] gap-[var(--space-2)]">
-          <span className="text-[length:var(--text-subheadline)] font-[var(--weight-medium)]">
-            {entries.length === 0
-              ? "No log entries found"
-              : "No entries match this filter"}
-          </span>
-          <span className="text-[length:var(--text-footnote)] text-[var(--text-tertiary)]">
-            {entries.length === 0
-              ? "Log entries will appear here when available"
-              : "Try adjusting your filter or search"}
-          </span>
-        </div>
+        <EmptyState
+          className="h-[200px]"
+          title={entries.length === 0 ? "No log entries found" : "No entries match this filter"}
+          description={
+            entries.length === 0
+              ? "Log entries will appear here when available."
+              : "Try adjusting your filter or search."
+          }
+        />
       ) : (
         <div
           className="rounded-[var(--radius-md)] overflow-hidden bg-[var(--material-regular)]"

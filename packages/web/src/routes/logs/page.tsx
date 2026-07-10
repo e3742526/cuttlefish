@@ -4,6 +4,7 @@ import { api } from "@/lib/api"
 import { PageLayout, ToolbarActions } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorState } from "@/components/ui/error-state"
 import { LogBrowser } from "@/components/activity/log-browser"
 
 const LOG_LINE_LIMIT = 1000
@@ -60,11 +61,7 @@ export default function LogsPage() {
 
         <div className="flex-1 overflow-y-auto px-[var(--space-6)] pt-[var(--space-5)] pb-[var(--space-8)]">
           <div className="mx-auto max-w-[900px]">
-            {error && (
-              <div className="mb-[var(--space-5)] px-[var(--space-4)] py-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--system-red)] text-[length:var(--text-footnote)] text-[var(--system-red)]">
-                {error}
-              </div>
-            )}
+            {error && <ErrorState className="mb-[var(--space-5)]" message={error} onRetry={refresh} />}
 
             {loading ? (
               <div className="grid gap-[var(--space-3)]">
