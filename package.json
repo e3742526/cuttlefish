@@ -38,6 +38,6 @@
     "yaml": "^2.9.0"
   },
   "dependencies": {
-    "classic-level": "^2.0.0"
+    "classic-level": "^3.0.0"
   }
 }
