@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { runAxe, formatViolations } from "@/test/axe"
 import OrchestrationPage from "./page"
 import {
   loadOrchestrationDashboard,
@@ -158,6 +159,16 @@ describe("OrchestrationPage", () => {
     fireEvent.click(openaiButtons[0])
 
     await waitFor(() => expect(selectMock).toHaveBeenCalledWith("select-task", "dual-coord", "openai"))
+  })
+
+  it("has no axe-core structural/semantic violations (color-contrast excluded — jsdom has no real paint)", async () => {
+    loadMock.mockResolvedValue(sampleData())
+
+    const { container } = render(<OrchestrationPage />)
+    await screen.findByRole("tab", { name: "Dual-lane" })
+
+    const violations = await runAxe(container)
+    expect(violations, formatViolations(violations)).toEqual([])
   })
 })
 

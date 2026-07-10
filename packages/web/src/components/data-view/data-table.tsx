@@ -161,24 +161,28 @@ export function DataTable<T>({
     </div>
   )
 
+  function rowInteractionProps(row: T) {
+    return {
+      tabIndex: onRowClick ? 0 : undefined,
+      onClick: onRowClick ? () => onRowClick(row) : undefined,
+      onKeyDown: onRowClick
+        ? (e: React.KeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault()
+              onRowClick(row)
+            }
+          }
+        : undefined,
+    }
+  }
+
   function renderRow(row: T) {
     const key = getRowKey(row)
     return (
       <div
         key={key}
         role="row"
-        tabIndex={onRowClick ? 0 : undefined}
-        onClick={onRowClick ? () => onRowClick(row) : undefined}
-        onKeyDown={
-          onRowClick
-            ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  onRowClick(row)
-                }
-              }
-            : undefined
-        }
+        {...rowInteractionProps(row)}
         className={cn(
           "grid items-center gap-[var(--space-3)] border-b border-[var(--separator)] px-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)]",
           onRowClick && "cursor-pointer hover:bg-[var(--fill-secondary)]",
@@ -195,34 +199,81 @@ export function DataTable<T>({
     )
   }
 
-  return (
-    <div
-      role="table"
-      className={cn("overflow-hidden rounded-[var(--radius-md)] border border-[var(--separator)]", className)}
-    >
-      {headerRow}
-      <div ref={scrollRef} className="max-h-[70vh] overflow-y-auto">
-        {shouldVirtualize ? (
-          <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((item) => (
-              <div
-                key={item.key}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  transform: `translateY(${item.start}px)`,
-                }}
-              >
-                {renderRow(sortedRows[item.index])}
-              </div>
-            ))}
-          </div>
-        ) : (
-          sortedRows.map((row) => renderRow(row))
+  // Stacked label/value card — the mobile (< md) replacement for a table row,
+  // whose fixed-width grid columns don't fit narrow viewports. Only used for
+  // the non-virtualized path: card rows are a variable height, which the
+  // virtualizer's fixed ROW_HEIGHT estimate can't account for, so large
+  // (virtualized) tables keep the horizontally-scrollable grid on mobile too.
+  function renderCard(row: T) {
+    const key = getRowKey(row)
+    return (
+      <div
+        key={key}
+        role="listitem"
+        {...rowInteractionProps(row)}
+        className={cn(
+          "flex flex-col gap-[var(--space-2)] border-b border-[var(--separator)] p-[var(--space-3)] text-[length:var(--text-footnote)] text-[var(--text-primary)]",
+          onRowClick && "cursor-pointer hover:bg-[var(--fill-secondary)]",
+          rowClassName?.(row),
         )}
+      >
+        {visibleColumns.map((column) => (
+          <div key={column.key} className="flex items-baseline justify-between gap-[var(--space-3)]">
+            <span className="shrink-0 text-[length:var(--text-caption1)] font-[var(--weight-semibold)] text-[var(--text-tertiary)]">
+              {column.label}
+            </span>
+            <span className="min-w-0 truncate text-right">{column.render(row)}</span>
+          </div>
+        ))}
       </div>
-    </div>
+    )
+  }
+
+  return (
+    <>
+      <div
+        role="table"
+        className={cn(
+          "overflow-hidden rounded-[var(--radius-md)] border border-[var(--separator)]",
+          !shouldVirtualize && "hidden md:block",
+          className,
+        )}
+      >
+        {headerRow}
+        <div ref={scrollRef} className="max-h-[70vh] overflow-y-auto">
+          {shouldVirtualize ? (
+            <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              {virtualizer.getVirtualItems().map((item) => (
+                <div
+                  key={item.key}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    transform: `translateY(${item.start}px)`,
+                  }}
+                >
+                  {renderRow(sortedRows[item.index])}
+                </div>
+              ))}
+            </div>
+          ) : (
+            sortedRows.map((row) => renderRow(row))
+          )}
+        </div>
+      </div>
+      {!shouldVirtualize && (
+        <div
+          role="list"
+          className={cn(
+            "flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--separator)] md:hidden",
+            className,
+          )}
+        >
+          {sortedRows.map((row) => renderCard(row))}
+        </div>
+      )}
+    </>
   )
 }

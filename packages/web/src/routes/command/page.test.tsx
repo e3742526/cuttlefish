@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MemoryRouter } from 'react-router-dom'
 import { render, screen } from '@testing-library/react'
+import { runAxe, formatViolations } from '@/test/axe'
 
 vi.mock('@/components/page-layout', () => ({
   PageLayout: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -164,5 +165,15 @@ describe('CommandPage', () => {
       triageState.cronJobs = prevCronJobs
       triageState.limits = prevLimits
     }
+  })
+
+  it('has no axe-core structural/semantic violations (color-contrast excluded — jsdom has no real paint)', async () => {
+    const { container } = render(
+      <MemoryRouter>
+        <CommandPage />
+      </MemoryRouter>,
+    )
+    const violations = await runAxe(container)
+    expect(violations, formatViolations(violations)).toEqual([])
   })
 })

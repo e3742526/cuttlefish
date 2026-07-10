@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { render, screen, fireEvent } from "@testing-library/react"
 import type { Approval, Checkpoint } from "@/lib/api"
+import { runAxe, formatViolations } from "@/test/axe"
 
 const approvalsState = vi.hoisted(() => ({
   approvals: [] as Approval[],
@@ -120,5 +121,28 @@ describe("ApprovalsPage", () => {
     )
 
     expect(screen.getByText("approval fetch failed")).toBeTruthy()
+  })
+
+  it("has no axe-core structural/semantic violations (color-contrast excluded — jsdom has no real paint)", async () => {
+    approvalsState.approvals = [{
+      id: "approval-2",
+      sessionId: "session-11111111",
+      type: "fallback",
+      payload: {
+        from: { engine: "claude", model: "sonnet" },
+        to: { engine: "codex", model: "gpt-5.5" },
+        reason: "rate_limit",
+      },
+      state: "pending",
+      createdAt: "2026-06-26T10:00:00.000Z",
+    }]
+
+    const { container } = render(
+      <MemoryRouter>
+        <ApprovalsPage />
+      </MemoryRouter>,
+    )
+    const violations = await runAxe(container)
+    expect(violations, formatViolations(violations)).toEqual([])
   })
 })

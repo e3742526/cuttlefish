@@ -51,6 +51,15 @@ export function PageLayout({
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
+      {/* WCAG 2.4.1 Bypass Blocks: first focusable element in the DOM, invisible
+          until it receives keyboard focus. Jumps past the nav rail straight to
+          the page's main content. */}
+      <a
+        href="#main-content"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:top-2 focus-visible:left-2 focus-visible:z-50 focus-visible:rounded-[var(--radius-md)] focus-visible:bg-[var(--accent)] focus-visible:px-4 focus-visible:py-2 focus-visible:text-[length:var(--text-footnote)] focus-visible:font-[var(--weight-semibold)] focus-visible:text-[var(--accent-contrast)]"
+      >
+        Skip to main content
+      </a>
       {/* Mounted unconditionally (including chromeless/chat) — an
           unreachable gateway is the single most important thing to surface
           everywhere, not just on standard pages. */}
@@ -64,7 +73,7 @@ export function PageLayout({
       {/* Global desktop nav rail (hidden < lg from inside NavRibbon). Sibling of
           <main> so its per-icon label pills can escape rightward over content. */}
       {!chromeless && <NavRibbon />}
-      <main role="main" aria-label={landmarkLabel} className="relative flex flex-1 flex-col overflow-hidden">
+      <main id="main-content" tabIndex={-1} role="main" aria-label={landmarkLabel} className="relative flex flex-1 flex-col overflow-hidden">
         {/* Mobile-only legacy chrome: title pill + hamburger popover (the only
             path to long-tail pages on phones). Desktop nav is the rail above. */}
         {!chromeless && (

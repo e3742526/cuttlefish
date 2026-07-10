@@ -18,7 +18,6 @@ const OrgPage = lazyRoute(() => import('./routes/org/page'), 'org')
 const SettingsPage = lazyRoute(() => import('./routes/settings/page'), 'settings')
 const SkillsPage = lazyRoute(() => import('./routes/skills/page'), 'skills')
 const FilePage = lazyRoute(() => import('./routes/file/page'), 'file')
-const RedesignPage = lazyRoute(() => import('./routes/redesign/page'), 'redesign')
 const TalkPage = lazyRoute(() => import('./routes/talk/page'), 'talk')
 
 function RouteLoading() {
@@ -79,7 +78,6 @@ function App() {
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/file" element={<FilePage />} />
               <Route path="/talk" element={<TalkPage />} />
-              {import.meta.env.DEV && <Route path="/redesign" element={<RedesignPage />} />}
             </Routes>
           </Suspense>
         </ClientProviders>

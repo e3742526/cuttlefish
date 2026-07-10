@@ -54,4 +54,18 @@ describe("PageLayout", () => {
 
     expect(screen.getByRole("main", { name: "Chat" })).toBeTruthy()
   })
+
+  it("renders a skip-to-content link targeting the main landmark", () => {
+    render(
+      <MemoryRouter>
+        <BreadcrumbProvider>
+          <PageWithBreadcrumb />
+        </BreadcrumbProvider>
+      </MemoryRouter>,
+    )
+
+    const skipLink = screen.getByRole("link", { name: /skip to main content/i })
+    expect(skipLink.getAttribute("href")).toBe("#main-content")
+    expect(screen.getByRole("main", { name: "Approvals" }).id).toBe("main-content")
+  })
 })

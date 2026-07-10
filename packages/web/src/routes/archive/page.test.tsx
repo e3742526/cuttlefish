@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest"
 import { render, screen } from "@testing-library/react"
 import type { ProjectArchive, ProjectArchiveDetail } from "@/lib/api"
+import { runAxe, formatViolations } from "@/test/axe"
 
 const archiveState = vi.hoisted(() => ({
   archives: [] as ProjectArchive[],
@@ -97,5 +98,21 @@ describe("ArchivePage", () => {
     expect(screen.getAllByText("Saved chat")).toHaveLength(2)
     expect(screen.getAllByText("Route coverage")).toHaveLength(2)
     expect(screen.getByText("archive this route")).toBeTruthy()
+  })
+
+  it("has no axe-core structural/semantic violations (color-contrast excluded — jsdom has no real paint)", async () => {
+    archiveState.archives = [{
+      id: "archive-1",
+      label: "Saved chat",
+      note: "Route coverage",
+      kind: "chat",
+      sourceRef: "web:archive-route",
+      createdAt: "2026-06-26T12:00:00.000Z",
+      sessionCount: 1,
+    }]
+
+    const { container } = render(<ArchivePage />)
+    const violations = await runAxe(container)
+    expect(violations, formatViolations(violations)).toEqual([])
   })
 })
