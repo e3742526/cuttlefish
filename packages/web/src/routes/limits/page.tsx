@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangle, RefreshCw } from "lucide-react"
+import { AlertTriangle, Gauge, RefreshCw } from "lucide-react"
 import { api } from "@/lib/api"
 import type {
   EngineLimitEngineSnapshot,
@@ -10,6 +10,8 @@ import { PageLayout, ToolbarActions } from "@/components/page-layout"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import { usePageVisibility } from "@/hooks/use-page-visibility"
 import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
 
 const DANGER = 90
 const ENGINE_ORDER = ["claude", "codex", "kiro", "kilo", "antigravity", "ollama", "grok", "hermes", "pi"]
@@ -402,9 +404,7 @@ export default function LimitsPage() {
         <div className="flex-1 overflow-y-auto px-[var(--space-6)] pt-[var(--space-5)] pb-[var(--space-8)]">
           <div className="mx-auto grid max-w-[760px] gap-[var(--space-4)]">
             {error && (
-              <div className="mb-[var(--space-5)] px-[var(--space-4)] py-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--system-red)] text-[length:var(--text-footnote)] text-[var(--system-red)]">
-                {error}
-              </div>
+              <ErrorState className="mb-[var(--space-5)]" message={error} onRetry={refresh} />
             )}
 
             {loading ? (
@@ -413,14 +413,11 @@ export default function LimitsPage() {
                 <Skeleton height={180} className="rounded-[var(--radius-lg)]" />
               </div>
             ) : allEngines.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-[var(--space-12)] gap-[var(--space-3)] text-center">
-                <p className="text-[length:var(--text-body)] font-[var(--weight-semibold)] text-[var(--text-primary)]">
-                  No engine data yet
-                </p>
-                <p className="text-[length:var(--text-footnote)] text-[var(--text-secondary)] max-w-xs">
-                  Cuttlefish hasn't collected usage snapshots yet. Try refreshing, or run a session to populate limits.
-                </p>
-              </div>
+              <EmptyState
+                icon={Gauge}
+                title="No engine data yet"
+                description="Cuttlefish hasn't collected usage snapshots yet. Try refreshing, or run a session to populate limits."
+              />
             ) : (
               <>
                 {usageEngines.map((engine) => (

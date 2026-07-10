@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { AlertTriangle, CheckCircle2, GitBranch, Network, Pause, Play, RefreshCw, RotateCcw, Square } from "lucide-react"
 import { PageLayout, ToolbarActions } from "@/components/page-layout"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { EmptyState } from "@/components/ui/empty-state"
+import { ErrorState } from "@/components/ui/error-state"
+import { Skeleton } from "@/components/ui/skeleton"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
   applyDualLaneWinner,
@@ -122,7 +125,7 @@ export default function OrchestrationPage() {
 
         <div className="flex-1 overflow-y-auto px-[var(--space-6)] py-[var(--space-4)] min-h-0">
           {(error || actionError) && (
-            <Banner tone="error" text={error ?? actionError ?? ""} />
+            <ErrorState className="mb-[var(--space-3)]" message={error ?? actionError ?? ""} onRetry={() => void refresh()} />
           )}
           {data && (
             <div className="mb-[var(--space-3)] lg:hidden">
@@ -138,9 +141,13 @@ export default function OrchestrationPage() {
             </div>
           )}
           {loading ? (
-            <EmptyState text="Loading orchestration state..." />
+            <OrchestrationLoadingSkeleton />
           ) : !data ? (
-            <EmptyState text="No orchestration state available." />
+            <EmptyState
+              icon={Network}
+              title="No orchestration state available."
+              description="Try refreshing, or check the gateway's orchestration configuration."
+            />
           ) : (
             <Tabs defaultValue="Overview" className="gap-[var(--space-4)]">
               <TabsList className="flex flex-wrap h-auto justify-start bg-[var(--material-regular)] border border-[var(--separator)]">
@@ -290,10 +297,10 @@ function Overview({ data, failedContinuations, selectableRuns, actionKey, onStop
   const runningLeases = data.leases.filter((lease) => lease.state === "running")
   return (
     <div className="grid gap-[var(--space-4)]">
-      {data.status.degradedReason && <Banner tone="warn" text={data.status.degradedReason} />}
-      {data.status.disabledReason && <Banner tone="warn" text={data.status.disabledReason} />}
+      {data.status.degradedReason && <Banner text={data.status.degradedReason} />}
+      {data.status.disabledReason && <Banner text={data.status.disabledReason} />}
       {data.status.queuePaused && (
-        <Banner tone="warn" text={`Queue paused${data.status.pauseReason ? `: ${data.status.pauseReason}` : ""}`} />
+        <Banner text={`Queue paused${data.status.pauseReason ? `: ${data.status.pauseReason}` : ""}`} />
       )}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-[var(--space-3)]">
         <Metric label="Workers" value={data.workers.length} icon={<Network size={16} />} />
@@ -317,7 +324,7 @@ function RunningLeaseList({ leases, actionKey, onStopLease }: {
   actionKey: string | null
   onStopLease: (leaseId: string) => void
 }) {
-  if (leases.length === 0) return <EmptyState text="No running leases." />
+  if (leases.length === 0) return <EmptyState title="No running leases." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {leases.map((lease) => {
@@ -370,7 +377,7 @@ function ContinuationList({ continuations, actionKey, onRetry }: {
   actionKey: string | null
   onRetry: (entry: ContinuationSummary) => void
 }) {
-  if (continuations.length === 0) return <EmptyState text="No durable continuations." />
+  if (continuations.length === 0) return <EmptyState title="No durable continuations." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {continuations.map((entry) => {
@@ -410,7 +417,7 @@ function QueueList({ queue, pauses, actionKey, onPause, onResume }: {
   onPause: (item: OrchestrationDashboardData["queue"][number]) => void
   onResume: (item: OrchestrationDashboardData["queue"][number]) => void
 }) {
-  if (queue.length === 0) return <EmptyState text="No blocked queue items." />
+  if (queue.length === 0) return <EmptyState title="No blocked queue items." />
   const paused = new Set(pauses.map((pause) => `${pause.taskId}:${pause.coordinatorId}`))
   return (
     <div className="grid gap-[var(--space-2)]">
@@ -473,7 +480,7 @@ function HoldsPanel({ data, actionKey, onCreate, onExtend, onCancel }: {
       >
         Create hold
       </button>
-      {data.holds.length === 0 ? <EmptyState text="No orchestration holds." /> : (
+      {data.holds.length === 0 ? <EmptyState title="No orchestration holds." /> : (
         <div className="grid gap-[var(--space-2)]">
           {data.holds.map((hold) => (
             <Row key={hold.holdId}>
@@ -515,7 +522,7 @@ function DualLaneList({ runs, actionKey, onSelect, onApply, onArtifact }: {
   onApply: (run: DualLaneSummary, lane: "openai" | "anthropic") => void
   onArtifact: (run: DualLaneSummary, kind: "diff" | "prompt" | "output") => void
 }) {
-  if (runs.length === 0) return <EmptyState text="No dual-lane manifests." />
+  if (runs.length === 0) return <EmptyState title="No dual-lane manifests." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {runs.map((run) => {
@@ -578,7 +585,7 @@ function RecoveryPanel({ notices, actionKey, onRequeue }: {
   actionKey: string | null
   onRequeue: (manifestPath: string, taskId: string, coordinatorId: string, managerName: string) => void
 }) {
-  if (notices.length === 0) return <EmptyState text="No recovery notices." />
+  if (notices.length === 0) return <EmptyState title="No recovery notices." />
   return (
     <div className="grid gap-[var(--space-2)]">
       {notices.map((notice) => (
@@ -647,7 +654,7 @@ function Section({ title, count, children }: { title: string; count: number; chi
 }
 
 function Table({ columns, rows, empty = "No rows." }: { columns: string[]; rows: string[][]; empty?: string }) {
-  if (rows.length === 0) return <EmptyState text={empty} />
+  if (rows.length === 0) return <EmptyState title={empty} />
   return (
     <div className="overflow-x-auto border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--material-thin)]">
       <table className="w-full text-left text-[length:var(--text-footnote)]">
@@ -689,11 +696,15 @@ function Pill({ text, tone }: { text: string; tone: "neutral" | "warn" | "error"
   return <span className="px-2 py-1 rounded-[var(--radius-sm)] bg-[var(--material-regular)] text-[length:var(--text-caption1)]" style={{ color }}>{text}</span>
 }
 
-function Banner({ tone, text }: { tone: "warn" | "error"; text: string }) {
+// Informational/warning banner (degraded, disabled, queue-paused reasons) —
+// distinct from ErrorState (components/ui/error-state.tsx), which is
+// reserved for actual request/action failures and is always red with
+// role="alert". This stays amber and non-alerting on purpose.
+function Banner({ text }: { text: string }) {
   return (
     <div className="mb-[var(--space-3)] px-3 py-2 rounded-[var(--radius-md)] border text-[length:var(--text-footnote)]"
       style={{
-        color: tone === "error" ? "var(--system-red)" : "var(--system-orange)",
+        color: "var(--system-orange)",
         borderColor: "var(--separator)",
         background: "var(--material-thin)",
       }}
@@ -703,8 +714,22 @@ function Banner({ tone, text }: { tone: "warn" | "error"; text: string }) {
   )
 }
 
-function EmptyState({ text }: { text: string }) {
-  return <div className="border border-dashed border-[var(--separator)] rounded-[var(--radius-md)] p-6 text-center text-[var(--text-tertiary)]">{text}</div>
+function OrchestrationLoadingSkeleton() {
+  return (
+    <div className="grid gap-[var(--space-4)]">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-[var(--space-3)]">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="border border-[var(--separator)] rounded-[var(--radius-md)] bg-[var(--material-thin)] p-3">
+            <Skeleton className="h-3 w-16 mb-2" />
+            <Skeleton className="h-5 w-10" />
+          </div>
+        ))}
+      </div>
+      {[1, 2, 3].map((i) => (
+        <Skeleton key={i} className="h-12 rounded-[var(--radius-md)]" />
+      ))}
+    </div>
+  )
 }
 
 function statusText(data: OrchestrationDashboardData | null): string {

@@ -2,6 +2,7 @@
 import { lazy, Suspense } from "react"
 import { NavRibbon, PillNav } from "./pill-nav"
 import { MobileTabBar } from "./chat/mobile-tab-bar"
+import { GatewayOfflineBanner } from "./gateway-offline-banner"
 import { cn } from "@/lib/utils"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 
@@ -47,6 +48,10 @@ export function PageLayout({
 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
+      {/* Mounted unconditionally (including chromeless/chat) — an
+          unreachable gateway is the single most important thing to surface
+          everywhere, not just on standard pages. */}
+      <GatewayOfflineBanner />
       <Suspense fallback={null}>
         <GlobalSearch />
       </Suspense>

@@ -42,19 +42,53 @@ cause, never silently indistinguishable from "no data."
 - **Do:** pass the real error message as `message`; reserve `detail` for
   stack traces or payloads a user doesn't need at a glance.
 - **Don't:** use `ErrorState` for the *app-level* "gateway unreachable" case —
-  that gets a persistent top-level banner (Phase 2), not a per-widget card.
+  that's `GatewayOfflineBanner`, a persistent top-level banner, not a
+  per-widget card.
+
+## `useDisconnected` (`hooks/use-connection-status.ts`)
+
+Not a component — the shared, debounced read of the gateway WebSocket's
+connection state that both `StalePill` and `GatewayOfflineBanner` build on.
+True only once `connected` has been continuously false for a grace period
+(1.5s default). Raw `useGateway().connected` is false for a brief moment on
+every page load and can blip during ordinary network hiccups; without this
+debounce, disconnected-state UI would flash on nearly every navigation.
+
+- **Do:** use this (not raw `useGateway().connected`) for any new
+  disconnected-state UI.
+- **Don't:** invent a second grace period — pass a custom `graceMs` to this
+  hook if a surface genuinely needs a different threshold, rather than
+  rolling your own timer.
 
 ## `StalePill`
 
-Renders nothing while the gateway WebSocket is connected (`useGateway().connected
-=== true`). Renders an amber "Live updates paused — reconnecting" pill the
-moment it drops, so data on screen is visibly non-live rather than silently
-stale.
+Renders nothing while `useDisconnected()` is false. Renders an amber "Live
+updates paused — reconnecting" pill once a disconnect actually persists, so
+data on screen is visibly non-live rather than silently stale.
 
 - **Do:** drop `<StalePill />` next to any "Updated Xm ago" / live-refresh
-  indicator on a page that relies on WS push updates (see `cron/page.tsx`).
+  indicator on a page that relies on WS push updates (see `cron/page.tsx`,
+  `kanban/page.tsx`).
 - **Don't:** wrap it in your own loading/error branching — it self-manages
-  via `useGateway()` and is safe to render unconditionally.
+  and is safe to render unconditionally. Don't add it to a page whose data
+  comes from TanStack Query polling rather than the gateway WebSocket
+  (e.g. `archive/page.tsx`, `limits/page.tsx`) — it would report a
+  connection state unrelated to that page's actual data freshness.
+
+## `GatewayOfflineBanner`
+
+The app-level counterpart to `StalePill`: a persistent, impossible-to-miss
+banner (fixed to the top of the viewport, `role="alert"`) for when the
+gateway itself is unreachable, not just one widget's data going stale.
+Mounted once, unconditionally, in `PageLayout` — covers every route
+including chat. Shares `useDisconnected()`, so it appears in lockstep with
+any `StalePill`s on screen.
+
+- **Do:** leave it exactly where it is (`PageLayout`) — it should never be
+  mounted per-page.
+- **Don't:** build a second "gateway unreachable" banner elsewhere; this is
+  the one, satisfying the Phase 2 acceptance criterion that killing the
+  gateway produces the banner everywhere, never blank panes.
 
 ## `StatusChip`
 

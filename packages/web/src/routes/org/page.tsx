@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
+import { Users } from "lucide-react";
 import { api } from "@/lib/api";
 import type { Employee, OrgData, OrgHierarchy } from "@/lib/api";
 import { EmployeeDetail } from "@/components/org/employee-detail";
@@ -7,6 +8,8 @@ import { EmployeeCreateForm } from "@/components/org/employee-create-form";
 import { WorkSummary } from "@/components/org/work-summary";
 import { PageLayout } from "@/components/page-layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useSettings } from "@/routes/settings-provider";
 import { useBreadcrumbs } from "@/context/breadcrumb-context";
 import { portalEmployeeSlug } from "@/lib/portal-slug";
@@ -227,16 +230,8 @@ export default function OrgPage() {
   if (error) {
     return (
       <PageLayout>
-        <div className="flex flex-col items-center justify-center h-full gap-[var(--space-4)] text-[var(--text-tertiary)]">
-          <div className="rounded-[var(--radius-md,12px)] px-[var(--space-4)] py-[var(--space-3)] text-[length:var(--text-body)] text-[var(--system-red)]" style={{ background: "color-mix(in srgb, var(--system-red) 10%, transparent)", border: "1px solid color-mix(in srgb, var(--system-red) 30%, transparent)" }}>
-            Failed to load organization: {error}
-          </div>
-          <button
-            onClick={loadData}
-            className="px-[var(--space-4)] py-[var(--space-2)] rounded-[var(--radius-md,12px)] bg-[var(--accent)] text-[var(--accent-contrast)] border-none cursor-pointer text-[length:var(--text-body)] font-[var(--weight-semibold)]"
-          >
-            Retry
-          </button>
+        <div className="flex h-full items-center justify-center p-[var(--space-6)]">
+          <ErrorState className="max-w-md" message={`Failed to load organization: ${error}`} onRetry={loadData} />
         </div>
       </PageLayout>
     );
@@ -346,6 +341,17 @@ export default function OrgPage() {
             <div className="flex items-center justify-center h-full text-[var(--text-tertiary)] text-[length:var(--text-caption1)]">
               Loading...
             </div>
+          ) : visibleOrg.employees.length === 0 ? (
+            <EmptyState
+              className="h-full"
+              icon={Users}
+              title={activeDepartment ? "No employees in this department" : "No employees yet"}
+              description={
+                activeDepartment
+                  ? "Reassign an employee here, or pick a different department tab."
+                  : "Add your first employee to start building the org."
+              }
+            />
           ) : (
             <Suspense fallback={OrgMapFallback}>
               {/* Remount per department tab so React Flow's `fitView` re-runs and

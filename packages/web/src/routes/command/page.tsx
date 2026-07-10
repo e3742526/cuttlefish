@@ -5,12 +5,13 @@ import {
   Clock3,
   MessageSquarePlus,
   Radio,
-  RefreshCw,
   Ticket,
   Users,
 } from 'lucide-react'
 import { PageLayout } from '@/components/page-layout'
 import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
 import { useBreadcrumbs } from '@/context/breadcrumb-context'
 import { useCommandCenter } from '@/hooks/use-command-center'
 import { usePageVisibility } from '@/hooks/use-page-visibility'
@@ -213,18 +214,10 @@ export default function CommandPage() {
           {error ? (
             // On failure, show only the error + a retry — not zeroed metric cards
             // and the "no activity" empty state, which read as a healthy idle fleet.
-            <div className="flex flex-col items-start gap-3 rounded-[var(--radius-lg)] border border-[color:color-mix(in_srgb,var(--system-red)_35%,transparent)] bg-[color:color-mix(in_srgb,var(--system-red)_10%,transparent)] px-4 py-4">
-              <div className="text-[var(--system-red)]">
-                {error instanceof Error ? error.message : 'Failed to load command center'}
-              </div>
-              <button
-                type="button"
-                onClick={() => { void refetch() }}
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--separator)] bg-[var(--bg-secondary)] px-3 py-1.5 text-[length:var(--text-footnote)] font-[var(--weight-semibold)] text-[var(--text-primary)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
-              >
-                <RefreshCw size={14} /> Retry
-              </button>
-            </div>
+            <ErrorState
+              message={error instanceof Error ? error.message : 'Failed to load command center'}
+              onRetry={() => { void refetch() }}
+            />
           ) : (
           <>
           <section className="grid gap-3 xl:grid-cols-4">
@@ -444,11 +437,12 @@ export default function CommandPage() {
           </div>
 
           {!isLoading && !data?.availableAgents?.length && (
-            <div className="rounded-[var(--radius-xl)] border border-[var(--separator)] bg-[var(--material-regular)] px-5 py-8 text-center shadow-[var(--shadow-card)]">
-              <h2 className="text-[length:var(--text-title3)] font-[var(--weight-semibold)] text-[var(--text-primary)]">No agent activity yet</h2>
-              <p className="mt-2 text-[length:var(--text-footnote)] text-[var(--text-secondary)]">
-                Start a chat or schedule a cron job to light up the dashboard.
-              </p>
+            <div className="rounded-[var(--radius-xl)] border border-[var(--separator)] bg-[var(--material-regular)] shadow-[var(--shadow-card)]">
+              <EmptyState
+                icon={Users}
+                title="No agent activity yet"
+                description="Start a chat or schedule a cron job to light up the dashboard."
+              />
             </div>
           )}
           </>

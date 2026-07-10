@@ -1,18 +1,19 @@
 import { WifiOff } from "lucide-react"
-import { useGateway } from "@/hooks/use-gateway"
+import { useDisconnected } from "@/hooks/use-connection-status"
 import { cn } from "@/lib/utils"
 
 interface StalePillProps {
   className?: string
 }
 
-// Renders nothing while the gateway WebSocket is connected. Surfaces the
-// partial/stale async state (the fourth of five, see
-// docs/plans/2026-07-10-fleetview-ux-implementation-plan.md, Section 7.1)
-// whenever it drops, instead of letting data go silently out of date.
+// Renders nothing while the gateway WebSocket is connected (or has only just
+// dropped — see useDisconnected's grace period, which avoids flashing this
+// on every page load). Surfaces the partial/stale async state (the fourth of
+// five, see docs/plans/2026-07-10-fleetview-ux-implementation-plan.md,
+// Section 7.1) whenever a disconnect actually persists.
 function StalePill({ className }: StalePillProps) {
-  const { connected } = useGateway()
-  if (connected) return null
+  const disconnected = useDisconnected()
+  if (!disconnected) return null
 
   return (
     <div

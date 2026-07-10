@@ -1,6 +1,7 @@
 
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
+import { EmptyState } from '@/components/ui/empty-state'
 import type { KanbanColumn as KanbanColumnType, KanbanTicket, TicketStatus } from '@/lib/kanban/types'
 
 interface KanbanColumnProps {
@@ -85,12 +86,7 @@ export function KanbanColumn({
           </div>
         ))}
 
-        {/* Empty state */}
-        {tickets.length === 0 && (
-          <div className="py-[var(--space-8)] px-[var(--space-4)] text-center text-[length:var(--text-caption1)] text-[var(--text-tertiary)]">
-            No tickets
-          </div>
-        )}
+        {tickets.length === 0 && <EmptyState title="No tickets" />}
       </div>
     </div>
   )
