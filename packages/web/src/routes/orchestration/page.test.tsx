@@ -60,7 +60,7 @@ describe("OrchestrationPage", () => {
     expect(screen.getByText("orchestration is disabled")).toBeTruthy()
     expect((screen.getAllByRole("button", { name: "Pause queue" })[0] as HTMLButtonElement).disabled).toBe(true)
     activateTab("Workers")
-    expect(await screen.findByText("No rows.")).toBeTruthy()
+    expect(await screen.findByText("No workers match this search.")).toBeTruthy()
   })
 
   it("renders paused state and resumes the global queue", async () => {

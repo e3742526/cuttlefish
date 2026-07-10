@@ -115,3 +115,48 @@ while mounted.
   "resolved at" columns sitting next to a "created at" column).
 - **Don't:** hand-format dates with `toLocaleString`/`Date.now()` diffing in a
   new component — import `Timestamp` instead.
+
+## DataView (`src/components/data-view/`)
+
+The shared body of the Queue/Table page template (plan Section 5.2/11):
+search, sortable + virtualized table, column visibility, density, saved
+views, and CSV/JSON export, all backed by one persisted preferences hook.
+Import everything from the barrel: `import { DataTable, useViewPreferences,
+... } from "@/components/data-view"`.
+
+- **`useViewPreferences(surfaceKey)`** — persisted, per-surface density /
+  hidden-columns / saved-views state. Storage key is
+  `fleetview.prefs.v1:dataview.<surfaceKey>`; pick a stable, unique
+  `surfaceKey` per page (or per tab, if a page's tabs have unrelated column
+  sets). Syncs across tabs via the `storage` event and degrades gracefully
+  if `localStorage.setItem` throws (private browsing, full quota) — the
+  in-memory state still applies for that tab.
+- **`DataTable`** — generic table: pass `columns` (each with a `render` and
+  an optional `sortValue`; mark the primary identifying column `required`
+  so `ColumnConfigMenu` can't hide it), `rows`, and `getRowKey`. Virtualizes
+  automatically past `virtualizeThreshold` (default 50) via
+  `@tanstack/react-virtual` — the same library and pattern as
+  `chat-sidebar.tsx`. Sorting/density/column-visibility are fully
+  controlled: the table has no state of its own beyond scroll position.
+- **`DensityToggle`**, **`ColumnConfigMenu`** — small controlled inputs over
+  `useViewPreferences`' `density`/`hiddenColumns`.
+- **`SavedViewsMenu`** — save/apply/delete named presets of a surface's
+  current filters + sort + hidden columns. Filters are typed as an opaque
+  `TFilters` generic — the surface defines its own filter shape.
+- **`ExportMenu`** / **`exportRowsAsCsv`** / **`exportRowsAsJson`** — export
+  exactly the rows passed in (the caller's already-filtered set) — never a
+  larger unfiltered dataset. `ExportMenu` shows the row count before export
+  so what's downloaded is never a surprise.
+
+**Reference implementation:** `routes/orchestration/page.tsx`'s Workers tab
+(`WorkersTab`) is the flagship — full toolbar (search, density, columns,
+export) over a sortable/virtualized `DataTable`. The Worktrees and Telemetry
+tabs share `DataTable`'s rendering (retiring the page's old
+`columns: string[]; rows: string[][]` local `Table` helper entirely) but
+don't carry the full toolbar — see the Phase 3 ledger entry for what's
+deliberately deferred there.
+
+- **Do:** give every `DataTable` an `emptyState` (usually a plain
+  `EmptyState`) — it renders instead of the table shell when `rows` is empty.
+- **Don't:** build a second ad hoc `<table>` for a new tabular surface —
+  migrate onto `DataTable`, even if you don't wire the full toolbar yet.
