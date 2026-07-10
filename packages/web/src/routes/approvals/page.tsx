@@ -20,6 +20,8 @@ import { useBreadcrumbs } from '@/context/breadcrumb-context'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
 import { useApprovals, useApproveApproval, useRejectApproval } from '@/hooks/use-approvals'
 import { useCheckpoints, useDecideCheckpoint } from '@/hooks/use-checkpoints'
 import { cn } from '@/lib/utils'
@@ -435,15 +437,22 @@ export default function ApprovalsPage() {
                 <Skeleton className="h-12 w-full" />
               </div>
             ) : (approvalsError || checkpointsError) ? (
-              <p className="p-2 text-xs text-destructive">
-                {approvalsError instanceof Error
-                  ? approvalsError.message
-                  : checkpointsError instanceof Error
-                    ? checkpointsError.message
-                    : 'Failed to load approvals.'}
-              </p>
+              <ErrorState
+                className="m-1"
+                message={
+                  approvalsError instanceof Error
+                    ? approvalsError.message
+                    : checkpointsError instanceof Error
+                      ? checkpointsError.message
+                      : 'Failed to load approvals.'
+                }
+              />
             ) : pendingApprovals.length === 0 && pendingCheckpoints.length === 0 ? (
-              <p className="p-3 text-xs text-muted-foreground">No pending approvals.</p>
+              <EmptyState
+                icon={ShieldQuestion}
+                title="No pending approvals"
+                description="All clear — nothing is waiting on you."
+              />
             ) : (
               <>
                 {pendingApprovals.map((a) => (
@@ -478,12 +487,11 @@ export default function ApprovalsPage() {
               <Skeleton className="h-8 w-32" />
             </div>
           ) : !selectedId || (!selectedApproval && !selectedCheckpoint) ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center gap-2 text-center text-sm text-muted-foreground">
-                <MousePointerClick className="size-8 opacity-30" />
-                <p>Select a pending approval to review it</p>
-              </div>
-            </div>
+            <EmptyState
+              className="h-full"
+              icon={MousePointerClick}
+              title="Select a pending approval to review it"
+            />
           ) : selectedApproval ? (
             <ApprovalDetail approval={selectedApproval} readOnly={selectedIsResolved} />
           ) : selectedCheckpoint ? (
@@ -506,7 +514,11 @@ export default function ApprovalsPage() {
                 <Skeleton className="h-12 w-full" />
               </div>
             ) : resolvedItems.length === 0 ? (
-              <p className="p-3 text-xs text-muted-foreground">No resolved approvals yet.</p>
+              <EmptyState
+                icon={CheckCircle2}
+                title="No resolved approvals yet"
+                description="Approved and rejected items will appear here."
+              />
             ) : (
               resolvedItems.map(({ kind, item }) => (
                 <ResolvedListItem

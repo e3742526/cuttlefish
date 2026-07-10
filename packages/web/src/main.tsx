@@ -11,7 +11,7 @@ const CronPage = lazyRoute(() => import('./routes/cron/page'), 'cron')
 const KanbanPage = lazyRoute(() => import('./routes/kanban/page'), 'kanban')
 const ApprovalsPage = lazyRoute(() => import('./routes/approvals/page'), 'approvals')
 const ArchivePage = lazyRoute(() => import('./routes/archive/page'), 'archive')
-const LogsPage = lazyRoute(() => import('./routes/logs/page'), 'logs')
+const ActivityPage = lazyRoute(() => import('./routes/logs/page'), 'activity')
 const LimitsPage = lazyRoute(() => import('./routes/limits/page'), 'limits')
 const OrchestrationPage = lazyRoute(() => import('./routes/orchestration/page'), 'orchestration')
 const OrgPage = lazyRoute(() => import('./routes/org/page'), 'org')
@@ -70,7 +70,8 @@ function App() {
               <Route path="/kanban" element={<KanbanPage />} />
               <Route path="/approvals" element={<ApprovalsPage />} />
               <Route path="/archive" element={<ArchivePage />} />
-              <Route path="/logs" element={<LogsPage />} />
+              <Route path="/activity" element={<ActivityPage />} />
+              <Route path="/logs" element={<Navigate to="/activity" replace />} />
               <Route path="/limits" element={<LimitsPage />} />
               <Route path="/orchestration" element={<OrchestrationPage />} />
               <Route path="/org" element={<OrgPage />} />

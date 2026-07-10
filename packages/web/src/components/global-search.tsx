@@ -52,7 +52,7 @@ const STATIC_PAGES = [
   { id: "page-org", label: "Organization", icon: Users, href: "/org" },
   { id: "page-kanban", label: "Kanban", icon: LayoutGrid, href: "/kanban" },
   { id: "page-cron", label: "Cron", icon: Clock, href: "/cron" },
-  { id: "page-logs", label: "Activity", icon: Activity, href: "/logs" },
+  { id: "page-logs", label: "Activity", icon: Activity, href: "/activity" },
   { id: "page-skills", label: "Skills", icon: Zap, href: "/skills" },
   { id: "page-settings", label: "Settings", icon: Settings, href: "/settings" },
 ]

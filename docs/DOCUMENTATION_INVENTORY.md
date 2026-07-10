@@ -21,6 +21,7 @@
 | `docs/engines-hermes.md` | engine-specific manual | current | source/tests | inspected 2026-06-25 | Update when Hermes contract changes. |
 | `docs/orchestration/README.md` | orchestration design/ops | current | source/tests | inspected 2026-06-25 | Keep aligned with orchestration routes/CLI. |
 | `docs/plans/` | historical plans | historical | maintainers | root plan docs moved here 2026-06-26 | Preserve; do not treat as current truth. |
+| `docs/plans/2026-07-10-fleetview-ux-implementation-plan.md` | FleetView UX/UI plan | current (proposed) | Giles ledger 0010 | created 2026-07-10 | Active proposal, exception to the historical-plans rule; reclassify as historical once implemented or superseded. |
 | `docs/superpowers/` | historical specs/plans | historical | maintainers | inventory scan 2026-06-26 | Preserve only when useful; obsolete onboarding demo workflow docs were removed during Cuttlefish cleanup. |
 | `docs/audits/` | raw audit details | local-only | `AGENTS.md` audit retention | present on disk, ignored | Do not publish raw details unless explicitly selected. |
 | `docs/logs/` | raw session logs | local-only | `AGENTS.md` session retention | present on disk, ignored | Do not publish raw details unless explicitly selected. |

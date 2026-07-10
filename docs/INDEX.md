@@ -50,6 +50,14 @@ artifacts unless explicitly published.
   multi-role execution, security hardening, kanban improvements, Qdrant, email,
   orchestration, and D1–D8 defect repair campaign (model alias, crash masking, UI fixes).
 
+## Active Proposals
+
+- `docs/plans/2026-07-10-fleetview-ux-implementation-plan.md`: current (proposed,
+  not yet implemented) UX/UI implementation plan for the FleetView web dashboard —
+  taxonomy, layout, interaction, state-contract, and phased roadmap. Unlike the
+  rest of `docs/plans/`, this is an active proposal, not a historical archive;
+  move it to the archive set once implemented or superseded.
+
 ## Historical Design And Planning Archives
 
 - `docs/plans/`: early Cuttlefish design, implementation, auth UX,
