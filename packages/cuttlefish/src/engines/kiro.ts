@@ -4,6 +4,7 @@ import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { nextKiroCreditResetAt, recordKiroCreditUsage } from "../shared/usage-status.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const OUTPUT_MAX = 2 * 1024 * 1024;
@@ -279,7 +280,7 @@ export class KiroEngine implements InterruptibleEngine {
     const args = ["chat", "--no-interactive", "--trust-all-tools", "--model", model];
     if (opts.effortLevel && opts.effortLevel !== "default") args.push("--effort", opts.effortLevel);
     if (opts.resumeSessionId) args.push("--resume-id", opts.resumeSessionId);
-    if (opts.cliFlags?.length) args.push(...opts.cliFlags);
+    if (opts.cliFlags?.length) args.push(...stripDisallowedCliFlags(opts.cliFlags));
     args.push(prompt);
     return args;
   }

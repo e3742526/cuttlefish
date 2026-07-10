@@ -6,6 +6,7 @@ import type { InterruptibleEngine, EngineRunOpts, EngineResult, StreamDelta } fr
 import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 export const GROK_DEFAULT_MODEL = "grok-build";
 export const GROK_SESSIONS_DIR = path.join(os.homedir(), ".grok", "sessions");
@@ -31,7 +32,7 @@ export interface GrokParsedLine {
 export function grokCliFlags(flags: string[] | undefined): string[] {
   // `--chrome` is a Claude Code flag. Shared employee config can carry it; Grok
   // rejects unknown flags before a session starts.
-  return (flags ?? []).filter((flag) => flag !== "--chrome");
+  return stripDisallowedCliFlags(flags ?? []).filter((flag) => flag !== "--chrome");
 }
 
 export function buildGrokHeadlessArgs(opts: EngineRunOpts, prompt: string, sessionId: string): string[] {

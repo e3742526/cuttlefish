@@ -8,6 +8,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { acquirePiMessageSlot, DEFAULT_PI_MESSAGES_PER_MINUTE } from "../shared/pi-throttle.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 interface LiveProcess {
   proc: ChildProcess;
@@ -136,7 +137,7 @@ export class PiEngine implements InterruptibleEngine {
       args.push("--thinking", opts.effortLevel);
     }
     args.push("--session-id", piSessionId, "--session-dir", sessionDir);
-    if (opts.cliFlags?.length) args.push(...opts.cliFlags);
+    if (opts.cliFlags?.length) args.push(...stripDisallowedCliFlags(opts.cliFlags));
     args.push(prompt);
 
     logger.info(

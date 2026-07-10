@@ -5,6 +5,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
 import { buildOllamaPrompt } from "./ollama.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
@@ -59,7 +60,7 @@ export class KiloEngine implements InterruptibleEngine {
       opts.cwd,
       ...(model !== KILO_AUTO_MODEL ? ["--model", model] : []),
       ...(opts.attachments ?? []).flatMap((file) => ["--file", file]),
-      ...(opts.cliFlags ?? []),
+      ...stripDisallowedCliFlags(opts.cliFlags ?? []),
       prompt,
     ];
 

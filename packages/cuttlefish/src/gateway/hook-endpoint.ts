@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
 import type { HookRegistry, HookPayload } from "./hook-registry.js";
 import { evaluateCommandPolicy } from "../shared/command-policy.js";
@@ -13,9 +14,31 @@ import { CUTTLEFISH_HOME, GATEWAY_INFO_FILE } from "../shared/paths.js";
 // gateway.json. Deny both at the hook, independent of the sanctioned
 // approval-pipeline writers (hr-steward.ts etc.), which never go through the
 // agent's own tool calls.
+/** Resolve symlinks on the deepest existing ancestor so a symlink located outside
+ *  the control plane but pointing into it cannot evade the containment check
+ *  (audit F-11). Falls back to path.resolve when nothing on the path exists yet. */
+function realResolve(targetPath: string): string {
+  let current = path.resolve(targetPath);
+  const tail: string[] = [];
+  // Walk up to the deepest ancestor that exists, realpath it, then re-append.
+  // Bounded by path depth.
+  for (let i = 0; i < 64; i += 1) {
+    try {
+      const real = fs.realpathSync(current);
+      return tail.length > 0 ? path.join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) break;
+      tail.push(path.basename(current));
+      current = parent;
+    }
+  }
+  return path.resolve(targetPath);
+}
+
 function isInsideControlPlanePath(targetPath: string, root: string): boolean {
-  const resolved = path.resolve(targetPath);
-  const resolvedRoot = path.resolve(root);
+  const resolved = realResolve(targetPath);
+  const resolvedRoot = realResolve(root);
   return resolved === resolvedRoot || resolved.startsWith(resolvedRoot + path.sep);
 }
 
@@ -31,7 +54,42 @@ function controlPlaneWriteRoots(): string[] {
 }
 
 function controlPlaneSecretReadRoots(): string[] {
-  return [GATEWAY_INFO_FILE, path.join(CUTTLEFISH_HOME, "secrets")];
+  // Audit G-06: config.yaml holds connector bot tokens / signing secrets, so it
+  // is credential-bearing and a Read of it must be blocked like gateway.json.
+  return [GATEWAY_INFO_FILE, path.join(CUTTLEFISH_HOME, "secrets"), path.join(CUTTLEFISH_HOME, "config.yaml")];
+}
+
+/**
+ * Audit F-03/G-01/G-06: a Bash command is judged by command-policy, which matched
+ * only `~`/`$HOME` secret-path forms (missing an ABSOLUTE `/home/<user>/.cuttlefish/…`)
+ * and had no rule for control-plane WRITES. So `cat /home/u/.cuttlefish/gateway.json`
+ * or `echo x >> ~/.cuttlefish/config.yaml` slipped through as `allow`. Detect any
+ * Bash reference to a control-plane path (reads or writes) using the REAL resolved
+ * paths and block it — control-plane changes go through the approval pipeline, not
+ * the agent's shell.
+ */
+function controlPlaneReferenceFragments(): string[] {
+  const roots = [
+    path.join(CUTTLEFISH_HOME, "config.yaml"),
+    path.join(CUTTLEFISH_HOME, "org"),
+    path.join(CUTTLEFISH_HOME, "cron"),
+    path.join(CUTTLEFISH_HOME, "skills"),
+    path.join(CUTTLEFISH_HOME, "secrets"),
+    GATEWAY_INFO_FILE,
+  ];
+  const homeBase = path.basename(CUTTLEFISH_HOME); // usually ".cuttlefish"
+  const fragments = new Set<string>();
+  for (const root of roots) {
+    fragments.add(root); // absolute form
+    fragments.add(`${homeBase}/${path.basename(root)}`); // ~ / $HOME / relative form (contains the home dir name)
+  }
+  return [...fragments];
+}
+
+export function bashReferencesControlPlane(command: string): boolean {
+  if (!command) return false;
+  const fragments = controlPlaneReferenceFragments();
+  return fragments.some((fragment) => command.includes(fragment));
 }
 
 function extractFilePath(toolInput: unknown): string | null {
@@ -181,6 +239,13 @@ export function handleHookPost(
     const command = input && typeof input === "object" && "command" in input
       ? String((input as { command?: unknown }).command ?? "")
       : "";
+    // Audit F-03/G-01/G-06: block a Bash command that reads or writes the control
+    // plane (config.yaml/gateway.json/secrets/org/cron/skills) — this closes the
+    // absolute-path read of the admin token and the Bash write-to-config bypass
+    // that command-policy's ~/$HOME-only regex missed.
+    if (bashReferencesControlPlane(command)) {
+      return { status: 451, body: "Refusing a Bash command that reads or writes the Cuttlefish control plane — use the approval pipeline (org, config, cron, skills) and never shell into gateway credentials" };
+    }
     const decision = evaluateCommandPolicy(command);
     if (decision.action === "block") {
       return { status: 451, body: decision.reason || "Command blocked by Cuttlefish security policy" };

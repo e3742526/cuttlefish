@@ -30,6 +30,7 @@ import type {
 import { logger } from "../shared/logger.js";
 import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
 import { resolveModelAlias } from "../sessions/session-patch.js";
+import { findDisallowedCliFlag } from "../shared/cli-flag-policy.js";
 
 /**
  * Reserved `org/` subdirectories that hold HR / Org-Steward artifacts (change
@@ -657,6 +658,12 @@ export function validateEmployeeUpdate(
     const badFlag = (v as string[]).find((f) => /[\x00-\x1f\x7f]/.test(f));
     if (badFlag !== undefined) {
       return { ok: false, error: "cliFlags entries must not contain control characters or newlines" };
+    }
+    // Audit A-F2/F-10: refuse permission-bypass / config-injection flags so a
+    // roster edit cannot escalate the child engine's authority.
+    const disallowed = findDisallowedCliFlag(v as string[]);
+    if (disallowed !== undefined) {
+      return { ok: false, error: `cliFlags may not include the privileged flag "${disallowed}"` };
     }
     updates.cliFlags = v as string[];
   }

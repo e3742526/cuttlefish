@@ -1,5 +1,6 @@
 import type { IPty } from "node-pty";
 import { neutralizeForPaste } from "../shared/skill-commands.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 export interface InteractiveArgsOpts {
   prompt: string;
@@ -34,7 +35,11 @@ export function buildInteractiveArgs(o: InteractiveArgsOpts): string[] {
   args.push("--disallowedTools", "AskUserQuestion", "ExitPlanMode");
   args.push("--settings", o.settingsPath);
   if (o.appendSystemPrompt) args.push("--append-system-prompt", o.appendSystemPrompt);
-  if (o.cliFlags?.length) args.push(...o.cliFlags);
+  // Audit A-F2/F-10: defense-in-depth on the actual spawn path — a pre-existing
+  // org config cannot smuggle a permission-bypass / config-injection flag past
+  // the validation-layer denylist. These flags sit AFTER the security flags above,
+  // so an unfiltered one would override them.
+  if (o.cliFlags?.length) args.push(...stripDisallowedCliFlags(o.cliFlags));
   if (o.mcpConfigPath) args.push("--mcp-config", o.mcpConfigPath);
   return args;
 }

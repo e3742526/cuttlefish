@@ -8,6 +8,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { readFirstLineSync } from "../shared/first-line.js";
 import { codexMcpConfigFlagsFromFile } from "../mcp/resolver.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 const CODEX_SESSIONS_DIR = path.join(os.homedir(), ".codex", "sessions");
 
@@ -27,7 +28,7 @@ export interface CodexEngineOpts {
 export function codexCliFlags(flags: string[] | undefined): string[] {
   // `--chrome` is a Claude Code flag. Older shared employee/config paths can
   // still provide it via cliFlags; Codex rejects it before a session starts.
-  return (flags ?? []).filter((flag) => flag !== "--chrome");
+  return stripDisallowedCliFlags(flags ?? []).filter((flag) => flag !== "--chrome");
 }
 
 /**

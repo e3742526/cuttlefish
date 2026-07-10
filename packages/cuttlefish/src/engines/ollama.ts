@@ -4,6 +4,7 @@ import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
+import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
@@ -92,7 +93,7 @@ export class OllamaEngine implements InterruptibleEngine {
     const model = opts.model || "gemma4";
     const history = opts.historyMessages ?? (opts.sessionId ? getMessages(opts.sessionId) : []);
     const prompt = buildOllamaPrompt(opts, history);
-    const args = ["run", ...(opts.cliFlags ?? []), model, prompt];
+    const args = ["run", ...stripDisallowedCliFlags(opts.cliFlags ?? []), model, prompt];
 
     logger.info(
       `Ollama engine starting: ${bin} run ${model} (history messages: ${history.length}, resume: ${opts.resumeSessionId || "synthetic"})`,
