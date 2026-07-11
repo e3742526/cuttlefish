@@ -3,6 +3,7 @@ import {
   authenticateGatewayRequest,
   authRequiredForRequest,
   scopedTokenForbidden,
+  scopedTokenCollectionForbidden,
   scopedTokenSessionMismatch,
   type GatewayPrincipal,
 } from "../auth.js";
@@ -61,6 +62,9 @@ export function resolvePrincipalGate(opts: {
   if (auth.principal?.kind === "session") {
     if (scopedTokenForbidden(opts.method, opts.pathname)) {
       return { status: 403, reason: "Forbidden for session-scoped tokens" };
+    }
+    if (scopedTokenCollectionForbidden(opts.method, opts.pathname)) {
+      return { status: 403, reason: "Forbidden: cross-session collection route for a session-scoped token" };
     }
     if (scopedTokenSessionMismatch(auth.principal.sessionId, opts.pathname)) {
       return { status: 403, reason: "Forbidden: session-scoped token bound to a different session" };

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { scopedTokenForbidden, scopedTokenSessionMismatch } from "../scoped-token.js";
+import {
+  principalBodySessionForbidden,
+  scopedTokenCollectionForbidden,
+  scopedTokenForbidden,
+  scopedTokenSessionMismatch,
+} from "../scoped-token.js";
 
 describe("scopedTokenForbidden — operator control plane", () => {
   it("blocks the pre-existing operator surfaces", () => {
@@ -58,6 +63,57 @@ describe("scopedTokenForbidden — operator control plane", () => {
     expect(scopedTokenForbidden("POST", "/api/sessions/cancel-all")).toBe(true);
     // Onboarding bypass via traversal collapses and is still blocked.
     expect(scopedTokenForbidden("POST", "/api/sessions/../onboarding")).toBe(true);
+  });
+});
+
+describe("scopedTokenCollectionForbidden — cross-session collections (AR-01)", () => {
+  it("blocks the global session roster + search for agent tokens", () => {
+    // The gate receives the URL pathname with the query already stripped upstream;
+    // `?q=` search resolves to the same `/api/sessions` path.
+    expect(scopedTokenCollectionForbidden("GET", "/api/sessions")).toBe(true);
+  });
+
+  it("blocks the managed-file registry: list, download, meta, delete", () => {
+    expect(scopedTokenCollectionForbidden("GET", "/api/files")).toBe(true);
+    expect(scopedTokenCollectionForbidden("GET", "/api/files/abc123")).toBe(true);
+    expect(scopedTokenCollectionForbidden("GET", "/api/files/abc123/meta")).toBe(true);
+    expect(scopedTokenCollectionForbidden("DELETE", "/api/files/abc123")).toBe(true);
+  });
+
+  it("still allows the file routes an agent legitimately needs", () => {
+    expect(scopedTokenCollectionForbidden("POST", "/api/files")).toBe(false); // push attachment
+    expect(scopedTokenCollectionForbidden("GET", "/api/files/read")).toBe(false); // root-file read
+    expect(scopedTokenCollectionForbidden("POST", "/api/files/transfer")).toBe(false);
+    // Spawning a child session and driving one's own session stay open.
+    expect(scopedTokenCollectionForbidden("POST", "/api/sessions")).toBe(false);
+    expect(scopedTokenCollectionForbidden("GET", "/api/sessions/s-1")).toBe(false);
+    expect(scopedTokenCollectionForbidden("GET", "/api/sessions/s-1/transcript")).toBe(false);
+  });
+
+  it("collapses traversal/case so the collection block cannot be bypassed", () => {
+    expect(scopedTokenCollectionForbidden("GET", "/api/files/../files")).toBe(true);
+    expect(scopedTokenCollectionForbidden("GET", "/api/Files/abc123")).toBe(true);
+    // A read-route lookalike stays allowed only for the literal /read + /transfer.
+    expect(scopedTokenCollectionForbidden("GET", "/api/files/READ")).toBe(false);
+  });
+});
+
+describe("principalBodySessionForbidden — body-scoped confinement (AR-04)", () => {
+  it("blocks a session token targeting a different session id in the body", () => {
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "s-1" }, "s-2")).toBe(true);
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "s-1" }, "S-2")).toBe(true);
+  });
+
+  it("allows a session token acting on its own session (case-insensitive)", () => {
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "s-1" }, "s-1")).toBe(false);
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "S-1" }, "s-1")).toBe(false);
+  });
+
+  it("never constrains admin/internal principals or absent ids", () => {
+    expect(principalBodySessionForbidden({ kind: "admin" }, "s-2")).toBe(false);
+    expect(principalBodySessionForbidden(undefined, "s-2")).toBe(false);
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "s-1" }, undefined)).toBe(false);
+    expect(principalBodySessionForbidden({ kind: "session", sessionId: "s-1" }, "")).toBe(false);
   });
 });
 

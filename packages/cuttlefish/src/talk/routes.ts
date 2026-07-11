@@ -16,6 +16,7 @@ import fs from "node:fs";
 import yaml from "js-yaml";
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import type { ApiContext } from "../gateway/api.js";
+import { principalBodySessionForbidden, type GatewayPrincipal } from "../gateway/auth.js";
 import { assertFetchOk, jsonApiHeaders } from "../gateway/internal-auth.js";
 import { gatewayBaseUrl } from "../gateway/gateway-info.js";
 import { readJsonBody } from "../gateway/http-helpers.js";
@@ -104,6 +105,17 @@ export async function handleTalkApi(
   const method = req.method || "GET";
 
   if (!pathname.startsWith("/api/talk/")) return false;
+
+  // AR-04: these routes address a Talk surface by a `sessionId` in the JSON body,
+  // which the transport-layer scoped-token gate (URL-only) cannot see. Resolve the
+  // authenticated principal so a session-scoped agent token cannot mutate another
+  // session's cards / mute / thread labels by naming a different id in the body.
+  const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+  const rejectCrossSessionBody = (bodySessionId: unknown): boolean => {
+    if (!principalBodySessionForbidden(principal, bodySessionId)) return false;
+    json(res, { error: "Forbidden: session-scoped token cannot target another session" }, 403);
+    return true;
+  };
 
   try {
     // POST /api/talk/session — bootstrap (or reuse) the orchestrator session.
@@ -364,6 +376,7 @@ export async function handleTalkApi(
         badRequest(res, "sessionId must be a non-empty string");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       const validated = validateCard(body.card);
       if (!validated.ok) {
         badRequest(res, validated.error);
@@ -395,6 +408,7 @@ export async function handleTalkApi(
         badRequest(res, "patch must be a non-null object");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       // Field-validate the patch with the same rigor as a full card, so a patch
       // can't inject a malformed details/options/hunks/rows after the initial
       // card passed and crash the renderer.
@@ -425,6 +439,7 @@ export async function handleTalkApi(
         badRequest(res, "cardId must be a non-empty string");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       context.emit(TALK_EVENTS.cardDismiss, {
         sessionId: body.sessionId,
         cardId: body.cardId,
@@ -442,6 +457,7 @@ export async function handleTalkApi(
         badRequest(res, "sessionId must be a non-empty string");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       context.emit(TALK_EVENTS.cardClear, { sessionId: body.sessionId });
       json(res, { ok: true });
       return true;
@@ -519,6 +535,7 @@ export async function handleTalkApi(
         badRequest(res, "muted must be a boolean");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       setTalkMuted(body.sessionId, body.muted);
       json(res, { ok: true, muted: body.muted });
       return true;
@@ -544,6 +561,7 @@ export async function handleTalkApi(
         badRequest(res, "label must be a non-empty string");
         return true;
       }
+      if (rejectCrossSessionBody(body.sessionId)) return true;
       context.emit(TALK_EVENTS.threadLabel, {
         sessionId: body.sessionId,
         threadId: body.threadId,

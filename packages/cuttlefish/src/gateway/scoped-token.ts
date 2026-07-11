@@ -88,6 +88,59 @@ export function scopedTokenForbidden(method: string | undefined, rawPathname: st
 }
 
 /**
+ * Cross-session collection / artifact routes a session-scoped (agent) token must
+ * NOT reach (AR-01). Distinct from the two gates above: `scopedTokenForbidden`
+ * guards the operator control plane and `scopedTokenSessionMismatch` confines an
+ * agent to *its own* `:id` in the URL. These routes are neither — they return
+ * GLOBAL, unfiltered data that is not keyed to any session:
+ *   - `GET /api/sessions` — the whole session roster and its `?q=` full-text search.
+ *   - `GET /api/files` — the entire managed-file registry.
+ *   - `GET|DELETE /api/files/:id` and `GET /api/files/:id/meta` — arbitrary opaque
+ *     file ids with no owner binding, so any file id is reachable/removable.
+ * Without this a scoped token could enumerate every session and stream or delete
+ * any managed file. Per-session detail/transcript routes stay reachable (guarded
+ * by `scopedTokenSessionMismatch`); an agent addresses its own session by id and
+ * never needs the global collections. The routes an agent legitimately uses —
+ * `POST /api/files` (push an attachment), `GET /api/files/read` (root-file inline
+ * read, already gated by fileReadRoots + read-security), `POST /api/files/transfer`
+ * — stay open. The operator dashboard authenticates as `admin` and is unaffected.
+ *
+ * Enforced at the transport gate, so it needs only method + normalized pathname
+ * (no body) — matched after the same `path.posix.normalize()` + lower-case as the
+ * other gates so encoded/`..` variants collapse to the dispatched path.
+ */
+export function scopedTokenCollectionForbidden(method: string | undefined, rawPathname: string): boolean {
+  const m = (method || "GET").toUpperCase();
+  const pathname = path.posix.normalize(rawPathname || "/").toLowerCase();
+
+  if (pathname === "/api/sessions" && m === "GET") return true;
+
+  // Allow the file routes an agent needs before the catch-all id match below.
+  if (pathname === "/api/files/read" || pathname === "/api/files/transfer") return false;
+  if (pathname === "/api/files" && m === "GET") return true;
+  if (/^\/api\/files\/[^/]+(?:\/meta)?$/.test(pathname) && (m === "GET" || m === "DELETE")) return true;
+
+  return false;
+}
+
+/**
+ * Whether a session-scoped principal is barred from acting on a body-supplied
+ * target session id (AR-04). Handlers whose target session lives in the JSON body
+ * rather than the URL (e.g. the Talk card mutations) must call this: the transport
+ * gate only inspects the URL, so without it a token minted for session A could
+ * drive session B by putting B's id in the body. Returns false for admin/internal
+ * principals and for an absent id (handlers validate presence separately).
+ */
+export function principalBodySessionForbidden(
+  principal: GatewayPrincipal | undefined,
+  bodySessionId: unknown,
+): boolean {
+  if (!principal || principal.kind !== "session") return false;
+  if (typeof bodySessionId !== "string" || bodySessionId.length === 0) return false;
+  return bodySessionId.toLowerCase() !== principal.sessionId.toLowerCase();
+}
+
+/**
  * Per-session confinement for scoped (agent) tokens.
  *
  * `scopedTokenForbidden` keeps an agent out of the operator control plane, but

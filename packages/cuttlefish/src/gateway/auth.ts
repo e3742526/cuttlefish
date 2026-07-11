@@ -13,7 +13,9 @@ export {
   createScopedSessionToken,
   verifyScopedSessionToken,
   scopedTokenForbidden,
+  scopedTokenCollectionForbidden,
   scopedTokenSessionMismatch,
+  principalBodySessionForbidden,
 } from "./scoped-token.js";
 export type { GatewayPrincipal } from "./scoped-token.js";
 export { createAuthToken };
