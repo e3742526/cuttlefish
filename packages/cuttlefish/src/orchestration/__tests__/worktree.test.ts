@@ -122,6 +122,43 @@ describe("orchestration worktrees", () => {
     expect(fs.existsSync(orphan.cwd)).toBe(false);
   });
 
+  it("ignores a tampered worktree marker when recovering (AR-03)", () => {
+    const prepared = createImplementationWorktree({
+      taskId: "task-evil",
+      lane: "implementation",
+      baseCwd: repoDir,
+      worktrees: { root: worktreeRoot, maxWorktrees: 4 },
+    });
+    expect(prepared.mode).toBe("implementation_worktree");
+    if (prepared.mode !== "implementation_worktree") return;
+
+    // A second repository the agent must never be able to touch.
+    const otherRepo = path.join(tmpDir, "other-repo");
+    initGitRepo(otherRepo);
+    git(["branch", "precious"], otherRepo);
+    expect(listBranches(otherRepo)).toContain("precious");
+
+    // The agent overwrites the in-worktree marker to aim recovery at
+    // otherRepo/precious (deleting a branch elsewhere).
+    const markerPath = path.join(prepared.cwd, ".cuttlefish-worktree.json");
+    const marker = JSON.parse(fs.readFileSync(markerPath, "utf-8"));
+    marker.gitRoot = otherRepo;
+    marker.branch = "precious";
+    fs.writeFileSync(markerPath, JSON.stringify(marker));
+
+    const realBranch = git(["rev-parse", "--abbrev-ref", "HEAD"], prepared.cwd).trim();
+
+    const removed = reapOrphanedWorktrees(worktreeRoot, new Set());
+    expect(removed.map((h) => h.taskId)).toContain("task-evil");
+
+    // The other repo and its branch are untouched — the marker values were ignored.
+    expect(fs.existsSync(otherRepo)).toBe(true);
+    expect(listBranches(otherRepo)).toContain("precious");
+    // The worktree's own generated branch was removed from its real owning repo.
+    expect(listBranches(repoDir)).not.toContain(realBranch);
+    expect(fs.existsSync(prepared.cwd)).toBe(false);
+  });
+
   it("builds a diff-only review bundle outside the implementation worktree", () => {
     const prepared = createImplementationWorktree({
       taskId: "task-review",
@@ -243,6 +280,13 @@ function initGitRepo(dir: string): void {
 
 function git(args: string[], cwd: string): string {
   return execFileSync("git", args, { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function listBranches(dir: string): string[] {
+  return git(["branch", "--format=%(refname:short)"], dir)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function schedulerConfig(): OrchestrationConfig {

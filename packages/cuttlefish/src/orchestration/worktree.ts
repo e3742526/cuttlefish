@@ -168,15 +168,34 @@ export function diffWorktreeByTaskLane(root: string, taskId: string, lane: strin
 export function cleanupWorktree(handle: WorktreeHandle): WorktreeCleanupResult {
   if (!fs.existsSync(handle.path)) return { path: handle.path, removed: false };
   makeWritable(handle.path);
+  // AR-03: the marker lives inside an agent-writable worktree, so its self-reported
+  // `gitRoot`/`branch` are untrusted. Derive the owning repository and the branch
+  // from the worktree's *real* git linkage instead — a tampered marker must never
+  // be able to aim `git worktree remove` / `git branch -D` at another repository or
+  // an arbitrary branch (e.g. `main`).
+  const gitRoot = resolveWorktreeGitRoot(handle.path);
+  // Read the branch from the worktree's own HEAD *before* removing it.
+  const branch = gitRoot ? resolveWorktreeBranch(handle.path) : null;
+  if (!gitRoot) {
+    // No resolvable owning repo (broken linkage / never a worktree) — remove the
+    // directory contained to itself; never fall back to the marker's gitRoot.
+    safeRmSync(handle.path, { label: "orchestration worktree" });
+    return { path: handle.path, removed: true };
+  }
   try {
-    runGit(["worktree", "remove", "--force", handle.path], handle.gitRoot);
+    runGit(["worktree", "remove", "--force", "--", handle.path], gitRoot);
   } catch {
     safeRmSync(handle.path, { label: "orchestration worktree" });
   }
-  try {
-    runGit(["branch", "-D", handle.branch], handle.gitRoot);
-  } catch {
-    // The branch may already be gone or may not have been created if worktree add failed.
+  // Only delete a branch that matches the strict generated-name pattern, and pass
+  // `--` so a crafted value can never be parsed as a git option. A branch named
+  // `main`/`master`/etc. simply does not match and is left untouched.
+  if (branch && isGeneratedWorktreeBranch(branch)) {
+    try {
+      runGit(["branch", "-D", "--", branch], gitRoot);
+    } catch {
+      // The branch may already be gone or may not have been created.
+    }
   }
   return { path: handle.path, removed: true };
 }
@@ -345,6 +364,45 @@ function parseWorktreeMarker(raw: string, fallbackPath: string): WorktreeHandle 
     branch: parsed.branch,
     createdAt: parsed.createdAt,
   };
+}
+
+// A managed worktree branch is always generated as
+// `cuttlefish/<taskId>/<lane>/<timestamp>` with safeSegment'd parts. Recovery only
+// ever deletes a branch matching this shape, so it can never remove a real branch
+// even if asked to (AR-03).
+const GENERATED_WORKTREE_BRANCH_RE = /^cuttlefish\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/\d+$/;
+
+function isGeneratedWorktreeBranch(branch: string): boolean {
+  return GENERATED_WORKTREE_BRANCH_RE.test(branch);
+}
+
+/**
+ * The main repository that owns a linked worktree, derived from the worktree's
+ * real git linkage (`--git-common-dir`), never from the agent-writable marker.
+ * Returns null when the path is not a resolvable git worktree.
+ */
+function resolveWorktreeGitRoot(worktreePath: string): string | null {
+  try {
+    const commonDir = runGit(["rev-parse", "--git-common-dir"], worktreePath).trim();
+    if (!commonDir) return null;
+    const absCommon = path.isAbsolute(commonDir) ? commonDir : path.resolve(worktreePath, commonDir);
+    return path.basename(absCommon) === ".git" ? path.dirname(absCommon) : absCommon;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The branch checked out in a worktree, read from its real HEAD (never the
+ * marker). Returns null for a detached HEAD or when git cannot be queried.
+ */
+function resolveWorktreeBranch(worktreePath: string): string | null {
+  try {
+    const ref = runGit(["symbolic-ref", "--quiet", "--short", "HEAD"], worktreePath).trim();
+    return ref || null;
+  } catch {
+    return null;
+  }
 }
 
 function findGitRoot(cwd: string, timeoutMs?: number): string | null {
