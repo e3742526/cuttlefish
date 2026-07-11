@@ -15,7 +15,7 @@ import {
   type MessageMedia,
 } from "../../sessions/registry.js";
 import type { ApiContext } from "../api/context.js";
-import { badRequest, FileRequestError, json, readBody, serverError } from "./responses.js";
+import { badRequest, BodyTooLargeError, FileRequestError, json, readBody, serverError } from "./responses.js";
 import { bufferResponseWithLimit, saveFile } from "./uploads.js";
 import { safeRmSync } from "../../shared/safe-delete.js";
 import {
@@ -25,6 +25,10 @@ import {
   sanitizeUploadFilename,
   uploadDir,
 } from "./storage.js";
+
+// Upper bound on a JSON attachment body: the 50 MiB decoded-content cap plus
+// base64 inflation (~4/3) and JSON overhead. Bounds heap before decode (AR-07).
+const MAX_ATTACHMENT_JSON_BODY_BYTES = 96 * 1024 * 1024;
 
 export function fileIdsToMedia(fileIds: unknown): MessageMedia[] {
   if (!Array.isArray(fileIds)) return [];
@@ -182,8 +186,12 @@ async function handleAttachmentJson(
 ): Promise<void> {
   let body: Record<string, unknown>;
   try {
-    body = JSON.parse(await readBody(req));
-  } catch {
+    // Base64 `content` may hold up to the 50 MiB decoded cap below (~68 MiB
+    // encoded); cap the buffered JSON with headroom so an oversized/streamed body
+    // is rejected before it can exhaust the heap (AR-07).
+    body = JSON.parse(await readBody(req, { maxBytes: MAX_ATTACHMENT_JSON_BODY_BYTES }));
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) return json(res, { error: "Payload too large" }, 413);
     return badRequest(res, "Invalid JSON body");
   }
 

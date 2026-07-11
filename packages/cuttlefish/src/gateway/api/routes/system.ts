@@ -11,7 +11,7 @@ import { logger } from "../../../shared/logger.js";
 import { redactText } from "../../../shared/redact.js";
 import { downloadModel, getSttStatus, resolveLanguages, transcribe as sttTranscribe, WHISPER_LANGUAGES } from "../../../stt/stt.js";
 import { onboardingNeeded, applyEngineChoice } from "../../onboarding-policy.js";
-import { readJsonBody, readBodyRaw } from "../../http-helpers.js";
+import { readJsonBody, readBodyRaw, BodyTooLargeError } from "../../http-helpers.js";
 import { safeWriteFile } from "../../../shared/safe-write.js";
 import type { ApiContext } from "../context.js";
 import { badRequest, json, serverError } from "../responses.js";
@@ -224,13 +224,21 @@ export async function handleSystemRoutes(
     const requestedLang = url.searchParams.get("language");
     const language = requestedLang && languages.includes(requestedLang) ? requestedLang : languages[0];
 
-    const audioBuffer = await readBodyRaw(req);
+    // Cap the raw audio while streaming so an oversized upload is rejected before
+    // the whole buffer is held in memory, not after (AR-07).
+    const STT_MAX_AUDIO_BYTES = 100 * 1024 * 1024;
+    let audioBuffer: Buffer;
+    try {
+      audioBuffer = await readBodyRaw(req, { maxBytes: STT_MAX_AUDIO_BYTES });
+    } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        badRequest(res, "Audio too large (100MB max)");
+        return true;
+      }
+      throw err;
+    }
     if (audioBuffer.length === 0) {
       badRequest(res, "No audio data");
-      return true;
-    }
-    if (audioBuffer.length > 100 * 1024 * 1024) {
-      badRequest(res, "Audio too large (100MB max)");
       return true;
     }
 

@@ -5,7 +5,7 @@ import path from "node:path";
 import { getFile } from "../../sessions/registry.js";
 import type { ApiContext } from "../api/context.js";
 import { logger } from "../../shared/logger.js";
-import { badRequest, json, readBody } from "./responses.js";
+import { badRequest, BodyTooLargeError, json, readBody } from "./responses.js";
 import { assessFileRead, isAllowedReadPath } from "./read-security.js";
 import { FILES_DIR, expandPath } from "./storage.js";
 
@@ -23,6 +23,9 @@ interface TransferResult {
 }
 
 const MAX_TRANSFER_SIZE = 50 * 1024 * 1024;
+// The transfer body carries only file *specs* (paths/ids + destination), never
+// file content — so a small cap is ample and bounds the buffered JSON (AR-07).
+const MAX_TRANSFER_BODY_BYTES = 1 * 1024 * 1024;
 type RemoteConfig = { remotes?: Record<string, { url: string; label?: string; token?: string }> };
 
 // CF2-202: transfer.ts reads an arbitrary local file and ships it to a
@@ -111,8 +114,9 @@ export function remoteUploadHeaders(destUrl: string, config: RemoteConfig): Reco
 export async function handleTransfer(req: HttpRequest, res: ServerResponse, context: ApiContext): Promise<void> {
   let body: Record<string, unknown>;
   try {
-    body = JSON.parse(await readBody(req));
-  } catch {
+    body = JSON.parse(await readBody(req, { maxBytes: MAX_TRANSFER_BODY_BYTES }));
+  } catch (err) {
+    if (err instanceof BodyTooLargeError) return json(res, { error: "Payload too large" }, 413);
     return badRequest(res, "Invalid JSON body");
   }
 

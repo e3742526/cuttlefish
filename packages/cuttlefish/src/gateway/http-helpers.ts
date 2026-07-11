@@ -46,10 +46,22 @@ export function readBody(req: HttpRequest, opts: ReadBodyOpts = {}): Promise<str
   });
 }
 
-export function readBodyRaw(req: HttpRequest): Promise<Buffer> {
+export function readBodyRaw(req: HttpRequest, opts: ReadBodyOpts = {}): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    let total = 0;
+    const max = opts.maxBytes;
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (max !== undefined && total > max) {
+        // Bound heap growth: reject and tear down the socket instead of buffering
+        // an unbounded raw body before any downstream size check runs.
+        req.destroy();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(chunk);
+    });
     req.on("end", () => resolve(Buffer.concat(chunks)));
     req.on("error", reject);
   });
