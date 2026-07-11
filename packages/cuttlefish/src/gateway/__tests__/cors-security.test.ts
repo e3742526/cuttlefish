@@ -6,12 +6,19 @@ describe("CORS origin policy", () => {
     expect(isAllowedCorsOrigin(undefined)).toBe(true);
   });
 
-  it("allows loopback browser origins used by local dashboard/dev servers", () => {
-    expect(isAllowedCorsOrigin("http://localhost:8888")).toBe(true);
-    expect(isAllowedCorsOrigin("http://app.localhost:5888")).toBe(true);
-    expect(isAllowedCorsOrigin("http://127.0.0.1:8888")).toBe(true);
-    expect(isAllowedCorsOrigin("http://0.0.0.0:8888")).toBe(true);
-    expect(isAllowedCorsOrigin("http://[::1]:8888")).toBe(true);
+  it("allows a loopback origin only when it matches the request host:port (same-origin)", () => {
+    expect(isAllowedCorsOrigin("http://localhost:8888", "localhost:8888")).toBe(true);
+    expect(isAllowedCorsOrigin("http://127.0.0.1:8888", "127.0.0.1:8888")).toBe(true);
+    expect(isAllowedCorsOrigin("http://[::1]:8888", "[::1]:8888")).toBe(true);
+  });
+
+  it("rejects a distinct local attacker port even on loopback (AR-06)", () => {
+    // A different local app on loopback is cross-origin; reflecting it with
+    // credentialed CORS would leak authenticated gateway responses.
+    expect(isAllowedCorsOrigin("http://localhost:3999", "localhost:8888")).toBe(false);
+    expect(isAllowedCorsOrigin("http://127.0.0.1:1234", "127.0.0.1:8888")).toBe(false);
+    // A loopback origin with no confirmable request host is not same-origin.
+    expect(isAllowedCorsOrigin("http://localhost:8888")).toBe(false);
   });
 
   it("rejects arbitrary web origins instead of reflecting a wildcard", () => {

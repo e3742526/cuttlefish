@@ -67,4 +67,25 @@ describe('web static asset fallback', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  it('rejects sibling-prefix traversal outside the web root (AR-05)', async () => {
+    const parent = mkdtempSync(join(tmpdir(), 'cuttlefish-web-parent-'))
+    try {
+      const webDir = join(parent, 'web')
+      mkdirSync(webDir)
+      writeFileSync(join(webDir, 'index.html'), '<div id="root"></div>')
+      // A sibling directory that shares the `web` prefix holds a secret.
+      const evilDir = join(parent, 'web_evil')
+      mkdirSync(evilDir)
+      writeFileSync(join(evilDir, 'secret'), 'TOP SECRET')
+
+      const { handled, res } = await callServeStatic('/../web_evil/secret', webDir)
+
+      expect(handled).toBe(true)
+      expect(res.statusCode).toBe(403)
+      expect(res.body()).not.toContain('TOP SECRET')
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
 })
