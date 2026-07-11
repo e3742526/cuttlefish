@@ -6,6 +6,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { HermesRpc } from "./hermes-jsonrpc.js";
 import { mapSessionUpdate, extractPromptText } from "./hermes-protocol.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
+import { capAppend, ENGINE_OUTPUT_MAX } from "../shared/cap-append.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const HANDSHAKE_TIMEOUT_MS = 60_000;
@@ -168,7 +169,7 @@ export class HermesAcpEngine implements InterruptibleEngine {
       if (m !== "session/update" || params.sessionId !== hermesSessionId) return;
       const u = mapSessionUpdate((params.update ?? {}) as Record<string, unknown>);
       for (const d of u.deltas) {
-        if (d.type === "text") resultText += d.content;
+        if (d.type === "text") resultText = capAppend(resultText, d.content, ENGINE_OUTPUT_MAX); // bound long-turn retention (AR-09)
         opts.onStream?.(d);
       }
       if (u.contextTokens != null) lastContext = u.contextTokens;

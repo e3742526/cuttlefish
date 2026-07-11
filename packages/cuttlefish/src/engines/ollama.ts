@@ -5,6 +5,7 @@ import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
 import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
+import { capAppend, ENGINE_OUTPUT_MAX } from "../shared/cap-append.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
@@ -138,7 +139,7 @@ export class OllamaEngine implements InterruptibleEngine {
         const text = typeof chunk === "string" ? chunk : chunk.toString("utf-8");
         if (!text) return;
         opts.onActivity?.();
-        stdout += text;
+        stdout = capAppend(stdout, text, ENGINE_OUTPUT_MAX); // bound long-turn retention (AR-09)
         if (opts.onStream) opts.onStream({ type: "text", content: text });
       });
 

@@ -7,6 +7,7 @@ import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { tailTranscriptLines, type TranscriptTailer } from "./transcript-tailer.js";
 import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
+import { capAppend, ENGINE_LINE_BUF_MAX, ENGINE_OUTPUT_MAX } from "../shared/cap-append.js";
 
 export const GROK_DEFAULT_MODEL = "grok-build";
 export const GROK_SESSIONS_DIR = path.join(os.homedir(), ".grok", "sessions");
@@ -589,8 +590,10 @@ export class GrokEngine implements InterruptibleEngine {
         // identical, so the FE reconciles them by identity at completion — no
         // duplicate bubble. See grokVisibleDeltas.
         for (const delta of parsed.deltas) {
-          if (delta.type === "text") resultText += delta.content;
-          if (delta.type === "text_snapshot") resultText = delta.content;
+          // Bound accumulation so a long/runaway turn cannot grow resultText without
+          // limit (AR-09); the tail retains the most recent answer text.
+          if (delta.type === "text") resultText = capAppend(resultText, delta.content, ENGINE_OUTPUT_MAX);
+          if (delta.type === "text_snapshot") resultText = capAppend("", delta.content, ENGINE_OUTPUT_MAX);
         }
         for (const delta of grokVisibleDeltas(parsed.deltas, "stdout")) opts.onStream?.(delta);
         if (parsed.doneText) resultText = parsed.doneText;
@@ -648,7 +651,9 @@ export class GrokEngine implements InterruptibleEngine {
       transcriptDiscover.unref?.();
 
       proc.stdout.on("data", (d: Buffer) => {
-        lineBuf += d.toString();
+        // Cap the unterminated-line buffer so a stream that never emits a newline
+        // cannot grow it without bound (AR-09).
+        lineBuf = capAppend(lineBuf, d.toString(), ENGINE_LINE_BUF_MAX);
         const lines = lineBuf.split("\n");
         lineBuf = lines.pop() || "";
         for (const line of lines) handleParsed(parseGrokJsonLine(line));

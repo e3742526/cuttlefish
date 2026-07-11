@@ -8,6 +8,7 @@ import { getMessages } from "../sessions/registry/messages.js";
 import { buildOllamaPrompt } from "./ollama.js";
 import { aiderHistoryPathFor, ensureAiderHistoryDir, extractAssistantText } from "./aider-protocol.js";
 import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
+import { capAppend, ENGINE_OUTPUT_MAX } from "../shared/cap-append.js";
 
 const TURN_TIMEOUT_MS = 14 * 24 * 60 * 60 * 1000;
 const STDERR_MAX = 10 * 1024;
@@ -135,7 +136,7 @@ export class AiderEngine implements InterruptibleEngine {
         // Keep the stall watchdog alive, but DON'T stream aider's stdout chrome as chat
         // text — the clean per-turn result comes from the chat-history file on close.
         opts.onActivity?.();
-        stdout += text;
+        stdout = capAppend(stdout, text, ENGINE_OUTPUT_MAX); // bound long-turn retention (AR-09)
       });
 
       proc.stderr.on("data", (chunk: Buffer | string) => {
