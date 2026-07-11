@@ -1,5 +1,57 @@
-import { describe, it, expect } from "vitest";
-import { markdownToSlackMrkdwn, formatResponse } from "../format.js";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { markdownToSlackMrkdwn, formatResponse, downloadAttachment, SLACK_MAX_ATTACHMENT_BYTES } from "../format.js";
+
+const originalFetch = globalThis.fetch;
+afterEach(() => { globalThis.fetch = originalFetch; });
+
+describe("downloadAttachment byte limits (AR-08)", () => {
+  it("rejects and cleans up when the declared content-length exceeds the cap", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array(8), {
+        status: 200,
+        headers: { "content-length": String(SLACK_MAX_ATTACHMENT_BYTES + 1) },
+      }),
+    ) as unknown as typeof fetch;
+
+    const destDir = fs.mkdtempSync(path.join(os.tmpdir(), "slack-dl-"));
+    try {
+      await expect(downloadAttachment("https://files.slack.com/x/big.bin", "tok", destDir))
+        .rejects.toThrow(/exceeds/);
+      expect(fs.readdirSync(destDir)).toHaveLength(0); // no partial file left behind
+    } finally {
+      fs.rmSync(destDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects when a streamed body (no content-length) exceeds the cap", async () => {
+    // A ReadableStream body carries no content-length, so only the streaming cap
+    // in readCappedBody can stop it. Emit chunks totalling just over the limit.
+    const chunk = new Uint8Array(1024 * 1024); // 1 MiB
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > SLACK_MAX_ATTACHMENT_BYTES) { controller.close(); return; }
+        sent += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(stream, { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const destDir = fs.mkdtempSync(path.join(os.tmpdir(), "slack-dl-"));
+    try {
+      await expect(downloadAttachment("https://files.slack.com/x/stream.bin", "tok", destDir))
+        .rejects.toThrow(/exceeds/);
+      expect(fs.readdirSync(destDir)).toHaveLength(0);
+    } finally {
+      fs.rmSync(destDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("markdownToSlackMrkdwn", () => {
   describe("headings", () => {

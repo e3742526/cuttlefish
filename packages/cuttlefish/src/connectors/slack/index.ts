@@ -13,6 +13,9 @@ import { formatResponse, downloadAttachment } from "./format.js";
 import { TMP_DIR } from "../../shared/paths.js";
 import { logger } from "../../shared/logger.js";
 
+/** Cap on how many attachments a single Slack message may pull down (AR-08). */
+const SLACK_MAX_ATTACHMENTS = 10;
+
 export class SlackConnector implements Connector {
   name = "slack";
   private app: App;
@@ -157,10 +160,14 @@ export class SlackConnector implements Connector {
         }
       }
 
-      // Download attachments if present
+      // Download attachments if present, bounded by count (AR-08).
       const attachments = [];
-      if ((event as any).files) {
-        for (const file of (event as any).files) {
+      const files = ((event as any).files ?? []) as any[];
+      if (files.length > 0) {
+        if (files.length > SLACK_MAX_ATTACHMENTS) {
+          logger.warn(`Slack message has ${files.length} attachments; processing only the first ${SLACK_MAX_ATTACHMENTS}`);
+        }
+        for (const file of files.slice(0, SLACK_MAX_ATTACHMENTS)) {
           try {
             const localPath = await downloadAttachment(
               file.url_private,
@@ -241,10 +248,14 @@ export class SlackConnector implements Connector {
       const replyContext = buildReplyContext(event as any);
       const channelName = await this.resolveChannelName(event.channel);
 
-      // Download attachments if present
+      // Download attachments if present, bounded by count (AR-08).
       const attachments = [];
-      if ((event as any).files) {
-        for (const file of (event as any).files) {
+      const files = ((event as any).files ?? []) as any[];
+      if (files.length > 0) {
+        if (files.length > SLACK_MAX_ATTACHMENTS) {
+          logger.warn(`Slack message has ${files.length} attachments; processing only the first ${SLACK_MAX_ATTACHMENTS}`);
+        }
+        for (const file of files.slice(0, SLACK_MAX_ATTACHMENTS)) {
           try {
             const localPath = await downloadAttachment(
               file.url_private,

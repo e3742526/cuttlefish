@@ -6,6 +6,34 @@ import { safeWriteFile } from "../../shared/safe-write.js";
 
 const SLACK_MAX_LENGTH = 3000;
 
+/** Hard cap on a single downloaded Slack attachment (AR-08). */
+export const SLACK_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+/** Abort a Slack attachment download that stalls past this window (AR-08). */
+export const SLACK_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+/** Read a fetch Response body into a Buffer, aborting past `maxBytes`. */
+async function readCappedBody(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Slack attachment exceeds ${maxBytes} byte limit`);
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
 /**
  * Convert standard markdown to Slack mrkdwn format.
  * Handles headings, bold, strikethrough, links, and bullet lists.
@@ -47,14 +75,6 @@ export async function downloadAttachment(
 ): Promise<string> {
   fs.mkdirSync(destDir, { recursive: true });
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to download attachment: ${response.status} ${response.statusText}`);
-  }
-
   // Use a random disk filename so the saved path never trusts user-controlled names.
   // Preserve only the extension inferred from the Slack URL.
   const urlPath = new URL(url).pathname;
@@ -62,8 +82,34 @@ export async function downloadAttachment(
   const filename = `${randomUUID()}${ext}`;
   const localPath = path.join(destDir, filename);
 
-  const buffer = Buffer.from(await response.arrayBuffer());
-  safeWriteFile(localPath, buffer, { fsync: false }); // atomic media write; durability unneeded
-
-  return localPath;
+  // Bound the download: a timeout aborts a stalled transfer, a content-length
+  // precheck rejects an oversized body up front, and the streamed read caps
+  // actual bytes — so a compromised connector cannot exhaust memory/disk (AR-08).
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SLACK_DOWNLOAD_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to download attachment: ${response.status} ${response.statusText}`);
+    }
+    const contentLength = response.headers.get("content-length");
+    if (contentLength) {
+      const declared = Number.parseInt(contentLength, 10);
+      if (Number.isFinite(declared) && declared > SLACK_MAX_ATTACHMENT_BYTES) {
+        throw new Error(`Slack attachment exceeds ${SLACK_MAX_ATTACHMENT_BYTES} byte limit (declared ${declared})`);
+      }
+    }
+    const buffer = await readCappedBody(response, SLACK_MAX_ATTACHMENT_BYTES);
+    safeWriteFile(localPath, buffer, { fsync: false }); // atomic media write; durability unneeded
+    return localPath;
+  } catch (err) {
+    // Leave nothing behind on abort/oversize/failure.
+    try { fs.rmSync(localPath, { force: true }); } catch {}
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
