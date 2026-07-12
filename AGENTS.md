@@ -6,6 +6,58 @@ documentation, and maintenance agents. Model-specific files such as `CLAUDE.md`,
 preferences, but they must not redefine, duplicate, or weaken this contract — they
 should be thin pointers back to `AGENTS.md`.
 
+<!-- fleet-tiering-core -->
+## Normative Core (staged loading)
+
+This section is front-loaded so that a provider which truncates long
+instruction files still receives the binding rules. Some tools cap how much
+of an instruction file they load (a Codex-style `project_doc_max_bytes`
+defaults to 32 KiB, and global instructions count toward that cap); any rule
+past that cap is invisible to such a provider. Everything below this section
+elaborates these rules — later sections **must not weaken** the core.
+
+### Precedence
+1. Explicit task instructions from the operator.
+2. This Normative Core and the repo-required sections below.
+3. Later sections of this file (elaboration).
+4. Adapter files (`CLAUDE.md`, `GEMINI.md`, …) — provider-specific execution
+   preferences only; they never override this file. On conflict, `AGENTS.md`
+   wins.
+
+### Binding rules (MUST / MUST NOT)
+- **Inspect before modifying.** Read existing code, tests, docs, and
+  conventions first. Do not invent APIs, imports, paths, or commands.
+- **Smallest coherent change.** One coherent task per run; MUST NOT bundle
+  unrelated changes or widen scope silently — disclose adjacent edits.
+- **No fake success.** MUST NOT present stubs/placeholders/canned responses
+  as working, or suppress errors to make tests/logs look clean.
+- **Validate and report honestly.** Run the relevant checks before declaring
+  completion; state exactly what passed, failed, or was not run.
+- **Preserve user work.** MUST NOT delete/overwrite existing work or revert
+  changes without explicit instruction.
+- **Artifact placement.** Durable audit summaries → `docs/audits/`;
+  human-authored session/handoff logs → `docs/logs/session/<MMYYYY>/`
+  (NOT the repo root or top-level `logs/`, which is for generated telemetry
+  and raw evidence). Generated compliance artifacts stay under their
+  generator's output path.
+- **Documentation is source-grounded.** MUST NOT invent behavior; update
+  user-facing docs when externally visible behavior changes.
+
+### Staged instruction loading
+- **Always (this core):** every provider that loads `AGENTS.md` receives it.
+- **By location (nested `AGENTS.md`):** subtrees with their own `AGENTS.md`
+  (e.g. `docs/`, `logs/`) carry local placement rules and defer to this root.
+  Codex loads them automatically when editing that subtree; other tools open
+  them when the task touches it.
+- **Byte-capped providers:** set `project_doc_max_bytes` high enough to load
+  this whole file; if you cannot, treat this Normative Core as authoritative
+  and open later sections explicitly. Non-capped providers (e.g. Claude Code)
+  load the full file and are unaffected.
+
+For repo-specific detail — architecture, commands, governance, and the full
+rules — read the sections that follow this one.
+<!-- / fleet-tiering-core -->
+
 ## Repository Contract
 
 Cuttlefish is a lightweight AI gateway daemon that orchestrates professional AI coding
