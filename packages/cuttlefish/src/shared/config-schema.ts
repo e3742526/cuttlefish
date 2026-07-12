@@ -272,6 +272,30 @@ function validateWhatsAppConnector(problems: string[], path: string, value: unkn
   if (value.ignoreOldMessagesOnBoot !== undefined) validateBoolean(problems, `${path}.ignoreOldMessagesOnBoot`, value.ignoreOldMessagesOnBoot);
 }
 
+function validateTwilioConnector(problems: string[], path: string, value: unknown): void {
+  if (!isPlainObject(value)) {
+    problems.push(`${path} must be a mapping`);
+    return;
+  }
+  pushUnknownKeys(problems, value, ["employee", "fromNumber", "messagingServiceSid", "webhookUrl", "allowFrom"], path);
+  if (value.employee !== undefined) validateString(problems, `${path}.employee`, value.employee);
+  if (value.fromNumber !== undefined) validateString(problems, `${path}.fromNumber`, value.fromNumber);
+  if (value.messagingServiceSid !== undefined) validateString(problems, `${path}.messagingServiceSid`, value.messagingServiceSid);
+  if (value.allowFrom !== undefined) validateStringOrStringArray(problems, `${path}.allowFrom`, value.allowFrom);
+  if (typeof value.webhookUrl !== "string" || !value.webhookUrl.trim()) {
+    problems.push(`${path}.webhookUrl must be a non-empty HTTPS URL`);
+  } else {
+    try {
+      if (new URL(value.webhookUrl).protocol !== "https:") throw new Error("not HTTPS");
+    } catch {
+      problems.push(`${path}.webhookUrl must be a non-empty HTTPS URL`);
+    }
+  }
+  if (value.fromNumber === undefined && value.messagingServiceSid === undefined) {
+    problems.push(`${path} requires fromNumber or messagingServiceSid for outbound SMS`);
+  }
+}
+
 function validateConnectorInstance(
   problems: string[],
   value: unknown,
@@ -316,10 +340,11 @@ function validateConnectors(
     problems.push("connectors must be a mapping");
     return;
   }
-  pushUnknownKeys(problems, value, ["web", "slack", "whatsapp", "instances"], "connectors");
+  pushUnknownKeys(problems, value, ["web", "slack", "whatsapp", "twilio", "instances"], "connectors");
   if (value.web !== undefined && !isPlainObject(value.web)) problems.push("connectors.web must be a mapping");
   if (value.slack !== undefined) validateSlackConnector(problems, "connectors.slack", value.slack);
   if (value.whatsapp !== undefined) validateWhatsAppConnector(problems, "connectors.whatsapp", value.whatsapp);
+  if (value.twilio !== undefined) validateTwilioConnector(problems, "connectors.twilio", value.twilio);
   if (value.instances !== undefined) {
     if (!Array.isArray(value.instances)) {
       problems.push("connectors.instances must be an array");
@@ -716,6 +741,9 @@ function collectConfiguredConnectorIds(config: Record<string, unknown>): Set<str
   }
   if (isPlainObject(connectors.whatsapp)) {
     ids.add("whatsapp");
+  }
+  if (isPlainObject(connectors.twilio)) {
+    ids.add("twilio");
   }
   if (!Array.isArray(connectors.instances)) return ids;
 

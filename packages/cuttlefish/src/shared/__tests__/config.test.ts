@@ -158,6 +158,29 @@ describe("validateConfigShape", () => {
     expect(problems).toContain('notifications.connector must reference a configured connector; got "discord" (available connectors: slack)');
   });
 
+  it("accepts a non-secret Twilio connector configuration", () => {
+    expect(validateConfigShape({
+      engines: { claude: {} },
+      connectors: {
+        twilio: {
+          fromNumber: "+15551234567",
+          webhookUrl: "https://sms.example.test/webhooks/twilio/sms",
+          allowFrom: ["+15557654321"],
+        },
+      },
+    })).toEqual([]);
+  });
+
+  it("rejects a Twilio connector without a secure webhook or outbound sender", () => {
+    const problems = validateConfigShape({
+      engines: { claude: {} },
+      connectors: { twilio: { webhookUrl: "http://localhost:8888/webhooks/twilio/sms" } },
+    });
+
+    expect(problems).toContain("connectors.twilio.webhookUrl must be a non-empty HTTPS URL");
+    expect(problems).toContain("connectors.twilio requires fromNumber or messagingServiceSid for outbound SMS");
+  });
+
   it("rejects notifications.channel when the effective default connector is unavailable", () => {
     const problems = validateConfigShape({
       engines: { claude: {} },

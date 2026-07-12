@@ -1,3 +1,4 @@
+import type http from "node:http";
 import type { Connector, Employee, CuttlefishConfig } from "../../shared/types.js";
 import { loadConfig } from "../../shared/config.js";
 import { logger } from "../../shared/logger.js";
@@ -5,12 +6,14 @@ import type { RouteOptions } from "../../sessions/manager.js";
 import type { SessionManager } from "../../sessions/manager.js";
 import { SlackConnector } from "../../connectors/slack/index.js";
 import { WhatsAppConnector } from "../../connectors/whatsapp/index.js";
+import { TwilioConnector } from "../../connectors/twilio/index.js";
 
 interface ConnectorLifecycle {
   connectors: Connector[];
   connectorMap: Map<string, Connector>;
   instanceConnectorIds: Set<string>;
   reloadConnectorInstances: () => Promise<{ started: string[]; stopped: string[]; errors: string[] }>;
+  handleTwilioWebhook: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
 }
 
 interface ConnectorSetupDeps {
@@ -98,6 +101,12 @@ export function startConfiguredConnectors({
     registerAndStart("whatsapp", connector, "WhatsApp connector starting (scan QR code if first run)");
   }
 
+  if (config.connectors?.twilio) {
+    const connector = new TwilioConnector(config.connectors.twilio);
+    routeConnectorMessage(sessionManager, getEmployeeRegistry, config.connectors.twilio.employee, connector, "Twilio SMS");
+    registerAndStart("twilio", connector);
+  }
+
   if (config.connectors?.instances) {
     for (const instance of config.connectors.instances) {
       const { id, type, employee } = instance;
@@ -176,5 +185,15 @@ export function startConfiguredConnectors({
     return { started, stopped, errors };
   };
 
-  return { connectors, connectorMap, instanceConnectorIds, reloadConnectorInstances };
+  const handleTwilioWebhook = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+    const connector = connectorMap.get("twilio");
+    if (!(connector instanceof TwilioConnector)) {
+      res.writeHead(404, { "Content-Type": "text/xml; charset=utf-8" });
+      res.end('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+      return;
+    }
+    await connector.handleInboundWebhook(req, res);
+  };
+
+  return { connectors, connectorMap, instanceConnectorIds, reloadConnectorInstances, handleTwilioWebhook };
 }

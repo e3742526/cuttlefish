@@ -1,6 +1,7 @@
 import type {
   ConnectorInstance,
   SlackConnectorConfig,
+  TwilioConnectorConfig,
   WebConnectorConfig,
   WhatsAppConnectorConfig,
 } from "./connectors.js";
@@ -164,6 +165,7 @@ export interface CuttlefishConfig {
     web?: WebConnectorConfig;
     slack?: SlackConnectorConfig;
     whatsapp?: WhatsAppConnectorConfig;
+    twilio?: TwilioConnectorConfig;
     instances?: ConnectorInstance[];
   };
   email?: EmailConfig;

@@ -283,7 +283,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
   let employeeRegistry = scanOrg();
   logger.info(`Loaded ${employeeRegistry.size} employee(s) from org directory`);
 
-  const { connectors, connectorMap, reloadConnectorInstances } = startConfiguredConnectors({
+  const { connectors, connectorMap, reloadConnectorInstances, handleTwilioWebhook } = startConfiguredConnectors({
     config,
     sessionManager,
     getEmployeeRegistry: () => employeeRegistry,
@@ -620,6 +620,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     gatewayAuthToken,
     gatewayName: `${gatewayName} (boot ${bootId})`,
     handleApiRequest: (req, res) => handleApiRequest(req, res, apiContext),
+    handleTwilioWebhook,
     host,
     cuttlefishHome: CUTTLEFISH_HOME,
     port,

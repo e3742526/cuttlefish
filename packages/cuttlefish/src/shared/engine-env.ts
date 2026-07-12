@@ -15,6 +15,8 @@ const SECRET_DENYLIST: ReadonlySet<string> = new Set([
   "CUTTLEFISH_INTERNAL_TOKEN",
 ]);
 
+const SECRET_PREFIX_DENYLIST = ["TWILIO_"] as const;
+
 export interface EngineEnvOptions {
   stripPrefixes?: string[];
   allowUnsafeTokens?: boolean;
@@ -27,7 +29,7 @@ export function buildEngineEnv(
   const result: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value === undefined) continue;
-    if (!opts.allowUnsafeTokens && SECRET_DENYLIST.has(key)) continue;
+    if (!opts.allowUnsafeTokens && (SECRET_DENYLIST.has(key) || SECRET_PREFIX_DENYLIST.some((prefix) => key.startsWith(prefix)))) continue;
     if (opts.stripPrefixes?.some((prefix) => key.startsWith(prefix))) continue;
     result[key] = value;
   }

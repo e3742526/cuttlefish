@@ -171,7 +171,7 @@ Every department also has a **board**. Assign tickets to employees, watch work m
 - **🧩 Real delegation** - parent/child sessions with completion callbacks and a COO-review pattern that filters noise before it reaches you.
 - **⏰ Cron scheduling** - hot-reloadable background jobs with run history and optional failure alerts.
 - **📦 Skills** - reusable markdown playbooks auto-synced into the underlying CLIs; install community skills with one command.
-- **💬 Connectors** - Slack (threads + ✅ reaction approvals), WhatsApp, and inbound IMAP inbox polling/inspection.
+- **💬 Connectors** - Slack (threads + ✅ reaction approvals), WhatsApp, Twilio SMS, and inbound IMAP inbox polling/inspection.
 - **🌐 Web dashboard** - chat, interactive org map, kanban boards, cron visualizer, usage & limits, activity logs, skills catalog, settings.
 - **🖥️ Chat or raw terminal** - toggle any session between rendered chat and a live `xterm` view of the engine.
 - **📎 Attachments** - drag, drop, or paste files and images into chat; passed through to the engine and rendered inline.
@@ -242,6 +242,8 @@ connectors:
   slack:
     shareSessionInChannel: false
     ignoreOldMessagesOnBoot: true
+  # Twilio account credentials stay in a local .env, never config.yaml.
+  # See docs/TWILIO_SMS.md for the webhook and allowlist setup.
 ```
 
 - **Engines** point at a CLI `bin` and a default `model`; `engines.default` selects which one new sessions use.

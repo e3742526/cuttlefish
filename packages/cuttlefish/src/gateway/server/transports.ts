@@ -20,6 +20,7 @@ interface GatewayTransportDeps {
   gatewayAuthToken: string;
   gatewayName: string;
   handleApiRequest: (req: http.IncomingMessage, res: http.ServerResponse) => void;
+  handleTwilioWebhook: (req: http.IncomingMessage, res: http.ServerResponse) => Promise<void>;
   host: string;
   cuttlefishHome: string;
   port: number;
@@ -35,6 +36,7 @@ export function createGatewayTransports({
   gatewayAuthToken,
   gatewayName,
   handleApiRequest,
+  handleTwilioWebhook,
   host,
   cuttlefishHome,
   port,
@@ -47,6 +49,22 @@ export function createGatewayTransports({
 
   const server = http.createServer(async (req, res) => {
     const url = req.url || "/";
+    const pathname = url.split("?")[0];
+
+    // This is the sole public gateway route: Twilio authenticates each
+    // form-encoded request with its own signature before it can reach session
+    // routing. It intentionally precedes gateway auth because Twilio cannot
+    // present an operator bearer token.
+    if (pathname === "/webhooks/twilio/sms") {
+      if (req.method !== "POST") {
+        res.writeHead(405, { Allow: "POST" });
+        res.end();
+        return;
+      }
+      await handleTwilioWebhook(req, res);
+      return;
+    }
+
     const corsAllowed = setCorsHeaders(req, res);
 
     if (url.startsWith("/api/") && !corsAllowed) {
@@ -75,7 +93,6 @@ export function createGatewayTransports({
       return;
     }
 
-    const pathname = url.split("?")[0];
     // CF2-120: resolve the principal and enforce scoped-token constraints
     // unconditionally — not just when authRequiredNow() is true — so a
     // presented scoped session token is always honored as a constraint, even

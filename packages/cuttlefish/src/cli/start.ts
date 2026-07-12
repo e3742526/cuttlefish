@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { loadConfig } from "../shared/config.js";
@@ -8,6 +9,29 @@ import { compareSemver, getPackageVersion, getInstanceVersion } from "../shared/
 const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
+
+/**
+ * Twilio credentials are commonly kept in a source-checkout `.env`. Load only
+ * `TWILIO_*` values so unrelated local secrets never enter the daemon or its
+ * child-engine environment.
+ */
+function loadTwilioEnvironment(): void {
+  const envFile = path.join(process.cwd(), ".env");
+  if (!fs.existsSync(envFile)) return;
+
+  const before = new Map(Object.entries(process.env));
+  try {
+    process.loadEnvFile(envFile);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith("TWILIO_")) continue;
+      const original = before.get(key);
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
+  } catch (err) {
+    console.warn(`Warning: could not load Twilio variables from .env: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 /** Best-effort: open the dashboard in the default browser. Never throws. */
 function openBrowser(url: string): void {
@@ -24,6 +48,7 @@ function openBrowser(url: string): void {
 }
 
 export async function runStart(opts: { daemon?: boolean; port?: number }): Promise<void> {
+  loadTwilioEnvironment();
   if (!fs.existsSync(CUTTLEFISH_HOME)) {
     console.error(
       `Error: ${CUTTLEFISH_HOME} does not exist. Run "cuttlefish setup" first.`

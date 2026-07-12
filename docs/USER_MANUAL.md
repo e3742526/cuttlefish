@@ -19,7 +19,7 @@ Antigravity, Pi, Hermes, and Kiro through a shared org/delegation model.
 - **Engine:** external CLI Cuttlefish invokes for model work.
 - **Employee:** configured persona/role with an engine/model/department.
 - **Session:** persisted conversation or work run.
-- **Connector:** Slack/Discord/Telegram/WhatsApp-style integration.
+- **Connector:** Slack, WhatsApp, Twilio SMS, or similar integration.
 - **Skill:** reusable Markdown playbook synced into agent workflows.
 - **Orchestration:** scheduler/runtime for multi-role tasks, leases,
   continuations, holds, worktrees, and dual-lane operations.
@@ -115,6 +115,12 @@ sign-in flows; run each engine once and authenticate before routing work to it.
 - Cuttlefish polls configured inboxes, caches normalized messages plus
   attachments, and can auto-ingest new mail into COO-owned sessions.
 - Email is inbound-only in this version. It does not send or reply to email.
+
+### Twilio SMS
+
+Twilio SMS can create or continue a session from an allowlisted phone number
+and return the completed response by SMS. Follow [the Twilio SMS setup guide](TWILIO_SMS.md)
+to configure credentials, an SMS-capable sender, and the signed inbound webhook.
 
 ## Persistence And Files
 

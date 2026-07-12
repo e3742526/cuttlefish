@@ -26,6 +26,16 @@ describe("buildEngineEnv", () => {
     expect(buildEngineEnv({}).CUTTLEFISH_TEST_PUBLIC_FLAG).toBe("kept");
   });
 
+  it("does not pass Twilio credentials into agent processes", () => {
+    process.env.TWILIO_ACCOUNT_SID = "ACtest";
+    process.env.TWILIO_AUTH_TOKEN = "twilio-secret";
+
+    const env = buildEngineEnv({});
+
+    expect(env.TWILIO_ACCOUNT_SID).toBeUndefined();
+    expect(env.TWILIO_AUTH_TOKEN).toBeUndefined();
+  });
+
   it("strips caller-provided prefixes", () => {
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION = "abc";

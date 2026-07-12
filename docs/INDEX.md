@@ -39,6 +39,7 @@ artifacts unless explicitly published.
   subcommands by destructiveness, interactivity, and suitability for automated sweeps;
   supersedes any generated surface-metadata that conflicts with it.
 - `docs/engines-hermes.md`: Hermes engine behavior and caveats.
+- `docs/TWILIO_SMS.md`: Twilio SMS credential, sender, allowlist, and signed-webhook setup.
 - `docs/orchestration/README.md`: provider-neutral matrix orchestration
   foundation, durable scheduler state, adapter contracts, CLI dry-run/observe
   commands, opt-in live run modes, git worktree execution, and orchestration

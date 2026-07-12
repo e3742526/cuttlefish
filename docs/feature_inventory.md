@@ -1,5 +1,19 @@
 # Feature Inventory
 
+## Twilio SMS connector
+
+- `packages/cuttlefish/src/connectors/twilio/index.ts`
+- `POST /webhooks/twilio/sms`
+- Cuttlefish sends outbound SMS through Twilio's official Node helper library.
+  Signed, form-encoded inbound SMS webhooks are accepted only from configured
+  `allowFrom` numbers and create or continue a sender-scoped session.
+- The webhook does not accept gateway credentials: it requires Twilio's
+  `X-Twilio-Signature` validation against the exact configured HTTPS URL and
+  returns empty TwiML while Cuttlefish generates its asynchronous SMS reply.
+- Twilio credentials are loaded from a source-checkout `.env` and excluded from
+  agent subprocess environments. The connector is disabled until its
+  non-secret configuration is present in `~/.cuttlefish/config.yaml`.
+
 ## Web UI
 
 ### Dashboard route shell

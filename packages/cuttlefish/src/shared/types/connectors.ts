@@ -87,6 +87,19 @@ export interface WhatsAppConnectorConfig {
   ignoreOldMessagesOnBoot?: boolean;
 }
 
+export interface TwilioConnectorConfig {
+  /** Employee to handle inbound SMS from this number. */
+  employee?: string;
+  /** Twilio SMS-capable sender number in E.164 format. */
+  fromNumber?: string;
+  /** Twilio Messaging Service SID, used instead of fromNumber when configured. */
+  messagingServiceSid?: string;
+  /** Exact public HTTPS URL configured on the Twilio phone number. */
+  webhookUrl: string;
+  /** E.164 phone numbers allowed to start SMS sessions. Empty means deny all inbound SMS. */
+  allowFrom?: string | string[];
+}
+
 export interface ConnectorInstance {
   /** Unique instance ID */
   id: string;
