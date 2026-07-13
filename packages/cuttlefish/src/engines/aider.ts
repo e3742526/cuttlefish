@@ -3,7 +3,7 @@ import fs from "node:fs";
 import type { InterruptibleEngine, EngineRunOpts, EngineResult } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
-import { buildEngineEnv } from "../shared/engine-env.js";
+import { buildAiderEngineEnv } from "./aider-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
 import { buildOllamaPrompt } from "./ollama.js";
 import { aiderHistoryPathFor, ensureAiderHistoryDir, extractAssistantText } from "./aider-protocol.js";
@@ -200,14 +200,7 @@ export class AiderEngine implements InterruptibleEngine {
   }
 
   private buildCleanEnv(): Record<string, string> {
-    // Aider authenticates by reading provider keys from env (ANTHROPIC_API_KEY,
-    // OPENAI_API_KEY, AWS_* for Bedrock, etc.) — so unlike most engines we must let
-    // those through (allowUnsafeTokens), while still stripping Cuttlefish-internal
-    // tokens and the Claude/Codex harness env that aider has no use for.
-    return buildEngineEnv({}, {
-      allowUnsafeTokens: true,
-      stripPrefixes: ["CLAUDECODE", "CLAUDE_CODE_", "CODEX", "CUTTLEFISH_"],
-    });
+    return buildAiderEngineEnv();
   }
 
   private signalProcess(proc: ChildProcess, signal: NodeJS.Signals): void {

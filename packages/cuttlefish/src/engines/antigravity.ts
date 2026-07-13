@@ -265,7 +265,7 @@ export class AntigravityEngine implements InterruptibleEngine, PtyViewEngine {
   /** env for the agy PTY: force a real TERM and strip common host secrets.
    *  Do NOT strip GEMINI_*; agy uses cached Gemini auth outside this env. */
   private buildPtyEnv(): Record<string, string> {
-    return buildEngineEnv({ TERM: "xterm-256color" }, { allowUnsafeTokens: false });
+    return buildEngineEnv({ TERM: "xterm-256color" });
   }
 
   private buildArgs(resumeConvId: string | undefined, model?: string): string[] {

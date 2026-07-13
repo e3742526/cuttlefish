@@ -572,3 +572,7 @@
 - With no `gateway.fileReadRoots` configured, local-file reads are restricted to Cuttlefish-managed storage. Operators can add explicit project roots or use the documented `allowArbitraryFileRead` escape hatch for a local install.
 - Content that passed inbound screening remains wrapped as untrusted data. Automatic connector replies redact secret-shaped text before delivery.
 - Per-session API credentials are supplied only to the engine subprocess as `CUTTLEFISH_SESSION_TOKEN`; their raw value is not embedded in model-visible context.
+- Connector and email attachments are security-screened before an engine receives a
+  local file path. Unsupported, oversized, or unreadable files open a human-review
+  checkpoint instead of being passed through; supported text is delivered as screened
+  prompt context rather than a raw file argument.

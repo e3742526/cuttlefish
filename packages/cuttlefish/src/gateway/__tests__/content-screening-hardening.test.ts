@@ -72,6 +72,37 @@ describe("content-screening hardening (audit R1)", () => {
     expect(outcome.blocked).toBe(false);
   });
 
+  it("fails closed when a binary attachment has no supported security extractor", async () => {
+    const { screenAttachmentContent } = await import("../content-screening.js");
+    const p = path.join(home, "uploads", "untrusted.pdf");
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, Buffer.from("%PDF hostile bytes"));
+
+    const outcome = await screenAttachmentContent(
+      { id: "binary", kind: "file", path: p, resolvedPath: p } as unknown as RunAttachment,
+      ctx,
+    );
+
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.attachment.screeningState).toBe("screening_unavailable");
+    expect(outcome.attachment.contentScreening).toMatchObject({ action: "checkpoint", screener: "policy" });
+  });
+
+  it("fails closed when an attachment exceeds the screening limit", async () => {
+    const { screenAttachmentContent } = await import("../content-screening.js");
+    const p = path.join(home, "uploads", "oversized.txt");
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, "x".repeat(129 * 1024));
+
+    const outcome = await screenAttachmentContent(
+      { id: "oversized", kind: "file", path: p, resolvedPath: p } as unknown as RunAttachment,
+      ctx,
+    );
+
+    expect(outcome.blocked).toBe(true);
+    expect(outcome.attachment.contentScreening?.action).toBe("checkpoint");
+  });
+
   it("D-F2: benign content stays benign and is allowed", async () => {
     const { screenUntrustedText } = await import("../content-screening.js");
     const out = await screenUntrustedText(
