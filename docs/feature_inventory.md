@@ -313,6 +313,14 @@
 - `GET /api/email/inboxes/:id/messages?limit=N` lists cached messages for one
   inbox.
 - `GET /api/email/messages/:messageId` returns one cached normalized message.
+- `GET /api/healthz` is an unauthenticated liveness probe and only confirms the
+  process can answer HTTP. `GET /api/readyz` is an unauthenticated readiness
+  probe: it returns `200 { status: "ready" }` only when its dependency checks
+  are healthy, otherwise `503 { status: "not_ready", checks }`. Enabled email
+  inboxes participate in readiness; inbox errors fail readiness and unseen or
+  degraded inbox health is reported as not-ready rather than silently healthy.
+- `GET /api/status` remains the detailed operator status payload, including the
+  same checks, connector health, and redacted email inbox health.
 - This is inbound-only in the current implementation. SMTP send/reply,
   threading replies back to providers, and mailbox mutation are not part of the
   shipped surface.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarizeConnectorErrors } from "../status.js";
+import { summarizeConnectorErrors, summarizeEmailReadiness } from "../status.js";
 
 describe("summarizeConnectorErrors", () => {
   it("returns an empty summary when no connector is in error", () => {
@@ -35,5 +35,20 @@ describe("summarizeConnectorErrors", () => {
     });
     expect(result.count).toBe(2);
     expect(result.names).toEqual(["slack", "whatsapp"]);
+  });
+});
+
+describe("summarizeEmailReadiness", () => {
+  it("does not make disabled email a readiness dependency", () => {
+    expect(summarizeEmailReadiness(false, false, [])).toEqual({ status: "ok" });
+  });
+
+  it("reports enabled inbox failures and uninitialized inboxes honestly", () => {
+    expect(summarizeEmailReadiness(true, false, [])).toMatchObject({ status: "error" });
+    expect(summarizeEmailReadiness(true, true, [{ id: "ops", health: { status: "error" } }])).toMatchObject({
+      status: "error",
+      detail: expect.stringContaining("ops"),
+    });
+    expect(summarizeEmailReadiness(true, true, [{ id: "ops" }])).toMatchObject({ status: "degraded" });
   });
 });

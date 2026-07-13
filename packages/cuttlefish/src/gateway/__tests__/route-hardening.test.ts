@@ -525,5 +525,17 @@ describe("GET /api/status", () => {
         expect.objectContaining({ name: "engines", status: "error" }),
       ]),
     });
+
+    const readiness = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/readyz"), readiness.res, statusCtx);
+    expect(readiness.status).toBe(503);
+    expect(readiness.body).toMatchObject({ status: "not_ready" });
+  });
+
+  it("keeps liveness independent from readiness", async () => {
+    const cap = makeRes();
+    await handleApiRequest(makeReq("GET", "/api/healthz"), cap.res, ctx);
+    expect(cap.status).toBe(200);
+    expect(cap.body).toMatchObject({ status: "ok", kind: "liveness" });
   });
 });
