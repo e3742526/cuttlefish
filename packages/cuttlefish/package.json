@@ -36,10 +36,10 @@
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
     "commander": "^13.1.0",
-    "imapflow": "^1.1.1",
+    "imapflow": "^1.4.7",
     "js-yaml": "^4.1.0",
-    "mailparser": "^3.7.5",
-    "node-cron": "^4.5.0",
+    "mailparser": "^3.9.14",
+    "node-cron": "^4.6.0",
     "node-pty": "^1.1.0",
     "qrcode": "^1.5.4",
     "twilio": "6.0.2",
@@ -55,9 +55,9 @@
     "@types/qrcode": "^1.5.6",
     "@types/uuid": "^10.0.0",
     "@types/ws": "^8.5.0",
-    "@vitest/coverage-v8": "^4.1.0",
+    "@vitest/coverage-v8": "^4.1.10",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.10"
   },
   "keywords": [
     "ai",

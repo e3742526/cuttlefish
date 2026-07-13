@@ -28,13 +28,13 @@
     "@eslint/js": "^10.0.1",
     "@next/eslint-plugin-next": "^16.2.10",
     "@playwright/test": "^1.58.2",
-    "eslint": "^10.6.0",
+    "eslint": "^10.7.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
-    "turbo": "^2.10.3",
+    "turbo": "^2.10.4",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.62.1",
+    "typescript-eslint": "^8.63.0",
     "yaml": "^2.9.0"
   },
   "dependencies": {
