@@ -180,6 +180,13 @@ describe("validateCardPatch", () => {
     expect(validateCardPatch({ state: "exploded" }).ok).toBe(false);
   });
 
+  it("rejects unsafe URL-scheme patches while allowing safe link and image URLs", () => {
+    expect(validateCardPatch({ url: "javascript:alert(1)" }).ok).toBe(false);
+    expect(validateCardPatch({ src: "file:///etc/passwd" }).ok).toBe(false);
+    expect(validateCardPatch({ url: "https://example.com/report" }).ok).toBe(true);
+    expect(validateCardPatch({ src: "data:image/png;base64,AA==" }).ok).toBe(true);
+  });
+
   it("rejects malformed nested fields (the post-pass injection vector)", () => {
     expect(validateCardPatch({ details: "nope" }).ok).toBe(false);
     expect(validateCardPatch({ details: [{ k: "A", v: 1 }] }).ok).toBe(false);

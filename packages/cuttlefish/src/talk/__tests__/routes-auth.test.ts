@@ -45,10 +45,10 @@ function session(overrides: Partial<Session> = {}): Session {
   } as Session;
 }
 
-function makeReq(body: unknown): IncomingMessage {
+function makeReq(body: unknown, url = "/api/talk/delegate"): IncomingMessage {
   const req = Readable.from([Buffer.from(JSON.stringify(body))]) as IncomingMessage;
   req.method = "POST";
-  req.url = "/api/talk/delegate";
+  req.url = url;
   req.headers = { host: "localhost" };
   return req;
 }
@@ -147,5 +147,24 @@ describe("handleTalkApi delegate auth", () => {
     expect(cap.status).toBe(403);
     expect(cap.body).toEqual({ error: "Forbidden: session-scoped token cannot target another session" });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsafe URL scheme before broadcasting a Talk card patch", async () => {
+    const cap = makeRes();
+    const emit = vi.fn();
+    const context = { emit, getConfig: () => ({ gateway: { port: 8888 }, engines: { default: "claude" } }) } as any;
+
+    await handleTalkApi(
+      makeReq(
+        { sessionId: "talk-1", cardId: "link-1", patch: { url: "javascript:alert(1)" } },
+        "/api/talk/card/update",
+      ),
+      cap.res,
+      context,
+    );
+
+    expect(cap.status).toBe(400);
+    expect(cap.body.error).toMatch(/patch\.url/);
+    expect(emit).not.toHaveBeenCalled();
   });
 });
