@@ -26,7 +26,7 @@ import {
 import { notifyConnectorNotification, notifyParentSession, notifyRateLimited, notifyRateLimitResumed } from "../sessions/callbacks.js";
 import { markTranscriptSyncedThrough } from "./external-turns.js";
 import { getOrchestratorPersona } from "../talk/orchestrator-persona.js";
-import { buildManagerDelegationPlan, buildManagerDelegationTelemetry, resolveSupervisedNodes } from "../sessions/manager-delegation.js";
+import { buildManagerDelegationPlan, buildManagerDelegationTelemetry, isInitialManagerDelegationTurn, resolveSupervisedNodes } from "../sessions/manager-delegation.js";
 import { feedTalkText, flushTalkSpeech, discardTalkSpeech } from "../talk/tts-stream.js";
 import { isTalkMuted } from "../talk/mute-state.js";
 import { maybeEmitTalkGraph } from "../talk/graph.js";
@@ -993,6 +993,7 @@ async function enforceManagerDelegationIfNeeded(input: {
   const { session, prompt, employee, supervisedNodes, config, context } = input;
   if (!employee || employee.mcp === false || supervisedNodes.length === 0) return false;
   if (isExecutionDepthBlocked(session.transportMeta as Record<string, unknown> | undefined)) return false;
+  if (!isInitialManagerDelegationTurn(getMessages(session.id))) return false;
 
   const promptHash = delegationPromptHash(prompt, input.resourceContext);
   const meta = ((session.transportMeta ?? {}) as Record<string, unknown>);
@@ -1044,7 +1045,7 @@ async function enforceManagerDelegationIfNeeded(input: {
       effortLevel: match.employee.effortLevel,
       title: `Delegated to ${match.employee.displayName}`,
       prompt: match.prompt,
-      promptExcerpt: prompt,
+      promptExcerpt: match.prompt,
       cwd: session.cwd,
       portalName: config.portal?.portalName,
     });
@@ -1089,7 +1090,10 @@ async function enforceManagerDelegationIfNeeded(input: {
   for (const { child, match, engine: childEngine } of delegatedChildren) {
     void context.sessionManager.getQueue().enqueue(child.sessionKey || child.sourceRef, async () => {
       context.emit("session:started", { sessionId: child.id });
-      await runWebSession(child, match.prompt, childEngine, config, context, input.attachments, input.resourceContext);
+      // Delegated children receive only their bounded assignment. Parent files
+      // and resource context can contain manager-only data, so they are never
+      // forwarded implicitly with automatic delegation.
+      await runWebSession(child, match.prompt, childEngine, config, context);
     }).catch((err) => {
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error(`[manager-delegation] delegated child ${child.id} dispatch error: ${errMsg}`);

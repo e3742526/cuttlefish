@@ -318,10 +318,46 @@ describe("dispatchEmployeeSessionRun — review loop", () => {
     const final = hoisted.sessionsById.get(top.id)!;
     expect((final.transportMeta as any).executionPhase).toBe("done");
     expect((final.transportMeta as any).executionChildCount).toBe(1);
+    expect(final.status).toBe("idle");
 
     const completed = emitted.filter((e) => e.event === "session:completed");
     expect(completed.length).toBeGreaterThanOrEqual(1);
     expect(completed[completed.length - 1].payload).toMatchObject({ sessionId: top.id, error: null });
+  });
+
+  it("keeps the parent running until an in-flight reviewer settles", async () => {
+    const top = hoisted.seedTopSession();
+    let reviewerStarted!: () => void;
+    const reviewerStartedPromise = new Promise<void>((resolve) => { reviewerStarted = resolve; });
+    let releaseReviewer!: () => void;
+    const reviewerRelease = new Promise<void>((resolve) => { releaseReviewer = resolve; });
+    hoisted.dispatchWebSessionRunMock
+      .mockImplementationOnce(async (session: FakeSession) => {
+        hoisted.sessionsById.set(session.id, { ...session, status: "idle" });
+        hoisted.messagesById.set(session.id, [{ role: "assistant", content: "implemented" }]);
+      })
+      .mockImplementationOnce(async (session: FakeSession) => {
+        reviewerStarted();
+        await reviewerRelease;
+        hoisted.sessionsById.set(session.id, { ...session, status: "idle" });
+        hoisted.messagesById.set(session.id, [{ role: "assistant", content: approvedVerdict }]);
+      });
+    const emitted: Array<{ event: string; payload: unknown }> = [];
+    const context = makeContext(emitted);
+
+    const run = dispatchEmployeeSessionRun(top as any, "task", fakeEngine(), baseConfig(), context, midPairEmployee());
+    await reviewerStartedPromise;
+
+    const active = hoisted.sessionsById.get(top.id)!;
+    expect(active.status).toBe("running");
+    expect((active.transportMeta as any).executionPhase).toBe("reviewing");
+
+    releaseReviewer();
+    await run;
+
+    const settled = hoisted.sessionsById.get(top.id)!;
+    expect(settled.status).toBe("idle");
+    expect((settled.transportMeta as any).executionPhase).toBe("done");
   });
 
   it("loops a revision pass on changes_requested, then approves — two children spawned beyond the implementer", async () => {

@@ -76,6 +76,9 @@ describe("manager delegation enforcement", () => {
       startTime: Date.now(),
     } as any;
 
+    const managerOnlyMarker = "MANAGER_ONLY_DELEGATION_SENTINEL";
+    const managerOnlyResource = "MANAGER_ONLY_RESOURCE_SENTINEL";
+    const prompt = `Review the bearer token security exposure and summarize the compliance impact. ${managerOnlyMarker}`;
     const parent = reg.createSession({
       engine: "claude",
       source: "web",
@@ -84,17 +87,19 @@ describe("manager delegation enforcement", () => {
       sessionKey: "web:test-parent",
       employee: "parliamentarian",
       model: "opus",
-      prompt: "Review the bearer token security exposure and summarize the compliance impact.",
+      prompt,
       portalName: "Cuttlefish",
     });
-    reg.insertMessage(parent.id, "user", "Review the bearer token security exposure and summarize the compliance impact.");
+    reg.insertMessage(parent.id, "user", prompt);
 
     await runWebSession(
       parent,
-      "Review the bearer token security exposure and summarize the compliance impact.",
+      prompt,
       engines.get("claude")!,
       config,
       context,
+      undefined,
+      managerOnlyResource,
     );
 
     expect(managerRun).not.toHaveBeenCalled();
@@ -105,6 +110,10 @@ describe("manager delegation enforcement", () => {
       parentSessionId: parent.id,
       engine: "codex",
     });
+    const childPrompt = reg.getMessages(children[0].id).find((message) => message.role === "user")?.content ?? "";
+    expect(childPrompt).not.toContain(managerOnlyMarker);
+    expect(childPrompt).not.toContain("Original task:");
+    expect(children[0].promptExcerpt).not.toContain(managerOnlyMarker);
     expect((reg.getSession(parent.id)?.transportMeta as any)?.managerDelegationEnforcement).toMatchObject({
       childSessionIds: [children[0].id],
       completedChildSessionIds: [],
@@ -112,8 +121,59 @@ describe("manager delegation enforcement", () => {
     });
     await waitFor(() => specialistRun.mock.calls.length === 1);
     expect(specialistRun).toHaveBeenCalledTimes(1);
+    expect(specialistRun.mock.calls[0][0].prompt).not.toContain(managerOnlyResource);
+    expect(specialistRun.mock.calls[0][0].systemPrompt).not.toContain(managerOnlyResource);
     expect(reg.getMessages(parent.id).some((message) => message.role === "assistant" && message.content.includes("Delegated specialist work"))).toBe(true);
     expect(events.some((entry) => entry.event === "manager:delegated")).toBe(true);
+  });
+
+  it("does not automatically fan out a later manager message that resembles a child report", async () => {
+    const reg = await import("../../sessions/registry.js");
+    const { runWebSession } = await import("../run-web-session.js");
+
+    const managerRun = vi.fn<Engine["run"]>(async () => ({ result: "handled inline", sessionId: "manager-engine-session" }));
+    const specialistRun = vi.fn<Engine["run"]>(async () => ({ result: "security result", sessionId: "specialist-engine-session" }));
+    const engines = new Map<string, Engine>([
+      ["claude", fakeEngine("claude", managerRun)],
+      ["codex", fakeEngine("codex", specialistRun)],
+    ]);
+    const config = {
+      gateway: { host: "127.0.0.1", port: 8888 },
+      engines: { default: "claude", claude: { bin: "node", model: "opus" }, codex: { bin: "node", model: "gpt-5.5" } },
+      portal: { portalName: "Cuttlefish" },
+    } as unknown as CuttlefishConfig;
+    const context = {
+      getConfig: () => config,
+      connectors: new Map(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine: (name: string) => engines.get(name),
+        getEngines: () => engines,
+        getQueue: () => new SessionQueue(),
+      },
+      startTime: Date.now(),
+    } as any;
+
+    const parent = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:manager-follow-up",
+      connector: "web",
+      sessionKey: "web:manager-follow-up",
+      employee: "parliamentarian",
+      model: "opus",
+      prompt: "Initial inline task",
+      portalName: "Cuttlefish",
+    });
+    reg.insertMessage(parent.id, "user", "Initial inline task");
+    reg.insertMessage(parent.id, "assistant", "Initial inline response");
+    const childLikeMessage = "Security token report from a child: inspect bearer authentication exposure.";
+    reg.insertMessage(parent.id, "user", childLikeMessage);
+
+    await runWebSession(parent, childLikeMessage, engines.get("claude")!, config, context);
+
+    expect(managerRun).toHaveBeenCalledTimes(1);
+    expect(reg.listChildSessions(parent.id)).toHaveLength(0);
   });
 
   it("does not restore an engine resume id from a quietly interrupted turn", async () => {
