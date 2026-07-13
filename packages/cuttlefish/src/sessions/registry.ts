@@ -84,6 +84,11 @@ export {
   type UpdateSessionFields,
 } from './registry/sessions.js';
 export {
+  claimConnectorWebhookReplay,
+  releaseConnectorWebhookReplay,
+  type ClaimConnectorWebhookReplayInput,
+} from './registry/webhook-replay.js';
+export {
   applyBlockEnvelope,
   clearAllPartialMessages,
   deletePartialMessages,

@@ -175,6 +175,22 @@ CREATE INDEX IF NOT EXISTS idx_external_outbox_pending
 ON external_outbox (status, next_attempt_at, created_at)
 `;
 
+export const CREATE_CONNECTOR_WEBHOOK_REPLAY_TABLE = `
+CREATE TABLE IF NOT EXISTS connector_webhook_replay (
+  connector TEXT NOT NULL,
+  key_hash TEXT NOT NULL,
+  claim_id TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL,
+  created_at_ms INTEGER NOT NULL,
+  PRIMARY KEY (connector, key_hash)
+)
+`;
+
+export const CREATE_CONNECTOR_WEBHOOK_REPLAY_EXPIRY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_connector_webhook_replay_expiry
+ON connector_webhook_replay (expires_at_ms)
+`;
+
 export const CREATE_EMAIL_MESSAGES_TABLE = `
 CREATE TABLE IF NOT EXISTS email_messages (
   id TEXT PRIMARY KEY,
@@ -297,6 +313,8 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_EXTERNAL_OUTBOX_TABLE);
   db.exec(CREATE_EXTERNAL_OUTBOX_IDEMPOTENCY_INDEX);
   db.exec(CREATE_EXTERNAL_OUTBOX_PENDING_INDEX);
+  db.exec(CREATE_CONNECTOR_WEBHOOK_REPLAY_TABLE);
+  db.exec(CREATE_CONNECTOR_WEBHOOK_REPLAY_EXPIRY_INDEX);
   db.exec(CREATE_EMAIL_MESSAGES_TABLE);
   try {
     db.exec("ALTER TABLE email_messages ADD COLUMN auth_results TEXT");

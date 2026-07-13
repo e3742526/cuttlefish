@@ -2,7 +2,7 @@ import { Readable } from "node:stream";
 import type http from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import Twilio from "twilio";
-import { TwilioConnector } from "./index.js";
+import { TwilioConnector, type TwilioWebhookReplayStore } from "./index.js";
 import { isUntrustedSource } from "../../sessions/untrusted-input.js";
 
 const config = {
@@ -14,6 +14,24 @@ const env = {
   TWILIO_ACCOUNT_SID: "AC00000000000000000000000000000000",
   TWILIO_AUTH_TOKEN: "twilio-auth-token",
 };
+
+function createReplayStore(): TwilioWebhookReplayStore {
+  const claims = new Map<string, string>();
+  let nextClaim = 0;
+  return {
+    claim: ({ keys }) => {
+      if (keys.some((key) => claims.has(key))) return null;
+      const claimId = `claim-${nextClaim++}`;
+      keys.forEach((key) => claims.set(key, claimId));
+      return claimId;
+    },
+    release: ({ keys, claimId }) => {
+      keys.forEach((key) => {
+        if (claims.get(key) === claimId) claims.delete(key);
+      });
+    },
+  };
+}
 
 function makeRequest(body: string, signature: string): http.IncomingMessage {
   const request = Readable.from([Buffer.from(body)]) as unknown as http.IncomingMessage;
@@ -40,7 +58,7 @@ function makeResponse(): { response: http.ServerResponse; status: () => number |
 describe("TwilioConnector", () => {
   it("accepts a signed allowlisted SMS and routes it once", async () => {
     const client = { messages: { create: vi.fn() } };
-    const connector = new TwilioConnector(config, { env, client });
+    const connector = new TwilioConnector(config, { env, client, replayStore: createReplayStore() });
     const received = vi.fn();
     connector.onMessage(received);
     await connector.start();
@@ -86,6 +104,36 @@ describe("TwilioConnector", () => {
     );
 
     expect(response.status()).toBe(403);
+    expect(received).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when durable replay storage is unavailable", async () => {
+    const connector = new TwilioConnector(config, {
+      env,
+      client: { messages: { create: vi.fn() } },
+      replayStore: {
+        claim: () => { throw new Error("storage unavailable"); },
+        release: () => {},
+      },
+    });
+    const received = vi.fn();
+    connector.onMessage(received);
+    await connector.start();
+
+    const params = {
+      From: "+15557654321",
+      To: "+15551234567",
+      Body: "do not dispatch without replay protection",
+      MessageSid: "SMreplay-store-failure",
+    };
+    const signature = Twilio.getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, config.webhookUrl, params);
+    const response = makeResponse();
+    await connector.handleInboundWebhook(
+      makeRequest(new URLSearchParams(params).toString(), signature),
+      response.response,
+    );
+
+    expect(response.status()).toBe(503);
     expect(received).not.toHaveBeenCalled();
   });
 

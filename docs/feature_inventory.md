@@ -9,6 +9,10 @@
   `allowFrom` numbers and create or continue a sender-scoped session. Inbound
   SMS is treated as untrusted data, screened before it reaches an engine, and
   cannot use its scoped session credential to send automated outbound SMS.
+- Accepted inbound replay keys are stored as hashes in the session registry for
+  24 hours. `MessageSid` is always guarded when available; Twilio's retry
+  idempotency header supplies an additional guard. Generic connector telemetry
+  records outcomes without phone numbers, message text, or provider ids.
 - The webhook does not accept gateway credentials: it requires Twilio's
   `X-Twilio-Signature` validation against the exact configured HTTPS URL and
   returns empty TwiML while Cuttlefish generates its asynchronous SMS reply.

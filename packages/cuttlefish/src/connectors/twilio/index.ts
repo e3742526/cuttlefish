@@ -11,10 +11,12 @@ import type {
 } from "../../shared/types.js";
 import { logger } from "../../shared/logger.js";
 import { BodyTooLargeError, readBody } from "../../gateway/http-helpers.js";
+import { claimConnectorWebhookReplay, releaseConnectorWebhookReplay } from "../../sessions/registry.js";
 import { formatAndChunk } from "../shared/format.js";
 
 const TWILIO_WEBHOOK_MAX_BYTES = 64 * 1024;
 const TWILIO_SMS_MAX_LENGTH = 1600;
+export const TWILIO_WEBHOOK_REPLAY_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
 interface TwilioMessageClient {
@@ -31,6 +33,13 @@ interface TwilioMessageClient {
 export interface TwilioConnectorDeps {
   env?: NodeJS.ProcessEnv;
   client?: TwilioMessageClient;
+  replayStore?: TwilioWebhookReplayStore;
+  now?: () => number;
+}
+
+export interface TwilioWebhookReplayStore {
+  claim(input: { keys: string[]; now: number; ttlMs: number }): string | null;
+  release(input: { keys: string[]; claimId: string }): void;
 }
 
 interface TwilioCredentials {
@@ -67,6 +76,30 @@ function isFormEncoded(contentType: string | undefined): boolean {
   return contentType?.split(";", 1)[0]?.trim().toLowerCase() === "application/x-www-form-urlencoded";
 }
 
+function oneHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function replayKeys(req: http.IncomingMessage, messageSid: string | undefined): { keys: string[]; source: string } | null {
+  const idempotencyToken = oneHeaderValue(req.headers["i-twilio-idempotency-token"]);
+  const keys = [
+    ...(messageSid ? [`message_sid:${messageSid}`] : []),
+    ...(idempotencyToken ? [`idempotency_token:${idempotencyToken}`] : []),
+  ];
+  if (keys.length === 0) return null;
+  const source = messageSid && idempotencyToken
+    ? "message_sid+idempotency_token"
+    : messageSid ? "message_sid" : "idempotency_token";
+  return { keys, source };
+}
+
+const durableReplayStore: TwilioWebhookReplayStore = {
+  claim: ({ keys, now, ttlMs }) => claimConnectorWebhookReplay({ connector: "twilio", keys, now, ttlMs }),
+  release: ({ keys, claimId }) => releaseConnectorWebhookReplay({ connector: "twilio", keys, claimId }),
+};
+
 /**
  * Twilio Programmable Messaging connector. Inbound requests are validated by
  * Twilio's official helper before they can create or continue a session.
@@ -77,7 +110,8 @@ export class TwilioConnector implements Connector {
   private readonly credentials: TwilioCredentials | null;
   private readonly client: TwilioMessageClient | null;
   private readonly allowedSenders: Set<string>;
-  private readonly seenMessageSids = new Set<string>();
+  private readonly replayStore: TwilioWebhookReplayStore;
+  private readonly now: () => number;
   private handler: ((msg: IncomingMessage) => void) | null = null;
   private status: ConnectorHealth["status"] = "stopped";
   private lastError: string | undefined;
@@ -95,6 +129,8 @@ export class TwilioConnector implements Connector {
     this.client = deps.client ?? (this.credentials
       ? Twilio(this.credentials.accountSid, this.credentials.authToken) as unknown as TwilioMessageClient
       : null);
+    this.replayStore = deps.replayStore ?? durableReplayStore;
+    this.now = deps.now ?? Date.now;
     const allowFrom = config.allowFrom === undefined
       ? []
       : Array.isArray(config.allowFrom) ? config.allowFrom : [config.allowFrom];
@@ -122,7 +158,6 @@ export class TwilioConnector implements Connector {
   async stop(): Promise<void> {
     this.status = "stopped";
     this.lastError = undefined;
-    this.seenMessageSids.clear();
     logger.info("Twilio SMS connector stopped");
   }
 
@@ -160,6 +195,7 @@ export class TwilioConnector implements Connector {
 
     try {
       let lastSid: string | undefined;
+      let sentChunks = 0;
       for (const chunk of formatAndChunk(text, TWILIO_SMS_MAX_LENGTH)) {
         if (!chunk.trim()) continue;
         const message = await this.client.messages.create({
@@ -168,10 +204,12 @@ export class TwilioConnector implements Connector {
           ...(from ? { from } : { messagingServiceSid: this.config.messagingServiceSid! }),
         });
         lastSid = message.sid;
+        sentChunks += 1;
       }
+      logger.info(`twilio_sms outcome=sent chunks=${sentChunks}`);
       return lastSid;
-    } catch (err) {
-      logger.error(`Twilio SMS send failed: ${err instanceof Error ? err.message : String(err)}`);
+    } catch {
+      logger.error("twilio_sms outcome=send_failed");
       return undefined;
     }
   }
@@ -186,10 +224,12 @@ export class TwilioConnector implements Connector {
 
   async handleInboundWebhook(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     if (this.status !== "running" || !this.credentials) {
+      logger.warn("twilio_webhook outcome=rejected reason=connector_not_running");
       writeTwiML(res, 503);
       return;
     }
     if (!isFormEncoded(req.headers["content-type"])) {
+      logger.warn("twilio_webhook outcome=rejected reason=unsupported_content_type");
       writeTwiML(res, 415);
       return;
     }
@@ -198,6 +238,7 @@ export class TwilioConnector implements Connector {
     try {
       raw = await readBody(req, { maxBytes: TWILIO_WEBHOOK_MAX_BYTES });
     } catch (err) {
+      logger.warn(`twilio_webhook outcome=rejected reason=${err instanceof BodyTooLargeError ? "body_too_large" : "body_read_failed"}`);
       writeTwiML(res, err instanceof BodyTooLargeError ? 413 : 400);
       return;
     }
@@ -211,7 +252,7 @@ export class TwilioConnector implements Connector {
       validSignature = false;
     }
     if (!validSignature || !params) {
-      logger.warn("Rejected an invalid Twilio SMS webhook signature or payload");
+      logger.warn("twilio_webhook outcome=rejected reason=invalid_signature_or_payload");
       writeTwiML(res, 403);
       return;
     }
@@ -220,43 +261,71 @@ export class TwilioConnector implements Connector {
     const to = params.To?.trim();
     const text = params.Body?.trim();
     const messageSid = params.MessageSid?.trim();
-    if (!from || !to || !text || !this.handler) {
+    const handler = this.handler;
+    if (!from || !to || !text || !handler) {
+      logger.warn(`twilio_webhook outcome=rejected reason=${handler ? "missing_message_fields" : "no_handler"}`);
       writeTwiML(res);
       return;
     }
     if (this.config.fromNumber && to !== this.config.fromNumber) {
-      logger.warn("Ignored Twilio SMS webhook for an unconfigured destination number");
+      logger.warn("twilio_webhook outcome=rejected reason=destination_mismatch");
       writeTwiML(res);
       return;
     }
     if (!this.allowedSenders.has(from)) {
-      logger.warn("Ignored Twilio SMS webhook from a sender outside allowFrom");
+      logger.warn("twilio_webhook outcome=rejected reason=sender_not_allowlisted");
       writeTwiML(res);
       return;
     }
-    if (messageSid && this.seenMessageSids.has(messageSid)) {
+    const replay = replayKeys(req, messageSid);
+    let claimId: string | null | undefined;
+    if (replay) {
+      try {
+        claimId = this.replayStore.claim({
+          keys: replay.keys,
+          now: this.now(),
+          ttlMs: TWILIO_WEBHOOK_REPLAY_TTL_MS,
+        });
+      } catch {
+        logger.error("twilio_webhook outcome=replay_store_failed");
+        writeTwiML(res, 503);
+        return;
+      }
+    }
+    if (replay && !claimId) {
+      logger.info(`twilio_webhook outcome=duplicate_suppressed replay_key=${replay.source}`);
       writeTwiML(res);
       return;
-    }
-    if (messageSid) {
-      this.seenMessageSids.add(messageSid);
-      if (this.seenMessageSids.size > 1_000) this.seenMessageSids.delete(this.seenMessageSids.values().next().value!);
     }
 
-    this.handler({
-      connector: "twilio",
-      source: "twilio",
-      sessionKey: `twilio:${from}`,
-      replyContext: { channel: from, from: to, messageSid: messageSid ?? null },
-      messageId: messageSid || undefined,
-      channel: from,
-      user: from,
-      userId: from,
-      text,
-      attachments: [],
-      raw: params,
-      transportMeta: { from, to, messageSid: messageSid ?? null },
-    });
+    try {
+      handler({
+        connector: "twilio",
+        source: "twilio",
+        sessionKey: `twilio:${from}`,
+        replyContext: { channel: from, from: to, messageSid: messageSid ?? null },
+        messageId: messageSid || undefined,
+        channel: from,
+        user: from,
+        userId: from,
+        text,
+        attachments: [],
+        raw: params,
+        transportMeta: { from, to, messageSid: messageSid ?? null },
+      });
+    } catch {
+      if (replay && claimId) {
+        try {
+          this.replayStore.release({ keys: replay.keys, claimId });
+        } catch {
+          logger.error("twilio_webhook outcome=replay_release_failed");
+        }
+      }
+      logger.error("twilio_webhook outcome=dispatch_failed");
+      writeTwiML(res, 500);
+      return;
+    }
+    logger.info(`twilio_webhook outcome=accepted replay_key=${replay?.source ?? "none"}`);
     writeTwiML(res);
   }
 }

@@ -57,7 +57,11 @@ outbound SMS send endpoint; completed-turn replies continue through the
 gateway's centralized redaction and delivery path. Cuttlefish returns empty
 TwiML immediately; the connector response is sent later through the Messages
 API. Unsigned, oversized, duplicate, and non-allowlisted requests do not reach
-an agent.
+an agent. Duplicate suppression is durable across daemon restarts for 24 hours:
+it always uses `MessageSid` when present and also records Twilio's
+`I-Twilio-Idempotency-Token` when supplied. Only hashes of those identifiers are
+stored. Gateway logs record generic Twilio outcomes without phone numbers or
+SMS text.
 
 Use a real TLS certificate for public deployments. Twilio's official guides cover
 [sending SMS](https://www.twilio.com/docs/messaging/quickstart),
