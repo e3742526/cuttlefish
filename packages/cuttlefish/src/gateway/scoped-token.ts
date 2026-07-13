@@ -46,9 +46,11 @@ export function verifyScopedSessionToken(token: string, secret: string, now = Da
 
 /**
  * Routes a session-scoped (agent) token must NOT reach — the operator control
- * plane. Agents keep the endpoints they legitimately need (spawn/message/read
- * sessions, scoped connector send, read org/email/status, push attachments).
- * Deny list (vs allow list) is deliberate for the "contained" scope.
+ * plane and any operator-wide data collection. Agents keep only the endpoints
+ * they legitimately need (spawn/message their own sessions, scoped connector
+ * send, read the org roster/status, and push attachments). Collection routes
+ * are deliberately denied here even when their HTTP verb is GET: a scoped token
+ * is an agent capability, not permission to enumerate the operator's state.
  */
 export function scopedTokenForbidden(method: string | undefined, rawPathname: string): boolean {
   const m = (method || "GET").toUpperCase();
@@ -75,13 +77,13 @@ export function scopedTokenForbidden(method: string | undefined, rawPathname: st
   if (pathname === "/api/talk/engine" && m !== "GET") return true;
   // Org roster is readable; mutations (create/rename/rank/cliFlags/delete) are not.
   if ((pathname === "/api/org" || pathname.startsWith("/api/org/")) && m !== "GET") return true;
-  // Human-oversight control plane: an agent must never approve its own security
-  // checkpoint / fallback / org-change approval, nor drive scheduling. Reads stay
-  // open (an agent may poll its own pending approval); writes are operator-only.
-  if ((pathname === "/api/approvals" || pathname.startsWith("/api/approvals/")) && m !== "GET") return true;
-  if ((pathname === "/api/checkpoints" || pathname.startsWith("/api/checkpoints/")) && m !== "GET") return true;
-  if ((pathname === "/api/cron" || pathname.startsWith("/api/cron/")) && m !== "GET") return true;
-  if ((pathname === "/api/orchestration" || pathname.startsWith("/api/orchestration/")) && m !== "GET") return true;
+  // Human-oversight, scheduling, and orchestration reads are global collections;
+  // unlike a per-session resource, these handlers have no owner binding. Deny
+  // both reads and writes until an endpoint can prove it is scoped to this token.
+  if (pathname === "/api/approvals" || pathname.startsWith("/api/approvals/")) return true;
+  if (pathname === "/api/checkpoints" || pathname.startsWith("/api/checkpoints/")) return true;
+  if (pathname === "/api/cron" || pathname.startsWith("/api/cron/")) return true;
+  if (pathname === "/api/orchestration" || pathname.startsWith("/api/orchestration/")) return true;
   // Operator onboarding writes operator-level config (see routes/system.ts) — an
   // agent token must not reach it, same rationale as /api/config and /api/system.
   if (pathname === "/api/onboarding" || pathname.startsWith("/api/onboarding/")) return true;
@@ -90,15 +92,30 @@ export function scopedTokenForbidden(method: string | undefined, rawPathname: st
   // session-scoped agent token is denied it outright (a single agent may still
   // delete its own session via DELETE /api/sessions/<its-own-id>).
   if (pathname === "/api/sessions/bulk-delete" || pathname === "/api/sessions/cancel-all") return true;
+  // These routes return operator-wide messages, artifacts, integration data, or
+  // machine topology. They cannot be made safe by the :id URL confinement gate,
+  // so session tokens never need them. Keep this explicit list next to the
+  // control-plane policy and add a route-level test whenever a global read is
+  // introduced.
+  if (pathname === "/api/sessions/interrupted") return true;
+  if (pathname === "/api/talk/search") return true;
+  if (pathname === "/api/email" || pathname.startsWith("/api/email/")) return true;
+  if (pathname === "/api/artifacts" || pathname.startsWith("/api/artifacts/")) return true;
+  if (pathname === "/api/knowledge" || pathname.startsWith("/api/knowledge/")) return true;
+  if (pathname === "/api/fs" || pathname.startsWith("/api/fs/")) return true;
+  if (pathname === "/api/inspect" || pathname.startsWith("/api/inspect/")) return true;
+  if (pathname === "/api/activity" || pathname === "/api/work" || pathname === "/api/command-center") return true;
+  if (pathname === "/api/workspace-profiles") return true;
+  if (pathname === "/api/connectors" || pathname === "/api/connectors/whatsapp/qr") return true;
   return false;
 }
 
 /**
- * Cross-session collection / artifact routes a session-scoped (agent) token must
- * NOT reach (AR-01). Distinct from the two gates above: `scopedTokenForbidden`
- * guards the operator control plane and `scopedTokenSessionMismatch` confines an
- * agent to *its own* `:id` in the URL. These routes are neither — they return
- * GLOBAL, unfiltered data that is not keyed to any session:
+ * Cross-session session/file routes a session-scoped (agent) token must NOT
+ * reach (AR-01). Distinct from the broader control-plane/global policy above:
+ * `scopedTokenSessionMismatch` confines an agent to *its own* `:id` in the URL.
+ * These routes are neither — they return GLOBAL, unfiltered data that is not
+ * keyed to any session:
  *   - `GET /api/sessions` — the whole session roster and its `?q=` full-text search.
  *   - `GET /api/files` — the entire managed-file registry.
  *   - `GET|DELETE /api/files/:id` and `GET /api/files/:id/meta` — arbitrary opaque

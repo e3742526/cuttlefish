@@ -155,6 +155,28 @@ describe("run attachment normalization", () => {
     expect(dispatch.blocked).toBe(true);
   });
 
+  it("withholds unsupported binary files instead of handing their paths to an engine", async () => {
+    const binaryPath = path.join(tmpHome, "untrusted.pdf");
+    fs.writeFileSync(binaryPath, Buffer.from("%PDF hostile bytes"));
+    const session = reg.createSession({
+      engine: "claude",
+      source: "email",
+      sourceRef: "email:binary-test",
+      connector: "email",
+      sessionKey: "binary-screening-test",
+      prompt: "Review the attachment",
+      portalName: "Cuttlefish",
+    });
+
+    const resolved = await attachments.resolveIncomingRunAttachments([{ path: binaryPath }], makeCtx());
+    const screened = await attachments.screenRunAttachmentsForSession(session, resolved, makeCtx(), "Review the attachment");
+    const dispatch = attachments.buildResolvedRunAttachments(screened);
+
+    expect(screened[0].contentScreening?.action).toBe("checkpoint");
+    expect(dispatch.blocked).toBe(true);
+    expect(dispatch.engineAttachments).toEqual([]);
+  });
+
   it("lets skill files pass unless they contain destructive/exfiltration instructions", async () => {
     // Skill-file trust now comes from provenance (audit D-F3): the files must live
     // under an operator-provisioned skills root, not merely be named skill.md.

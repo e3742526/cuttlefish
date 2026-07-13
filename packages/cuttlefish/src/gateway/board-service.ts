@@ -451,6 +451,12 @@ export interface WriteMergedBoardPartialResult {
   rejected: RejectedBoardTicket[];
 }
 
+export interface BoardTicketArchiveResult {
+  boardsUpdated: number;
+  ticketsArchived: number;
+  departments: string[];
+}
+
 export function writeMergedBoardPartial(
   orgDir: string,
   department: string,
@@ -475,6 +481,83 @@ export function writeMergedBoardPartial(
   }));
   verifyBoardWrite(file, mergedTickets);
   return { written: mergedTickets, rejected };
+}
+
+/**
+ * Move matching tickets to each board's recycle bin without revalidating the
+ * unrelated tickets that share that board. Lifecycle cleanup uses this after a
+ * session or employee has already been removed, so it can repair an old
+ * dangling reference even when that reference would fail a normal board save.
+ */
+function archiveBoardTickets(
+  orgDir: string,
+  matches: (ticket: BoardTicket) => boolean,
+): BoardTicketArchiveResult {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(orgDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { boardsUpdated: 0, ticketsArchived: 0, departments: [] };
+    }
+    throw err;
+  }
+
+  let boardsUpdated = 0;
+  let ticketsArchived = 0;
+  const departments: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const department = entry.name;
+    const file = boardPath(orgDir, department);
+    if (!fs.existsSync(file)) continue;
+    assertBoardNotLocked(file);
+    const current = readBoardState(orgDir, department);
+    if (!current) continue;
+    const deletedIds = new Set(current.tickets.filter(matches).map((ticket) => ticket.id));
+    if (deletedIds.size === 0) continue;
+
+    const tickets = current.tickets.filter((ticket) => !deletedIds.has(ticket.id));
+    const deletedTickets = pruneDeletedTickets(
+      mergeDeletedTickets(current, tickets, deletedIds, new Date().toISOString()),
+      current.retentionDays,
+    );
+    safeWriteFile(file, serializeBoardState({
+      tickets,
+      deletedTickets,
+      retentionDays: current.retentionDays,
+    }));
+    verifyBoardWrite(file, tickets);
+    boardsUpdated++;
+    ticketsArchived += deletedIds.size;
+    departments.push(department);
+  }
+  return { boardsUpdated, ticketsArchived, departments };
+}
+
+/** Archive session-created tickets when their backing gateway sessions are deleted. */
+export function archiveSessionBoardTickets(
+  orgDir: string,
+  sessionIds: Iterable<string>,
+): BoardTicketArchiveResult {
+  const ids = new Set([...sessionIds].filter((id) => id.trim()));
+  if (ids.size === 0) return { boardsUpdated: 0, ticketsArchived: 0, departments: [] };
+  return archiveBoardTickets(orgDir, (ticket) => {
+    if (ticket.source !== "session") return false;
+    const sessionId = typeof ticket.sessionId === "string" ? ticket.sessionId.trim() : "";
+    if (sessionId && ids.has(sessionId)) return true;
+    return ticket.id.startsWith("session-") && ids.has(ticket.id.slice("session-".length));
+  });
+}
+
+/** Archive tickets assigned to an employee when that employee is removed. */
+export function archiveEmployeeBoardTickets(
+  orgDir: string,
+  employeeName: string,
+): BoardTicketArchiveResult {
+  const name = employeeName.trim();
+  if (!name) return { boardsUpdated: 0, ticketsArchived: 0, departments: [] };
+  return archiveBoardTickets(orgDir, (ticket) => ticket.assignee === name);
 }
 
 export function writeBoardTickets(orgDir: string, department: string, tickets: BoardTicket[]): void {

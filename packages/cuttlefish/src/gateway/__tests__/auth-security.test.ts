@@ -54,6 +54,7 @@ describe("gateway auth", () => {
   it("does not require gateway bearer auth for loopback hook relay endpoint", () => {
     expect(authRequiredForRequest("POST", "/api/internal/hook")).toBe(false);
     expect(authRequiredForRequest("GET", "/api/internal/hook")).toBe(true);
+    expect(authRequiredForRequest("GET", "/api/readyz")).toBe(false);
   });
 
   it("requires auth for remote/network exposure but not default loopback unless explicitly enabled", () => {

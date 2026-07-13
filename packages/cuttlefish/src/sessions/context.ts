@@ -508,10 +508,10 @@ function buildConfigContext(config: CuttlefishConfig, gatewayUrl: string, sessio
   }
   if (config.email?.enabled && config.email.inboxes && config.email.inboxes.length > 0) {
     lines.push(`- Email inboxes: ${config.email.inboxes.map((inbox) => inbox.id).join(", ")}`);
-    lines.push(`- Inspect inboxes via \`GET ${gatewayUrl}/api/email/inboxes\`, \`POST ${gatewayUrl}/api/email/inboxes/<id>/check\`, \`GET ${gatewayUrl}/api/email/inboxes/<id>/messages?limit=N\`, and \`GET ${gatewayUrl}/api/email/messages/<messageId>\`.`);
     if (sessionToken) {
-      lines.push(`- Authenticate these requests with your session token (see the Gateway API section): \`Authorization: Bearer <your session token>\`.`);
+      lines.push(`- Inbox inspection and manual polling are operator-only; do not use your session token for email APIs.`);
     } else {
+      lines.push(`- Inspect inboxes via \`GET ${gatewayUrl}/api/email/inboxes\`, \`POST ${gatewayUrl}/api/email/inboxes/<id>/check\`, \`GET ${gatewayUrl}/api/email/inboxes/<id>/messages?limit=N\`, and \`GET ${gatewayUrl}/api/email/messages/<messageId>\`.`);
       lines.push(`- If gateway auth is enabled, read the bearer token from \`~/.cuttlefish/gateway.json\` and send \`Authorization: Bearer <token>\` with those requests.`);
     }
   }

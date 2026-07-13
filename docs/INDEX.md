@@ -47,10 +47,19 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/logs/session/072026/2026-07-12-agent-skills-audit-sweep.md`:
+  extended current-branch MCP agent-skills audit summary; records ten confirmed
+  baseline residuals, their local repair closure, and static-only UI/Giles limits.
+- `docs/logs/session/072026/2026-07-12-agent-skills-defect-repair-campaign.md`:
+  governed eight-stage repair record for all ten findings, including final
+  regression evidence and local commit references.
 - `docs/logs/session/072026/2026-07-12-twenty-scenario-live-playtest.md`:
   July 2026 live playtest summary — twenty gateway scenarios covering solo,
   review, failover, Grok recovery, and manager delegation; durable findings and
   repair plan are kept in the paired local audit record.
+- `docs/logs/session/072026/2026-07-12-twenty-scenario-defect-repair.md`:
+  repair-campaign record for the delegation-scope and review-lifecycle findings
+  from that playtest.
 - `docs/logs/session/062026-session-summary.md`: June 2026 durable session summary —
   multi-role execution, security hardening, kanban improvements, Qdrant, email,
   orchestration, and D1–D8 defect repair campaign (model alias, crash masking, UI fixes).

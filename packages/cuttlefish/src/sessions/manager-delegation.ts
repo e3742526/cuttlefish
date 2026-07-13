@@ -4,7 +4,8 @@ import { getAllParents } from "../gateway/org-hierarchy.js";
 const MAX_ROSTER_LINES = 8;
 const PERSONA_EXCERPT_CHARS = 120;
 const MAX_ENFORCED_DELEGATIONS = 3;
-const MIN_MATCH_SCORE = 3;
+const MIN_SPECIALTY_MATCHES = 2;
+const EXPLICIT_REPORT_MATCH_SCORE = 100;
 
 const STOPWORDS = new Set([
   "about", "above", "after", "agent", "also", "and", "any", "are", "ask", "can",
@@ -66,6 +67,19 @@ export interface ManagerDelegationPlan {
   enforced: boolean;
   reason: string;
   matches: ManagerDelegationMatch[];
+}
+
+/**
+ * Automatic delegation is intentionally limited to the first task turn.
+ *
+ * The local control plane can receive an arbitrary later message from a child
+ * or another loopback caller without an authenticated message-origin field.
+ * Once a manager has responded or received a notification, it can still
+ * delegate explicitly, but the gateway must not reinterpret that content as a
+ * new operator task and fan it out automatically.
+ */
+export function isInitialManagerDelegationTurn(messages: ReadonlyArray<{ role: string }>): boolean {
+  return !messages.some((message) => message.role === "assistant" || message.role === "notification");
 }
 
 export function resolveSupervisedNodes(employeeName: string | undefined, hierarchy?: OrgHierarchy, node?: OrgNode): OrgNode[] {
@@ -138,7 +152,7 @@ export function buildManagerDelegationPlan(input: {
 
   const matches = input.supervisedNodes
     .map((node) => scoreReportMatch(node.employee, prompt, promptTokens, input.manager))
-    .filter((match): match is ManagerDelegationMatch => !!match && match.score >= MIN_MATCH_SCORE)
+    .filter((match): match is ManagerDelegationMatch => !!match)
     .sort((a, b) => b.score - a.score || a.employee.name.localeCompare(b.employee.name))
     .slice(0, MAX_ENFORCED_DELEGATIONS);
 
@@ -323,54 +337,56 @@ function scoreReportMatch(
   promptTokens: Set<string>,
   manager: Employee,
 ): ManagerDelegationMatch | null {
-  const identityText = [
-    employee.name,
-    employee.displayName,
-    employee.department,
-  ].join(" ");
-  const identityTokens = expandAliases(tokenize(identityText));
   const personaTokens = expandAliases(tokenize(employee.persona));
   const managerTokens = expandAliases(tokenize(`${manager.name} ${manager.displayName} ${manager.department} ${manager.persona}`));
-
-  let score = 0;
-  const matched = new Set<string>();
+  const matchedSpecialties = new Set<string>();
   for (const token of promptTokens) {
-    if (identityTokens.has(token)) {
-      score += 3;
-      matched.add(token);
-      continue;
-    }
     if (personaTokens.has(token) && !managerTokens.has(token)) {
-      score += 1;
-      matched.add(token);
+      matchedSpecialties.add(token);
     }
   }
 
-  const explicitName = employee.name && prompt.toLowerCase().includes(employee.name.toLowerCase());
-  if (explicitName) score += 6;
-  if (score < MIN_MATCH_SCORE) return null;
+  const explicitlyRequested = hasExplicitReportReference(employee, prompt);
+  if (!explicitlyRequested && matchedSpecialties.size < MIN_SPECIALTY_MATCHES) return null;
+  const matchedKeywords = [...matchedSpecialties].sort();
 
   return {
     employee,
-    score,
-    matchedKeywords: [...matched].sort(),
-    prompt: buildDelegatedPrompt(manager, employee, prompt, [...matched].sort()),
+    score: (explicitlyRequested ? EXPLICIT_REPORT_MATCH_SCORE : 0) + matchedKeywords.length,
+    matchedKeywords,
+    prompt: buildDelegatedPrompt(manager, employee, matchedKeywords, explicitlyRequested),
   };
 }
 
-function buildDelegatedPrompt(manager: Employee, employee: Employee, originalPrompt: string, matchedKeywords: string[]): string {
+function buildDelegatedPrompt(
+  manager: Employee,
+  employee: Employee,
+  matchedKeywords: string[],
+  explicitlyRequested: boolean,
+): string {
   const keywordLine = matchedKeywords.length > 0
-    ? `Matched specialty keywords: ${matchedKeywords.join(", ")}.`
-    : "Matched by direct report specialty.";
+    ? `Assigned specialty signals: ${matchedKeywords.join(", ")}.`
+    : explicitlyRequested
+      ? "You were explicitly selected for your specialist role."
+      : "Use only your specialist role to assess this assignment.";
   return [
-    `Your manager ${manager.displayName} (\`${manager.name}\`) delegated the specialist slice of this task to you.`,
+    `Your manager ${manager.displayName} (\`${manager.name}\`) delegated a bounded specialist assignment to you.`,
     keywordLine,
     "",
-    "Focus only on the part of the task that fits your specialty. Do not take over unrelated domains. Return concise findings, risks, and recommended next steps for your manager to synthesize.",
-    "",
-    "Original task:",
-    originalPrompt,
+    "You have not been given the manager's full request or its attached resources. Focus only on your specialty; do not infer unrelated workstreams or request sibling context. If the bounded assignment lacks required facts, name the specific missing facts in your concise findings, risks, and recommended next steps for the manager to synthesize.",
   ].join("\n");
+}
+
+function hasExplicitReportReference(employee: Employee, prompt: string): boolean {
+  const normalizedPrompt = ` ${normalizeReference(prompt)} `;
+  return [employee.name, employee.displayName]
+    .map(normalizeReference)
+    .filter((reference) => reference.length > 0)
+    .some((reference) => normalizedPrompt.includes(` ${reference} `));
+}
+
+function normalizeReference(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function tokenize(text: string): Set<string> {

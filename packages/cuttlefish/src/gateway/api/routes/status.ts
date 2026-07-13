@@ -16,6 +16,13 @@ import { json } from "../responses.js";
 import { isSessionLiveRunning } from "../serialize-session.js";
 
 type CommandCenterRangeKey = "day" | "week" | "month";
+type HealthCheckStatus = "ok" | "degraded" | "error";
+
+interface HealthCheck {
+  name: string;
+  status: HealthCheckStatus;
+  detail?: string;
+}
 
 interface CommandCenterUsageBucket {
   range: CommandCenterRangeKey;
@@ -192,6 +199,126 @@ export function summarizeConnectorErrors(
   return { count: errors.length, names: errors.map(([name]) => name) };
 }
 
+export function summarizeEmailReadiness(
+  enabled: boolean,
+  serviceAvailable: boolean,
+  inboxes: Array<{ id: string; health?: { status: "idle" | "ok" | "degraded" | "error"; detail?: string | null } }>,
+): { status: HealthCheckStatus; detail?: string } {
+  if (!enabled) return { status: "ok" };
+  if (!serviceAvailable) return { status: "error", detail: "email is enabled but its service is unavailable" };
+  if (inboxes.length === 0) return { status: "error", detail: "email is enabled but no inboxes are configured" };
+  const errors = inboxes.filter((inbox) => inbox.health?.status === "error");
+  if (errors.length > 0) return { status: "error", detail: `email inbox error: ${errors.map((inbox) => inbox.id).join(", ")}` };
+  const pending = inboxes.filter((inbox) => !inbox.health || inbox.health.status === "idle" || inbox.health.status === "degraded");
+  if (pending.length > 0) return { status: "degraded", detail: `email inbox not healthy: ${pending.map((inbox) => inbox.id).join(", ")}` };
+  return { status: "ok" };
+}
+
+function overallCheckStatus(checks: HealthCheck[]): HealthCheckStatus {
+  if (checks.some((check) => check.status === "error")) return "error";
+  if (checks.some((check) => check.status === "degraded")) return "degraded";
+  return "ok";
+}
+
+function buildHealthSnapshot(context: ApiContext) {
+  const config = context.getConfig();
+  const checks: HealthCheck[] = [];
+  let sessions = [] as ReturnType<typeof listSessions>;
+  let running = 0;
+  try {
+    sessions = listSessions();
+    running = sessions.filter((session) => isSessionLiveRunning(session, context)).length;
+    checks.push({ name: "sessions_db", status: "ok" });
+  } catch (err) {
+    checks.push({ name: "sessions_db", status: "error", detail: err instanceof Error ? err.message : String(err) });
+  }
+
+  const connectors: Record<string, { status: string; detail?: string } | null> = {};
+  for (const connector of context.connectors.values()) {
+    try {
+      connectors[connector.name] = connector.getHealth();
+    } catch (err) {
+      connectors[connector.name] = { status: "error", detail: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  const connectorErrors = summarizeConnectorErrors(connectors);
+  checks.push({
+    name: "connectors",
+    status: connectorErrors.count > 0 ? "degraded" : "ok",
+    ...(connectorErrors.count > 0
+      ? { detail: `${connectorErrors.count} connector(s) reporting error: ${connectorErrors.names.join(", ")}` }
+      : {}),
+  });
+
+  const registry = getModelRegistry(config);
+  const availableEngines = Object.values(registry).filter((entry) => entry.available);
+  const defaultEngine = registry[config.engines.default];
+  checks.push({
+    name: "engines",
+    status: availableEngines.length === 0 ? "error" : defaultEngine?.available === false ? "degraded" : "ok",
+    ...(availableEngines.length === 0
+      ? { detail: "No engines are available" }
+      : defaultEngine?.available === false
+        ? { detail: `Default engine ${config.engines.default} is unavailable` }
+        : {}),
+  });
+
+  if (config.orchestration?.enabled === true) {
+    const runtime = context.orchestration?.runtime;
+    if (!runtime) {
+      checks.push({ name: "orchestration", status: "error", detail: "orchestration is enabled but its runtime is unavailable" });
+    } else {
+      try {
+        runtime.hasActiveWork();
+        checks.push({ name: "orchestration", status: "ok" });
+      } catch (err) {
+        checks.push({ name: "orchestration", status: "error", detail: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+
+  let emailInboxes = [] as ReturnType<NonNullable<ApiContext["emailService"]>["listInboxes"]>;
+  let emailServiceAvailable = Boolean(context.emailService);
+  try {
+    emailInboxes = context.emailService?.listInboxes() ?? [];
+  } catch (err) {
+    emailServiceAvailable = false;
+    if (config.email?.enabled === true) {
+      checks.push({ name: "email", status: "error", detail: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  if (config.email?.enabled === true && !checks.some((check) => check.name === "email")) {
+    const email = summarizeEmailReadiness(true, emailServiceAvailable, emailInboxes);
+    checks.push({ name: "email", ...email });
+  }
+
+  const health = getProcessHealth();
+  if (health.uncaughtExceptions > 0) {
+    checks.push({
+      name: "process_stability",
+      status: "degraded",
+      detail: `${health.uncaughtExceptions} uncaught exception(s) since start; last: ${health.lastUncaughtMessage ?? "unknown"}`,
+    });
+  } else if (health.droppedNotifications > 0) {
+    checks.push({
+      name: "process_stability",
+      status: "degraded",
+      detail: `${health.droppedNotifications} operator notification(s) dropped; last reason: ${health.lastDroppedNotificationReason ?? "unknown"}`,
+    });
+  }
+
+  return {
+    config,
+    checks,
+    sessions,
+    running,
+    connectors,
+    emailInboxes,
+    registry,
+    overall: overallCheckStatus(checks),
+  };
+}
+
 function checkInstanceHealth(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const req = http.request({ hostname: "localhost", port, path: "/api/healthz", timeout: 2000 }, (res) => {
@@ -216,7 +343,17 @@ export async function handleStatusRoutes(
   context: ApiContext,
 ): Promise<boolean> {
   if (method === "GET" && pathname === "/api/healthz") {
-    json(res, { status: "ok", uptime: process.uptime() });
+    json(res, { status: "ok", kind: "liveness", uptime: process.uptime() });
+    return true;
+  }
+  if (method === "GET" && pathname === "/api/readyz") {
+    const snapshot = buildHealthSnapshot(context);
+    const ready = snapshot.overall === "ok";
+    json(res, {
+      status: ready ? "ready" : "not_ready",
+      checks: snapshot.checks,
+      uptime: Math.floor((Date.now() - context.startTime) / 1000),
+    }, ready ? 200 : 503);
     return true;
   }
   if (method === "GET" && pathname === "/api/workspace-profiles") {
@@ -224,100 +361,26 @@ export async function handleStatusRoutes(
     return true;
   }
   if (method === "GET" && pathname === "/api/status") {
-    const config = context.getConfig();
-    const checks: Array<{ name: string; status: "ok" | "degraded" | "error"; detail?: string }> = [];
-    let sessions = [] as ReturnType<typeof listSessions>;
-    let running = 0;
-    try {
-      sessions = listSessions();
-      running = sessions.filter((session) => isSessionLiveRunning(session, context)).length;
-      checks.push({ name: "sessions_db", status: "ok" });
-    } catch (err) {
-      checks.push({ name: "sessions_db", status: "error", detail: err instanceof Error ? err.message : String(err) });
-    }
-    const connectors = Object.fromEntries(
-      Array.from(context.connectors.values()).map((connector) => [connector.name, connector.getHealth()]),
-    );
-    const emailInboxes = context.emailService?.listInboxes() ?? [];
-    const connectorErrors = summarizeConnectorErrors(connectors);
-    checks.push({
-      name: "connectors",
-      status: connectorErrors.count > 0 ? "degraded" : "ok",
-      ...(connectorErrors.count > 0
-        ? { detail: `${connectorErrors.count} connector(s) reporting error: ${connectorErrors.names.join(", ")}` }
-        : {}),
-    });
-    const registry = getModelRegistry(config);
-    const availableEngines = Object.values(registry).filter((entry) => entry.available);
-    const defaultEngine = registry[config.engines.default];
-    checks.push({
-      name: "engines",
-      status: availableEngines.length === 0 ? "error" : defaultEngine?.available === false ? "degraded" : "ok",
-      ...(availableEngines.length === 0
-        ? { detail: "No engines are available" }
-        : defaultEngine?.available === false
-          ? { detail: `Default engine ${config.engines.default} is unavailable` }
-          : {}),
-    });
-    // Audit H1: the health surface previously never observed the orchestration
-    // runtime, so `/api/status` stayed green while every orchestration-backed
-    // dispatch failed with a 409. Probe it when orchestration is enabled.
-    if (config.orchestration?.enabled === true) {
-      const runtime = context.orchestration?.runtime;
-      if (!runtime) {
-        checks.push({ name: "orchestration", status: "error", detail: "orchestration is enabled but its runtime is unavailable" });
-      } else {
-        try {
-          runtime.hasActiveWork();
-          checks.push({ name: "orchestration", status: "ok" });
-        } catch (err) {
-          checks.push({ name: "orchestration", status: "error", detail: err instanceof Error ? err.message : String(err) });
-        }
-      }
-    }
-
-    // Audit E1/H1: after an uncaught exception Node's state is undefined, so the
-    // daemon (kept alive by design) must not report a clean healthy status.
-    // Dropped operator notifications (E7) also surface here as degraded.
-    const health = getProcessHealth();
-    if (health.uncaughtExceptions > 0) {
-      checks.push({
-        name: "process_stability",
-        status: "degraded",
-        detail: `${health.uncaughtExceptions} uncaught exception(s) since start; last: ${health.lastUncaughtMessage ?? "unknown"}`,
-      });
-    } else if (health.droppedNotifications > 0) {
-      checks.push({
-        name: "process_stability",
-        status: "degraded",
-        detail: `${health.droppedNotifications} operator notification(s) dropped; last reason: ${health.lastDroppedNotificationReason ?? "unknown"}`,
-      });
-    }
-
-    const overall: "ok" | "degraded" | "error" = checks.some((check) => check.status === "error")
-      ? "error"
-      : checks.some((check) => check.status === "degraded")
-        ? "degraded"
-        : "ok";
+    const snapshot = buildHealthSnapshot(context);
     json(res, {
-      status: overall,
-      checks,
+      status: snapshot.overall,
+      checks: snapshot.checks,
       uptime: Math.floor((Date.now() - context.startTime) / 1000),
-      port: config.gateway.port || 8888,
+      port: snapshot.config.gateway.port || 8888,
       engines: {
-        default: config.engines.default,
+        default: snapshot.config.engines.default,
         ...Object.fromEntries(
-          Object.entries(registry).map(([name, entry]) => [
+          Object.entries(snapshot.registry).map(([name, entry]) => [
             name,
             { model: entry.defaultModel, available: entry.available },
           ]),
         ),
       },
-      sessions: { total: sessions.length, running, active: running },
-      connectors,
+      sessions: { total: snapshot.sessions.length, running: snapshot.running, active: snapshot.running },
+      connectors: snapshot.connectors,
       email: {
-        enabled: config.email?.enabled === true,
-        inboxes: emailInboxes.map((inbox) => ({
+        enabled: snapshot.config.email?.enabled === true,
+        inboxes: snapshot.emailInboxes.map((inbox) => ({
           id: inbox.id,
           label: inbox.label ?? null,
           status: inbox.health?.status ?? "idle",

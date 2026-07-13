@@ -284,6 +284,15 @@ export function validateCardPatch(patch: unknown): { ok: true } | { ok: false; e
       return { ok: false, error: `patch.${f} must be a string` };
     }
   }
+  // A patch has no card type, so validate both possible direct URL fields.
+  // Without this, a link/image that passed full-card validation could later be
+  // changed to `javascript:` or another unsafe scheme before the web renderer
+  // assigns it to an href/src sink.
+  for (const f of ["url", "src"] as const) {
+    if (typeof patch[f] === "string" && !isSafeCardUrl(patch[f])) {
+      return { ok: false, error: `patch.${f} must be an http(s), data:image, or relative URL` };
+    }
+  }
   if (patch.progress !== undefined && typeof patch.progress !== "number") {
     return { ok: false, error: "patch.progress must be a number" };
   }

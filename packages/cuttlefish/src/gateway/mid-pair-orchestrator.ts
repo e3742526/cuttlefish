@@ -645,6 +645,7 @@ function updateExecutionState(
     executionReviewContext?: "diff" | "summary_only";
     executionReviewContextReason?: string;
     lastError?: string;
+    status?: Session["status"];
   },
 ): void {
   const session = getSession(sessionId);
@@ -670,6 +671,15 @@ function updateExecutionState(
 
   const updates: Record<string, unknown> = { transportMeta: meta as JsonObject };
   if (patch.lastError !== undefined) updates.lastError = patch.lastError;
+  // The implementer settles before its reviewer starts. Keep the parent
+  // visibly active for review/revision work instead of exposing idle while a
+  // depth-1 role is still running.
+  const status = patch.status
+    ?? (patch.executionPhase === "reviewing" || patch.executionPhase === "revising" ? "running" : undefined);
+  if (status !== undefined) {
+    updates.status = status;
+    updates.lastActivity = new Date().toISOString();
+  }
   updateSession(sessionId, updates as Parameters<typeof updateSession>[1]);
   context.emit("session:updated", { sessionId });
 }
@@ -702,9 +712,12 @@ function finalizeExecutionState(
     lastError?: string;
   },
 ): void {
-  updateExecutionState(sessionId, context, patch);
-  const session = getSession(sessionId);
   const failed = patch.executionPhase === "failed";
+  updateExecutionState(sessionId, context, {
+    ...patch,
+    status: failed ? "error" : "idle",
+  });
+  const session = getSession(sessionId);
   context.emit("session:completed", {
     sessionId,
     employee: session?.employee ?? undefined,

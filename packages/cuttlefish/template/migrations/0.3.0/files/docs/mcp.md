@@ -19,7 +19,7 @@ Full browser automation — navigate, click, type, screenshot, extract content.
 mcp:
   browser:
     enabled: true
-    provider: playwright  # or "puppeteer"
+    provider: playwright  # or "puppeteer"; built-in packages are release-pinned
 ```
 
 ### Web Search (Brave)
@@ -34,13 +34,8 @@ mcp:
 ```
 
 ### Fetch
-Extract readable content from URLs (HTML → markdown/text).
-
-```yaml
-mcp:
-  fetch:
-    enabled: true
-```
+The historical built-in fetch package is no longer published. Configure a
+reviewed, pinned custom fetch MCP server instead.
 
 ### Gateway
 Built-in MCP server that wraps {{portalName}}'s own API. Gives employees tools to:
@@ -66,7 +61,7 @@ mcp:
     my-database:
       enabled: true
       command: npx
-      args: ["-y", "@my/mcp-server-postgres"]
+      args: ["-y", "@my/mcp-server-postgres@<reviewed-version>"]
       env:
         DATABASE_URL: ${DATABASE_URL}
     my-api:

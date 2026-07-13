@@ -4,6 +4,7 @@ import { logger } from "../shared/logger.js";
 import { resolveBin } from "../shared/resolve-bin.js";
 import { buildEngineEnv } from "../shared/engine-env.js";
 import { getMessages } from "../sessions/registry/messages.js";
+import { isUntrustedSource, wrapUntrustedMessage } from "../sessions/untrusted-input.js";
 import { stripDisallowedCliFlags } from "../shared/cli-flag-policy.js";
 import { capAppend, ENGINE_OUTPUT_MAX } from "../shared/cap-append.js";
 
@@ -23,13 +24,21 @@ function promptRole(role: string): "User" | "Assistant" | "System" | null {
 }
 
 export function buildOllamaPrompt(
-  opts: Pick<EngineRunOpts, "prompt" | "systemPrompt" | "attachments" | "sessionId">,
+  opts: Pick<EngineRunOpts, "prompt" | "systemPrompt" | "attachments" | "sessionId" | "source">,
   history?: Pick<EngineHistoryMessage, "role" | "content" | "partial">[],
 ): string {
   const lines: string[] = [];
   const transcript = (history ?? [])
     .filter((msg) => !msg.partial)
-    .map((msg) => ({ role: promptRole(msg.role), content: msg.content.trim() }))
+    .map((msg) => {
+      const content = msg.content.trim();
+      return {
+        role: promptRole(msg.role),
+        content: msg.role === "user" && content && isUntrustedSource(opts.source)
+          ? wrapUntrustedMessage(content, { source: opts.source })
+          : content,
+      };
+    })
     .filter((msg): msg is { role: "User" | "Assistant" | "System"; content: string } => Boolean(msg.role && msg.content));
 
   if (opts.systemPrompt?.trim()) {

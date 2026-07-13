@@ -93,6 +93,26 @@ describe("DELETE /api/org/employees/:name", () => {
     expect(fs.existsSync(path.join(tmpHome, "org", "platform", "lonely.yaml"))).toBe(false);
   });
 
+  it("archives tickets assigned to the removed employee", async () => {
+    writeEmployee(tmpHome, "platform", "lonely");
+    const boardPath = path.join(tmpHome, "org", "platform", "board.json");
+    fs.writeFileSync(boardPath, JSON.stringify([
+      { id: "assigned", title: "Assigned", description: "", status: "todo", priority: "medium", assignee: "lonely", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+      { id: "keep", title: "Keep", description: "", status: "todo", priority: "medium", assignee: "", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+    ]));
+
+    const api = await import("../api.js");
+    const ctx = makeCtx();
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("DELETE", "/api/org/employees/lonely"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    const board = JSON.parse(fs.readFileSync(boardPath, "utf-8"));
+    expect(board.tickets.map((ticket: { id: string }) => ticket.id)).toEqual(["keep"]);
+    expect(board.deletedTickets.map((ticket: { id: string }) => ticket.id)).toEqual(["assigned"]);
+    expect(ctx.emit).toHaveBeenCalledWith("board:updated", { department: "platform" });
+  });
+
   it("returns 409 and keeps the file when an employee still has reports", async () => {
     writeEmployee(tmpHome, "platform", "boss");
     writeEmployee(tmpHome, "platform", "minion", ["reportsTo: boss"]);

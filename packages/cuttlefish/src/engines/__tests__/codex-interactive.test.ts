@@ -263,7 +263,7 @@ describe("CodexInteractiveEngine — effort/model PTY args + respawn", () => {
     const mcpConfigPath = path.join(osMockState.home, "mcp.json");
     fs.writeFileSync(mcpConfigPath, JSON.stringify({
       mcpServers: {
-        browser: { command: "npx", args: ["-y", "@playwright/mcp@latest"] },
+        browser: { command: "npx", args: ["-y", "@playwright/mcp@0.0.78"] },
       },
     }));
 
@@ -276,7 +276,7 @@ describe("CodexInteractiveEngine — effort/model PTY args + respawn", () => {
     } as any);
     const args = lastArgs();
     expect(args).toContain('mcp_servers.browser.command="npx"');
-    expect(args).toContain('mcp_servers.browser.args=["-y", "@playwright/mcp@latest"]');
+    expect(args).toContain('mcp_servers.browser.args=["-y", "@playwright/mcp@0.0.78"]');
     spawnCalls[spawnCalls.length - 1]!.proc._exit(0);
     await run;
     lifecycle.dispose();

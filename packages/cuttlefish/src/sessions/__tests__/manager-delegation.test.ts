@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildManagerDelegationPlan,
   buildManagerDelegationTelemetry,
+  isInitialManagerDelegationTurn,
   recordManagerDelegationChildCompletion,
   resolveManagerDelegationSynthesis,
   resolveSupervisedNodes,
@@ -114,7 +115,7 @@ describe("manager delegation helpers", () => {
     ).toBeNull();
   });
 
-  it("builds an enforced plan for strong direct-report specialty matches", () => {
+  it("builds a bounded enforced plan for strong direct-report specialty matches", () => {
     const hierarchy = {
       nodes: {
         lead: { employee: lead, parentName: null, directReports: ["senior-security-officer", "hr-manager"], depth: 0, chain: [] },
@@ -128,13 +129,53 @@ describe("manager delegation helpers", () => {
 
     const plan = buildManagerDelegationPlan({
       manager: lead,
-      prompt: "Review the bearer token security exposure and the HR onboarding impact.",
+      prompt: "Review the bearer token security exposure and the HR onboarding impact. MANAGER_ONLY_SENTINEL.",
       supervisedNodes: resolveSupervisedNodes("lead", hierarchy, hierarchy.nodes.lead),
     });
 
     expect(plan.enforced).toBe(true);
     expect(plan.matches.map((m) => m.employee.name).sort()).toEqual(["hr-manager", "senior-security-officer"]);
-    expect(plan.matches[0].prompt).toContain("Original task:");
+    for (const match of plan.matches) {
+      expect(match.prompt).toContain("bounded specialist assignment");
+      expect(match.prompt).not.toContain("Original task:");
+      expect(match.prompt).not.toContain("MANAGER_ONLY_SENTINEL");
+    }
+  });
+
+  it("requires an explicit report reference or two distinct specialty signals", () => {
+    const supervisedNodes = [
+      { employee: securityOfficer, parentName: "lead", directReports: [], depth: 1, chain: ["lead"] },
+    ];
+
+    expect(buildManagerDelegationPlan({
+      manager: lead,
+      prompt: "Check the security posture.",
+      supervisedNodes,
+    }).enforced).toBe(false);
+
+    expect(buildManagerDelegationPlan({
+      manager: lead,
+      prompt: "Ask senior-security-officer for a concise assessment.",
+      supervisedNodes,
+    }).matches.map((match) => match.employee.name)).toEqual(["senior-security-officer"]);
+
+    expect(buildManagerDelegationPlan({
+      manager: lead,
+      prompt: "PT20_MANAGER_UNMATCHED_INLINE",
+      supervisedNodes: [{
+        employee: { ...worker, name: "pt20-solo", displayName: "PT20 Solo" },
+        parentName: "lead",
+        directReports: [],
+        depth: 1,
+        chain: ["lead"],
+      }],
+    }).enforced).toBe(false);
+  });
+
+  it("allows automatic delegation only for a manager's initial task turn", () => {
+    expect(isInitialManagerDelegationTurn([{ role: "user" }])).toBe(true);
+    expect(isInitialManagerDelegationTurn([{ role: "user" }, { role: "assistant" }])).toBe(false);
+    expect(isInitialManagerDelegationTurn([{ role: "user" }, { role: "notification" }])).toBe(false);
   });
 
   it("does not enforce delegation for synthesis callbacks or explicit inline requests", () => {

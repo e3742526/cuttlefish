@@ -19,23 +19,22 @@ describe("scopedTokenForbidden — operator control plane", () => {
     expect(scopedTokenForbidden("DELETE", "/api/skills/playtest")).toBe(true);
   });
 
-  it("blocks human-oversight writes (approvals, checkpoints) but allows reads", () => {
+  it("blocks human-oversight collections because handlers do not bind records to the token session", () => {
     expect(scopedTokenForbidden("POST", "/api/approvals/abc/approve")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/checkpoints/xyz/decision")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/checkpoints")).toBe(true);
-    // An agent may still poll the status of its own pending approval/checkpoint.
-    expect(scopedTokenForbidden("GET", "/api/approvals")).toBe(false);
-    expect(scopedTokenForbidden("GET", "/api/checkpoints/xyz")).toBe(false);
+    expect(scopedTokenForbidden("GET", "/api/approvals")).toBe(true);
+    expect(scopedTokenForbidden("GET", "/api/checkpoints/xyz")).toBe(true);
   });
 
-  it("blocks cron and orchestration mutations but allows reads", () => {
+  it("blocks cron and orchestration collections, not only mutations", () => {
     expect(scopedTokenForbidden("POST", "/api/cron")).toBe(true);
     expect(scopedTokenForbidden("DELETE", "/api/cron/job-1")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/orchestration/queue/pause")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/orchestration/leases/stop")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/orchestration/run")).toBe(true);
-    expect(scopedTokenForbidden("GET", "/api/cron")).toBe(false);
-    expect(scopedTokenForbidden("GET", "/api/orchestration/status")).toBe(false);
+    expect(scopedTokenForbidden("GET", "/api/cron")).toBe(true);
+    expect(scopedTokenForbidden("GET", "/api/orchestration/status")).toBe(true);
   });
 
   it("still allows the endpoints an agent legitimately needs", () => {
@@ -69,6 +68,29 @@ describe("scopedTokenForbidden — operator control plane", () => {
     expect(scopedTokenForbidden("POST", "/api/sessions/cancel-all")).toBe(true);
     // Onboarding bypass via traversal collapses and is still blocked.
     expect(scopedTokenForbidden("POST", "/api/sessions/../onboarding")).toBe(true);
+  });
+
+  it("blocks global message, integration, artifact, filesystem, and operator-work reads", () => {
+    for (const pathname of [
+      "/api/sessions/interrupted",
+      "/api/talk/search",
+      "/api/email/inboxes",
+      "/api/email/messages/message-1",
+      "/api/artifacts",
+      "/api/artifacts/bundle",
+      "/api/knowledge/outbox",
+      "/api/fs/list",
+      "/api/fs/recent",
+      "/api/inspect/runs",
+      "/api/activity",
+      "/api/work",
+      "/api/command-center",
+      "/api/workspace-profiles",
+      "/api/connectors",
+      "/api/connectors/whatsapp/qr",
+    ]) {
+      expect(scopedTokenForbidden("GET", pathname)).toBe(true);
+    }
   });
 });
 

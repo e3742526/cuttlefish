@@ -63,6 +63,21 @@ describe("resolvePrincipalGate (CF2-120)", () => {
     expect(gate.status).toBe(403);
   });
 
+  it("403s a scoped session token on global integration and message-search reads", () => {
+    const scoped = createScopedSessionToken("session-abc", TOKEN);
+    for (const pathname of ["/api/talk/search", "/api/email/inboxes", "/api/artifacts", "/api/knowledge/outbox", "/api/fs/list"]) {
+      const gate = resolvePrincipalGate({
+        req: req({ authorization: `Bearer ${scoped}` }),
+        method: "GET",
+        pathname,
+        authRequiredNow: () => false,
+        gatewayAuthToken: TOKEN,
+        cuttlefishHome: "/tmp/does-not-matter",
+      });
+      expect(gate.status).toBe(403);
+    }
+  });
+
   it("attaches the resolved principal even when authRequiredNow() is false (CF2-112: connector-send-policy sees the real caller on loopback)", () => {
     const scoped = createScopedSessionToken("session-abc", TOKEN);
     const gate = resolvePrincipalGate({

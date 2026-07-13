@@ -7,7 +7,7 @@ import { createSession, getSession, insertMessage, listSessions } from "../../..
 import { readJsonBody } from "../../http-helpers.js";
 import { authorizeManagerScope, isManagerNameAuthorizedForPrincipal } from "../../manager-auth.js";
 import type { GatewayPrincipal } from "../../auth.js";
-import { BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
+import { archiveEmployeeBoardTickets, BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
 import { RESERVED_ORG_DIRS, isActiveEmployee, scanOrg } from "../../org.js";
@@ -224,7 +224,34 @@ function parseChangeInput(body: unknown): ParsedChangeInput {
   };
 }
 
-function validateBoardAssigneesForDepartment(department: string, payload: unknown): string | null {
+function hasChangedBoardTicket(
+  incoming: Record<string, unknown>,
+  current: import("../../board-service.js").BoardTicket | undefined,
+): boolean {
+  if (!current) return true;
+  if (incoming.baseUpdatedAt != null) return true;
+  return (
+    incoming.title !== current.title ||
+    (incoming.description ?? "") !== current.description ||
+    incoming.status !== current.status ||
+    (incoming.priority ?? "medium") !== current.priority ||
+    (incoming.complexity ?? "medium") !== current.complexity ||
+    (incoming.assignee ?? "") !== current.assignee ||
+    (incoming.resourcePath ?? "") !== (current.resourcePath ?? "") ||
+    (incoming.resourceUrl ?? "") !== (current.resourceUrl ?? "") ||
+    (incoming.manualOnly === true) !== (current.manualOnly === true) ||
+    (incoming.source ?? "") !== (current.source ?? "") ||
+    (incoming.sessionId ?? "") !== (current.sessionId ?? "") ||
+    incoming.createdAt !== current.createdAt ||
+    incoming.updatedAt !== current.updatedAt
+  );
+}
+
+function validateBoardAssigneesForDepartment(
+  department: string,
+  payload: unknown,
+  currentTickets: import("../../board-service.js").BoardTicket[],
+): string | null {
   const tickets = Array.isArray(payload)
     ? payload
     : payload && typeof payload === "object" && !Array.isArray(payload) && Array.isArray((payload as { tickets?: unknown }).tickets)
@@ -233,12 +260,19 @@ function validateBoardAssigneesForDepartment(department: string, payload: unknow
   if (!tickets) return null;
 
   const org = scanOrg();
+  const currentById = new Map(currentTickets.map((ticket) => [ticket.id, ticket]));
   for (const [index, ticket] of tickets.entries()) {
     if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) continue;
-    const assignee = (ticket as { assignee?: unknown }).assignee;
+    const incoming = ticket as Record<string, unknown>;
+    const assignee = incoming.assignee;
     if (typeof assignee !== "string" || !assignee.trim()) continue;
+    const id = typeof incoming.id === "string" ? incoming.id : `#${index}`;
+    // Board saves carry the whole department. A stale card bundled without a
+    // base version was not changed by the caller, so it must not prevent a
+    // separate ticket from being deleted. New or changed tickets are still
+    // checked against the current employee roster below.
+    if (!hasChangedBoardTicket(incoming, currentById.get(id))) continue;
     const employee = org.get(assignee);
-    const id = typeof (ticket as { id?: unknown }).id === "string" ? (ticket as { id: string }).id : `#${index}`;
     if (!employee) {
       return `ticket "${id}" is assigned to "${assignee}", who is not a known employee`;
     }
@@ -560,6 +594,18 @@ export async function handleOrgRoutes(
     const deleted = deleteEmployeeYaml(name);
     if (!deleted) {
       notFound(res);
+      return true;
+    }
+    try {
+      const archived = archiveEmployeeBoardTickets(ORG_DIR, name);
+      for (const department of archived.departments) {
+        context.emit("board:updated", { department });
+      }
+    } catch (err) {
+      context.reloadOrg?.();
+      context.emit("org:updated", { employee: name, action: "deleted" });
+      logger.error(`Employee ${name} was deleted but their Kanban cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      serverError(res, "Employee was deleted, but their Kanban ticket cleanup failed");
       return true;
     }
     context.reloadOrg?.();
@@ -955,7 +1001,8 @@ export async function handleOrgRoutes(
     const parsed = await readJsonBody(req, res);
     if (!parsed.ok) return true;
     try {
-      const assigneeError = validateBoardAssigneesForDepartment(params.name, parsed.body);
+      const currentTickets = readBoardState(ORG_DIR, params.name)?.tickets ?? [];
+      const assigneeError = validateBoardAssigneesForDepartment(params.name, parsed.body, currentTickets);
       if (assigneeError) {
         badRequest(res, assigneeError);
         return true;

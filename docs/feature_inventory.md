@@ -19,6 +19,10 @@
 - Twilio credentials are loaded from a source-checkout `.env` and excluded from
   agent subprocess environments. The connector is disabled until its
   non-secret configuration is present in `~/.cuttlefish/config.yaml`.
+- Config reloads and `POST /api/connectors/reload` remove active connector
+  routes before shutdown, then rebuild Slack, WhatsApp, Twilio, and configured
+  instances from the current configuration. A newer reload cannot restore an
+  older connector configuration after it has been revoked.
 
 ## Web UI
 
@@ -77,6 +81,9 @@
 - The retention window defaults to 3 days and is configurable from 0 to 7 days in the kanban UI.
 - `0` means immediate purge.
 - Tickets remain restorable from the "Recently deleted" section until their retention window expires.
+- Deleting a session archives its session-generated tickets; deleting an employee
+  archives that employee's assigned tickets, so neither lifecycle action leaves
+  a dangling board reference.
 
 ### Kanban optimistic save protection
 - `packages/cuttlefish/src/gateway/board-service.ts`
@@ -89,6 +96,9 @@
 - Date fields `createdAt`, `updatedAt`, and `baseUpdatedAt` are now guarded at
   serialization time; missing or invalid timestamps fall back to `Date.now()` to
   prevent "Invalid Date" / `"Invalid time value"` errors on save.
+- An unchanged legacy ticket carried in a whole-board save cannot block deletion
+  of another ticket because of its stale assignee; newly created or edited
+  tickets still require an active employee in the same department.
 
 ### Kanban ticket card time display
 - `packages/web/src/components/kanban/ticket-card.tsx`
@@ -179,11 +189,11 @@
 - Feature gated: `features.multiRoleEmployeeExecution: true` must be set in daemon config.
 - The mid-pair reviewer's verdict is host-validated (`validateReviewResult`); invalid output triggers exactly one in-place JSON repair retry (same reviewer session, bounded by the wall-clock deadline) before the reviewer loss policy applies, and the recorded degraded reason distinguishes "unparseable after retry" from an engine loss.
 - The mid-pair reviewer receives deterministic changed-file/diff context (bounded `git diff HEAD` of the implementer workspace via `session.cwd`, built by `gateway/review-context.ts`); when no diff can be produced it degrades to summary-only and records the reason.
-- Degraded/fallback/review-context state is surfaced on the API `executionRunState` (from parent-session `transportMeta`): `degraded`/`degradedReason`, the now-populated `fallbackActive`, and `reviewContext` (`diff` | `summary_only`) + `reviewContextReason`.
+- Degraded/fallback/review-context state is surfaced on the API `executionRunState` (from parent-session `transportMeta`): `degraded`/`degradedReason`, the now-populated `fallbackActive`, and `reviewContext` (`diff` | `summary_only`) + `reviewContextReason`. A parent remains `running` while its internal reviewer or revision worker is live, then resolves to the appropriate terminal session state when the execution loop settles.
 - Fidelity gaps:
   - Mid-pair review flow is wired at the session-write and org-execution layers, and degraded/fallback/review-context state is now surfaced on `executionRunState`; the web UI to display review status is still deferred.
   - The mid-pair path passes an inline bounded diff rather than the orchestration path's full disk-backed review bundle (`patch.diff` + `metadata.json` via `createReviewBundle`); reviewer allocation still uses the configured `reviewerToolProfile`.
-  - Follow-up messages, queue replay, and notification dispatch still bypass the mid-pair orchestrator (documented in `mid-pair-orchestrator.ts`).
+  - The web UI to display live review progress is still deferred; API consumers can use the parent session status together with `executionRunState`.
 
 ### Kanban ticket resource context and manual-only dispatch
 - `packages/web/src/routes/kanban/page.tsx`
@@ -309,6 +319,14 @@
 - `GET /api/email/inboxes/:id/messages?limit=N` lists cached messages for one
   inbox.
 - `GET /api/email/messages/:messageId` returns one cached normalized message.
+- `GET /api/healthz` is an unauthenticated liveness probe and only confirms the
+  process can answer HTTP. `GET /api/readyz` is an unauthenticated readiness
+  probe: it returns `200 { status: "ready" }` only when its dependency checks
+  are healthy, otherwise `503 { status: "not_ready", checks }`. Enabled email
+  inboxes participate in readiness; inbox errors fail readiness and unseen or
+  degraded inbox health is reported as not-ready rather than silently healthy.
+- `GET /api/status` remains the detailed operator status payload, including the
+  same checks, connector health, and redacted email inbox health.
 - This is inbound-only in the current implementation. SMTP send/reply,
   threading replies back to providers, and mailbox mutation are not part of the
   shipped surface.
@@ -511,7 +529,7 @@
 
 ### Smart manager delegation discipline
 - Employee sessions with one or more direct reports receive a default-on manager delegation discipline block in their runtime context. The block requires a delegate-vs-inline decision before substantive work, lists concise direct-report specialties, and distinguishes smart delegation from delegation just for appearances.
-- Runtime execution also enforces strong specialty matches before the manager model runs: when a manager prompt matches one or more direct-report specialties, the gateway creates child sessions for those reports, records the enforced prompt hash and expected child ids in `transportMeta`, and leaves the manager session ready to synthesize the existing child-completion callbacks. Child-result callback turns and explicit no-delegation prompts—including separated wording such as “do not use tools, call APIs, delegate”—are exempt. Final synthesis waits for every started child’s durable lifecycle, then takes a one-per-prompt claim and persists the dispatch marker, so stale or overlapping callbacks cannot queue an additional synthesis turn.
+- Runtime execution can enforce a bounded initial-task split before the manager model runs. It requires either an exact direct-report reference or at least two distinct specialist signals; one roster, department, or marker-like token cannot trigger a fan-out. Each child receives only its bounded specialist assignment and matched signals—never the manager's full prompt, prompt excerpt, attachments, or resource context. Later manager turns, including child callbacks, stay inline unless the manager explicitly delegates. Enforced runs record the prompt hash and expected child ids in `transportMeta`; final synthesis waits for every started child’s durable lifecycle, then takes a one-per-prompt claim and persists the dispatch marker so stale or overlapping callbacks cannot queue an additional synthesis turn.
 - Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run or enforced delegation.
 - Manual live behavior can be sampled with `node packages/cuttlefish/scripts/delegation-live-harness.mjs --employee <manager-slug>` against a running gateway. The harness is not part of CI because it depends on live model behavior and local credentials.
 
@@ -563,7 +581,16 @@
 
 ### Security hardening for scoped sessions and connector turns
 
-- Session-scoped agent tokens cannot archive sessions, remove installed skills, or change the shared Talk engine/model configuration. Talk delegation also verifies that a scoped token’s body-supplied Talk session id is its own.
+- Session-scoped agent tokens cannot access operator-wide email, artifact, knowledge,
+  filesystem-discovery, oversight, orchestration, or work-summary collections; they
+  remain limited to documented own-session/delegation, connector-send, roster/status,
+  and attachment operations. They also cannot archive sessions, remove installed
+  skills, or change the shared Talk engine/model configuration. Talk delegation
+  verifies that a scoped token’s body-supplied Talk session id is its own.
 - With no `gateway.fileReadRoots` configured, local-file reads are restricted to Cuttlefish-managed storage. Operators can add explicit project roots or use the documented `allowArbitraryFileRead` escape hatch for a local install.
 - Content that passed inbound screening remains wrapped as untrusted data. Automatic connector replies redact secret-shaped text before delivery.
 - Per-session API credentials are supplied only to the engine subprocess as `CUTTLEFISH_SESSION_TOKEN`; their raw value is not embedded in model-visible context.
+- Connector and email attachments are security-screened before an engine receives a
+  local file path. Unsupported, oversized, or unreadable files open a human-review
+  checkpoint instead of being passed through; supported text is delivered as screened
+  prompt context rather than a raw file argument.

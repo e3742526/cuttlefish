@@ -180,14 +180,23 @@ export function migrateExternalOutboxSchema(database: Database.Database): void {
       attempt_count INTEGER NOT NULL DEFAULT 0,
       next_attempt_at TEXT,
       last_attempt_at TEXT,
+      claim_expires_at TEXT,
       delivered_at TEXT,
       remote_id TEXT,
       last_error TEXT,
       created_at TEXT NOT NULL
     );
+  `);
+  const cols = database.prepare('PRAGMA table_info(external_outbox)').all() as Array<{ name: string }>;
+  if (!cols.some((column) => column.name === 'claim_expires_at')) {
+    database.exec('ALTER TABLE external_outbox ADD COLUMN claim_expires_at TEXT');
+  }
+  database.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_external_outbox_sink_idempotency
       ON external_outbox (sink_name, idempotency_key);
     CREATE INDEX IF NOT EXISTS idx_external_outbox_pending
       ON external_outbox (status, next_attempt_at, created_at);
+    CREATE INDEX IF NOT EXISTS idx_external_outbox_claim_expiry
+      ON external_outbox (status, claim_expires_at);
   `);
 }

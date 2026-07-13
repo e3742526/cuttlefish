@@ -63,6 +63,10 @@ type UntrustedContentGateResult =
   | { action: "allow"; prompt: string; screening: ContentScreeningResult }
   | { action: "checkpoint"; prompt: string; screening: ContentScreeningResult; notification: string };
 
+type UntrustedAttachmentGateResult =
+  | { action: "allow"; attachments: string[]; resourceContext: string | null }
+  | { action: "checkpoint"; notification: string };
+
 /**
  * Deliver a user-facing reply, swallowing the connector error so it can't crash
  * the session — but LOG the failure instead of dropping it silently. The reply
@@ -98,6 +102,11 @@ export class SessionManager {
     user: string;
     employee?: Employee;
   }) => Promise<UntrustedContentGateResult>;
+  private untrustedAttachmentGate?: (input: {
+    session: Session;
+    attachments: string[];
+    employee?: Employee;
+  }) => Promise<UntrustedAttachmentGateResult>;
 
   constructor(
     config: CuttlefishConfig,
@@ -116,6 +125,9 @@ export class SessionManager {
   setConfig(config: CuttlefishConfig): void {
     this.config = config;
   }
+  setConnectorNames(connectorNames: string[]): void {
+    this.connectorNames = [...new Set(connectorNames)];
+  }
   setNotificationSink(sink: SessionNotificationSink): void {
     this.notificationSink = sink;
   }
@@ -126,6 +138,11 @@ export class SessionManager {
     gate: (input: { session: Session; text: string; user: string; employee?: Employee }) => Promise<UntrustedContentGateResult>,
   ): void {
     this.untrustedContentGate = gate;
+  }
+  setUntrustedAttachmentGate(
+    gate: (input: { session: Session; attachments: string[]; employee?: Employee }) => Promise<UntrustedAttachmentGateResult>,
+  ): void {
+    this.untrustedAttachmentGate = gate;
   }
   getEngine(name: string): Engine | undefined {
     return this.engines.get(name);
@@ -355,16 +372,45 @@ export class SessionManager {
           return;
         }
       }
+      // Connector/email attachments are attacker-controlled files, not a second
+      // form of trusted operator input. Route them through the same fail-closed
+      // screening boundary before an engine receives a local path. A standalone
+      // SessionManager has no reviewer context, so its safe fallback is to omit
+      // rather than leak an unscreened file into a tool-capable subprocess.
+      let engineAttachments = attachments;
+      let attachmentContext: string | null = null;
+      if (isUntrustedSource(session.source) && attachments.length > 0) {
+        if (!this.untrustedAttachmentGate) {
+          logger.warn(`Session ${session.id}: withholding ${attachments.length} external attachment(s); no screening gate is configured`);
+          engineAttachments = [];
+          attachmentContext = "External attachments were withheld because security screening is unavailable.";
+        } else {
+          const attachmentGate = await this.untrustedAttachmentGate({ session, attachments, employee });
+          if (attachmentGate.action === "checkpoint") {
+            await replyMessageLogged(connector, target, attachmentGate.notification, session.id);
+            return;
+          }
+          engineAttachments = attachmentGate.attachments;
+          attachmentContext = attachmentGate.resourceContext;
+        }
+      }
       const syncSinceMs = typeof syncSinceIso === "string" ? new Date(syncSinceIso).getTime() : NaN;
       const syncRequested = session.engine === "claude" && typeof syncSinceIso === "string" && Number.isFinite(syncSinceMs);
       if (syncRequested) {
         const sinceMessages = getMessages(session.id)
           .filter((m) => (m.role === "user" || m.role === "assistant") && m.timestamp >= syncSinceMs)
-          .map((m) => `${m.role.toUpperCase()}: ${m.content}`);
+          // This fallback transcript is another prompt-reconstruction path. Keep
+          // externally sourced user history data-framed here too; otherwise a
+          // rate-limit recovery would reintroduce the same raw-history bypass
+          // fixed in the synthetic engines.
+          .map((m) => `${m.role.toUpperCase()}: ${m.role === "user" && isUntrustedSource(session.source)
+            ? wrapUntrustedMessage(m.content, { source: session.source })
+            : m.content}`);
         const transcript = sinceMessages.slice(-20).join("\n\n");
         promptToRun =
           `We temporarily switched engines due to a usage limit on ${session.engine}. Sync your context with this transcript (most recent last), then respond to the last USER message.\n\n${transcript}`;
       }
+      if (attachmentContext) promptToRun = `${promptToRun}\n\n${attachmentContext}`;
 
       // Budget enforcement — check BEFORE engine.run()
       if (session.employee) {
@@ -441,7 +487,7 @@ export class SessionManager {
         effortLevel: invocation.effortLevel,
         cliFlags: invocation.cliFlags,
         mcpConfigPath,
-        attachments: attachments.length > 0 ? attachments : undefined,
+        attachments: engineAttachments.length > 0 ? engineAttachments : undefined,
         ...(contextPacket?.historyMessages ? { historyMessages: contextPacket.historyMessages } : {}),
         sessionId: session.id,
         source: session.source,
@@ -500,7 +546,7 @@ export class SessionManager {
           effortLevel,
           cliFlags: employee?.cliFlags,
           mcpConfigPath,
-          attachments,
+          attachments: engineAttachments,
           config: this.config,
           engines: this.engines,
           employee,

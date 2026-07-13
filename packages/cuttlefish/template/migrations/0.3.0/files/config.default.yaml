@@ -26,20 +26,20 @@ connectors:
 mcp:
   browser:
     enabled: true
-    provider: playwright   # or "puppeteer"
+    provider: playwright   # or "puppeteer"; built-in packages are release-pinned
   search:
     enabled: false         # Set to true and add apiKey or set BRAVE_API_KEY env var
     provider: brave
     # apiKey: ${BRAVE_API_KEY}
   fetch:
-    enabled: true
+    enabled: false          # Deprecated: use a reviewed pinned mcp.custom fetch server
   gateway:
     enabled: true          # Built-in MCP server for messaging, org, cron, sessions
   # custom:
   #   my-server:
   #     enabled: true
   #     command: npx
-  #     args: ["-y", "@my/mcp-server"]
+  #     args: ["-y", "@my/mcp-server@<reviewed-version>"]
   #     env:
   #       API_KEY: ${MY_API_KEY}
 

@@ -106,9 +106,11 @@ export function initDb(): Database.Database {
     disableFtsForProcess(db, err);
   }
   migrateSessionsSchema(db);
+  // Upgrade the outbox table before post-migration schema installation adds
+  // indexes that depend on its newest columns.
+  migrateExternalOutboxSchema(db);
   installPostMigrationSchema(db);
   migrateFilesSchema(db);
   migrateApprovalsSchema(db);
-  migrateExternalOutboxSchema(db);
   return db;
 }

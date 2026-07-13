@@ -6,6 +6,14 @@ import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
 import { safeWriteFile } from "../shared/safe-write.js";
 
+// Built-in MCP processes execute in an agent's tool boundary. Exact package
+// versions make the code selected by a Cuttlefish release reviewable and prevent
+// an upstream `latest` tag movement from silently changing that boundary.
+const PLAYWRIGHT_MCP_PACKAGE = "@playwright/mcp@0.0.78";
+const PUPPETEER_MCP_PACKAGE = "@modelcontextprotocol/server-puppeteer@2025.5.12";
+const BRAVE_SEARCH_MCP_PACKAGE = "brave-search-mcp@2.1.0";
+let warnedUnavailableFetch = false;
+
 export interface ResolvedMcpConfig {
   mcpServers: Record<string, McpServerConfig>;
 }
@@ -62,12 +70,12 @@ function buildAvailableServers(config: McpGlobalConfig): Record<string, McpServe
     if (provider === "playwright") {
       servers.browser = {
         command: "npx",
-        args: ["-y", "@playwright/mcp@latest"],
+        args: ["-y", PLAYWRIGHT_MCP_PACKAGE],
       };
     } else if (provider === "puppeteer") {
       servers.browser = {
         command: "npx",
-        args: ["-y", "@anthropic-ai/mcp-server-puppeteer"],
+        args: ["-y", PUPPETEER_MCP_PACKAGE],
       };
     }
   }
@@ -78,7 +86,7 @@ function buildAvailableServers(config: McpGlobalConfig): Record<string, McpServe
     if (apiKey) {
       servers.search = {
         command: "npx",
-        args: ["-y", "brave-search-mcp"],
+        args: ["-y", BRAVE_SEARCH_MCP_PACKAGE],
         env: { BRAVE_API_KEY: apiKey },
       };
     } else {
@@ -86,12 +94,15 @@ function buildAvailableServers(config: McpGlobalConfig): Record<string, McpServe
     }
   }
 
-  // Web fetch (content extraction)
+  // The historical @anthropic-ai fetch MCP package is no longer published.
+  // Keep the configuration key for backwards-compatible parsing, but never
+  // launch an unresolvable or mutable replacement automatically. Operators can
+  // opt into a reviewed, pinned custom MCP fetch server instead.
   if (config.fetch?.enabled) {
-    servers.fetch = {
-      command: "npx",
-      args: ["-y", "@anthropic-ai/mcp-server-fetch"],
-    };
+    if (!warnedUnavailableFetch) {
+      warnedUnavailableFetch = true;
+      logger.warn("Built-in MCP fetch is unavailable; configure a reviewed pinned mcp.custom fetch server instead");
+    }
   }
 
   // Custom user-defined MCP servers

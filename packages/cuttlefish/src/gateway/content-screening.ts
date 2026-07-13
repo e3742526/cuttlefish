@@ -89,6 +89,30 @@ export interface ScreenedTextOutcome {
   blocked: boolean;
 }
 
+function unavailableAttachmentScreening(
+  attachment: RunAttachment,
+  reason: string,
+): ScreenedAttachmentOutcome {
+  const source = inferContentSourceForAttachment(attachment);
+  return {
+    attachment: {
+      ...attachment,
+      screeningState: "screening_unavailable",
+      contentScreening: {
+        source,
+        verdict: "unclear_requires_human",
+        action: "checkpoint",
+        screener: "policy",
+        summary: reason,
+        suspiciousSpans: [],
+        sanitizedText: null,
+        occurredAt: new Date().toISOString(),
+      },
+    },
+    blocked: true,
+  };
+}
+
 export function clampText(text: string, limit: number, marker = "...[truncated]..."): string {
   return text.length > limit ? `${text.slice(0, limit)}\n${marker}` : text;
 }
@@ -422,25 +446,33 @@ export async function screenAttachmentContent(
   operatorIntent?: string | null,
 ): Promise<ScreenedAttachmentOutcome> {
   const resolvedPath = attachment.resolvedPath ?? attachment.path;
-  if (!resolvedPath || attachment.kind === "folder") {
+  // Folders and URL references are prompt metadata only; they are never handed
+  // to an engine as a local file attachment. Preserve that existing behavior.
+  if (attachment.kind === "folder" || attachment.kind === "url") {
     return {
       attachment: { ...attachment, screeningState: "not_text_screened", contentScreening: null },
       blocked: false,
     };
   }
+  if (!resolvedPath) {
+    return unavailableAttachmentScreening(
+      attachment,
+      "Attachment has no readable file content for security screening; human review is required before engine access.",
+    );
+  }
   if (!looksTextLikeAttachment(attachment)) {
-    return {
-      attachment: { ...attachment, screeningState: "not_text_screened", contentScreening: null },
-      blocked: false,
-    };
+    return unavailableAttachmentScreening(
+      attachment,
+      "Attachment type is not supported by the text security screener; human review is required before engine access.",
+    );
   }
   try {
     const stat = fs.statSync(resolvedPath);
     if (stat.size > MAX_SCREENED_TEXT_BYTES) {
-      return {
-        attachment: { ...attachment, screeningState: "screening_unavailable", contentScreening: null },
-        blocked: false,
-      };
+      return unavailableAttachmentScreening(
+        attachment,
+        `Attachment exceeds the ${MAX_SCREENED_TEXT_BYTES}-byte screening limit; human review is required before engine access.`,
+      );
     }
     const text = fs.readFileSync(resolvedPath, "utf-8");
     const source = inferContentSourceForAttachment(attachment);
@@ -460,10 +492,10 @@ export async function screenAttachmentContent(
     };
   } catch (err) {
     logger.warn(`attachment screening failed for ${resolvedPath}: ${err instanceof Error ? err.message : String(err)}`);
-    return {
-      attachment: { ...attachment, screeningState: "screening_unavailable", contentScreening: null },
-      blocked: false,
-    };
+    return unavailableAttachmentScreening(
+      attachment,
+      "Attachment could not be read for security screening; human review is required before engine access.",
+    );
   }
 }
 

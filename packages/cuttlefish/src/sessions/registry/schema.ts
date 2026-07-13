@@ -159,6 +159,7 @@ CREATE TABLE IF NOT EXISTS external_outbox (
   attempt_count INTEGER NOT NULL DEFAULT 0,
   next_attempt_at TEXT,
   last_attempt_at TEXT,
+  claim_expires_at TEXT,
   delivered_at TEXT,
   remote_id TEXT,
   last_error TEXT,
@@ -173,6 +174,11 @@ ON external_outbox (sink_name, idempotency_key)
 export const CREATE_EXTERNAL_OUTBOX_PENDING_INDEX = `
 CREATE INDEX IF NOT EXISTS idx_external_outbox_pending
 ON external_outbox (status, next_attempt_at, created_at)
+`;
+
+export const CREATE_EXTERNAL_OUTBOX_CLAIM_EXPIRY_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_external_outbox_claim_expiry
+ON external_outbox (status, claim_expires_at)
 `;
 
 export const CREATE_CONNECTOR_WEBHOOK_REPLAY_TABLE = `
@@ -313,6 +319,7 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_EXTERNAL_OUTBOX_TABLE);
   db.exec(CREATE_EXTERNAL_OUTBOX_IDEMPOTENCY_INDEX);
   db.exec(CREATE_EXTERNAL_OUTBOX_PENDING_INDEX);
+  db.exec(CREATE_EXTERNAL_OUTBOX_CLAIM_EXPIRY_INDEX);
   db.exec(CREATE_CONNECTOR_WEBHOOK_REPLAY_TABLE);
   db.exec(CREATE_CONNECTOR_WEBHOOK_REPLAY_EXPIRY_INDEX);
   db.exec(CREATE_EMAIL_MESSAGES_TABLE);

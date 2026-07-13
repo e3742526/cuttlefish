@@ -59,6 +59,7 @@ import { scanOrg } from "./org.js";
 import { screenUntrustedText, screeningMetaForSession, screeningNotification } from "./content-screening.js";
 import { reconcileOrphanedTickets } from "./orphaned-ticket-reconciler.js";
 import { openUntrustedContentCheckpoint } from "./security-review.js";
+import { buildResolvedRunAttachments, resolveIncomingRunAttachments, screenRunAttachmentsForSession } from "./run-attachments.js";
 import { startStatusReconciler } from "./status-reconciler.js";
 import { buildLeaderAckEscalationPrompt, startLeaderAckReconciler, type LeaderAckEscalationDispatch } from "./leader-ack-reconciler.js";
 import { syncExternalTurn } from "./external-turns.js";
@@ -84,6 +85,14 @@ export { isAllowedCorsOrigin, serveStatic };
 function screenNotificationPrompt(text: string, source: string, workerText: string): string {
   void text;
   return wrapScreenedUntrustedMessage(workerText, source);
+}
+
+function configuredConnectorNames(config: CuttlefishConfig): string[] {
+  const names: string[] = [];
+  if (config.connectors?.slack?.appToken && config.connectors?.slack?.botToken) names.push("slack");
+  if (config.connectors?.whatsapp) names.push("whatsapp");
+  if (config.connectors?.twilio) names.push("twilio");
+  return names;
 }
 
 export async function startGateway(config: CuttlefishConfig): Promise<GatewayCleanup> {
@@ -275,15 +284,13 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     aider: aiderInteractiveEngine,
   };
 
-  const connectorNames: string[] = [];
-  if (config.connectors?.slack?.appToken && config.connectors?.slack?.botToken) connectorNames.push("slack");
-  if (config.connectors?.whatsapp) connectorNames.push("whatsapp");
+  const connectorNames = configuredConnectorNames(config);
 
   const sessionManager = new SessionManager(config, engines, connectorNames, gatewayAuthToken);
   let employeeRegistry = scanOrg();
   logger.info(`Loaded ${employeeRegistry.size} employee(s) from org directory`);
 
-  const { connectors, connectorMap, reloadConnectorInstances, handleTwilioWebhook } = startConfiguredConnectors({
+  const { connectors, connectorMap, reloadConfiguredConnectors, reloadConnectorInstances, handleTwilioWebhook } = startConfiguredConnectors({
     config,
     sessionManager,
     getEmployeeRegistry: () => employeeRegistry,
@@ -443,6 +450,22 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
         return session.id;
       }
 
+      const attachmentIds = message.attachments
+        .map((attachment) => attachment.artifactId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const resolvedAttachments = await resolveIncomingRunAttachments(attachmentIds, apiContext);
+      const screenedAttachments = await screenRunAttachmentsForSession(
+        session,
+        resolvedAttachments,
+        apiContext,
+        message.subject ?? session.promptExcerpt ?? null,
+      );
+      const attachmentDispatch = buildResolvedRunAttachments(screenedAttachments);
+      if (attachmentDispatch.blocked) {
+        logger.info(`Email ${message.id} attachment(s) withheld pending human review (session ${session.id})`);
+        return session.id;
+      }
+
       const runningSession = updateSession(session.id, {
         status: "running",
         lastActivity: new Date().toISOString(),
@@ -458,7 +481,10 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
         engine,
         currentConfig,
         apiContext,
-        { attachments: message.attachments.map((attachment) => attachment.artifactId).filter((id): id is string => typeof id === "string" && id.length > 0) },
+        {
+          attachments: attachmentDispatch.engineAttachments.length > 0 ? attachmentDispatch.engineAttachments : undefined,
+          resourceContext: attachmentDispatch.promptBlock,
+        },
       ).then(() => {
         // Reflect a failed agent run back onto the email record so `ingested` is not a
         // silent false-success: the run is dispatched fire-and-forget and records its
@@ -522,6 +548,28 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
       screening: screened.screening,
     };
   });
+  sessionManager.setUntrustedAttachmentGate(async ({ session, attachments }) => {
+    const resolved = await resolveIncomingRunAttachments(
+      attachments.map((path) => ({ path })),
+      apiContext,
+    );
+    const screened = await screenRunAttachmentsForSession(session, resolved, apiContext);
+    const dispatch = buildResolvedRunAttachments(screened);
+    if (dispatch.blocked) {
+      const blocking = screened.find((attachment) =>
+        attachment.contentScreening?.action === "checkpoint" || attachment.contentScreening?.action === "quarantine",
+      )?.contentScreening;
+      return {
+        action: "checkpoint" as const,
+        notification: blocking ? screeningNotification(blocking) : "External attachment withheld pending human review.",
+      };
+    }
+    return {
+      action: "allow" as const,
+      attachments: dispatch.engineAttachments,
+      resourceContext: dispatch.promptBlock,
+    };
+  });
   orchestrationRuntime = createGatewayOrchestrationRuntime(currentConfig, employeeRegistry);
   if (orchestrationRuntime) {
     bindOrchestrationRuntimeHandlers(orchestrationRuntime, apiContext);
@@ -542,6 +590,15 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
       }
       currentConfig = nextConfig;
       apiContext.config = currentConfig;
+      sessionManager.setConnectorNames(configuredConnectorNames(currentConfig));
+      void reloadConfiguredConnectors(currentConfig).then((result) => {
+        if (result.errors.length > 0) {
+          logger.warn(`Connector reload completed with ${result.errors.length} error(s): ${result.errors.join("; ")}`);
+        }
+        emit("connectors:reloaded", result);
+      }).catch((connectorErr) => {
+        logger.error(`Failed to reload configured connectors: ${connectorErr instanceof Error ? connectorErr.message : connectorErr}`);
+      });
       emailService.setConfig(currentConfig.email);
       emailService.start();
       sessionManager.setConfig(currentConfig);

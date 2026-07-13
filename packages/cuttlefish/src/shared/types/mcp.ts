@@ -32,6 +32,7 @@ export interface McpGlobalConfig {
     apiKey?: string;
   };
   fetch?: {
+    /** Deprecated compatibility key. Use a reviewed pinned `mcp.custom` server. */
     enabled: boolean;
   };
   gateway?: {

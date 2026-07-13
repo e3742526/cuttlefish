@@ -16,6 +16,7 @@ export interface ExternalOutboxItem {
   attemptCount: number;
   nextAttemptAt: string | null;
   lastAttemptAt: string | null;
+  claimExpiresAt: string | null;
   deliveredAt: string | null;
   remoteId: string | null;
   lastError: string | null;
@@ -35,6 +36,7 @@ function rowToExternalOutboxItem(row: Record<string, unknown>): ExternalOutboxIt
     attemptCount: Number(row.attempt_count ?? 0),
     nextAttemptAt: (row.next_attempt_at as string) ?? null,
     lastAttemptAt: (row.last_attempt_at as string) ?? null,
+    claimExpiresAt: (row.claim_expires_at as string) ?? null,
     deliveredAt: (row.delivered_at as string) ?? null,
     remoteId: (row.remote_id as string) ?? null,
     lastError: (row.last_error as string) ?? null,
@@ -85,19 +87,48 @@ export function listPendingExternalOutboxItems(limit = 25): ExternalOutboxItem[]
   return rows.map(rowToExternalOutboxItem);
 }
 
-export function claimPendingExternalOutboxItems(limit = 25): ExternalOutboxItem[] {
+export const EXTERNAL_OUTBOX_CLAIM_LEASE_MS = 5 * 60 * 1000;
+
+/** Return rows left `sending` by a crashed process to the durable retry queue. */
+export function reclaimStaleExternalOutboxClaims(now = new Date()): number {
   const db = initDb();
-  const now = new Date().toISOString();
+  const result = db.prepare(`
+    UPDATE external_outbox
+    SET status = 'pending',
+        claim_expires_at = NULL,
+        last_error = COALESCE(last_error, 'delivery claim expired before settlement')
+    WHERE status = 'sending'
+      AND claim_expires_at IS NOT NULL
+      AND claim_expires_at <= ?
+  `).run(now.toISOString());
+  return result.changes;
+}
+
+export function claimPendingExternalOutboxItems(
+  limit = 25,
+  now = new Date(),
+  leaseMs = EXTERNAL_OUTBOX_CLAIM_LEASE_MS,
+): ExternalOutboxItem[] {
+  const db = initDb();
+  const nowIso = now.toISOString();
+  const claimExpiresAt = new Date(now.getTime() + leaseMs).toISOString();
   const claim = db.transaction(() => {
+    reclaimStaleExternalOutboxClaims(now);
     const rows = db.prepare(`
       SELECT id FROM external_outbox
       WHERE status = 'pending'
         AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
       ORDER BY created_at ASC
       LIMIT ?
-    `).all(now, limit) as Record<string, unknown>[];
+    `).all(nowIso, limit) as Record<string, unknown>[];
     for (const row of rows) {
-      db.prepare("UPDATE external_outbox SET status = 'sending' WHERE id = ? AND status = 'pending'").run(row.id);
+      db.prepare(`
+        UPDATE external_outbox
+        SET status = 'sending',
+            last_attempt_at = ?,
+            claim_expires_at = ?
+        WHERE id = ? AND status = 'pending'
+      `).run(nowIso, claimExpiresAt, row.id);
     }
     return rows.map((r) => r.id as string);
   });
@@ -109,7 +140,7 @@ export function releaseExternalOutboxClaims(ids: string[]): void {
   const db = initDb();
   const release = db.transaction(() => {
     for (const id of ids) {
-      db.prepare("UPDATE external_outbox SET status = 'pending' WHERE id = ? AND status = 'sending'").run(id);
+      db.prepare("UPDATE external_outbox SET status = 'pending', claim_expires_at = NULL WHERE id = ? AND status = 'sending'").run(id);
     }
   });
   release();
@@ -124,7 +155,8 @@ export function markExternalOutboxDelivered(id: string, remoteId?: string | null
         delivered_at = ?,
         remote_id = ?,
         last_error = NULL,
-        next_attempt_at = NULL
+        next_attempt_at = NULL,
+        claim_expires_at = NULL
     WHERE id = ? AND status = 'sending'
   `).run(now, remoteId ?? null, id);
   return getExternalOutboxItem(id);
@@ -146,6 +178,7 @@ export function markExternalOutboxFailed(id: string, error: string, nextAttemptA
           last_attempt_at = ?,
           last_error = ?,
           next_attempt_at = ?,
+          claim_expires_at = NULL,
           status = ?
       WHERE id = ? AND status = 'sending'
     `).run(newCount, now, error, terminal ? null : nextAttemptAt, terminal ? "failed" : "pending", id);

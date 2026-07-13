@@ -36,6 +36,16 @@ describe("buildEngineEnv", () => {
     expect(env.TWILIO_AUTH_TOKEN).toBeUndefined();
   });
 
+  it("allows only an exact provider key without reopening prefix-denied integration secrets", () => {
+    process.env.ANTHROPIC_API_KEY = "provider-key";
+    process.env.TWILIO_SID = "twilio-sid";
+
+    const env = buildEngineEnv({}, { allowSecretKeys: ["ANTHROPIC_API_KEY"] });
+
+    expect(env.ANTHROPIC_API_KEY).toBe("provider-key");
+    expect(env.TWILIO_SID).toBeUndefined();
+  });
+
   it("strips caller-provided prefixes", () => {
     process.env.CLAUDECODE = "1";
     process.env.CLAUDE_CODE_SESSION = "abc";

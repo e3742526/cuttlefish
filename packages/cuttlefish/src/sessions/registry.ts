@@ -39,6 +39,7 @@ export {
 } from './registry/search.js';
 export {
   EXTERNAL_OUTBOX_MAX_ATTEMPTS,
+  EXTERNAL_OUTBOX_CLAIM_LEASE_MS,
   claimPendingExternalOutboxItems,
   enqueueExternalOutboxItem,
   getExternalOutboxItem,
@@ -47,6 +48,7 @@ export {
   markExternalOutboxDelivered,
   markExternalOutboxFailed,
   releaseExternalOutboxClaims,
+  reclaimStaleExternalOutboxClaims,
   type ExternalOutboxItem,
   type ExternalOutboxStatus,
 } from "./registry/external-outbox.js";

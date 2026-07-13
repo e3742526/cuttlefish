@@ -19,7 +19,7 @@ import {
   updateSession,
 } from "../../../sessions/registry.js";
 import { forkEngineSession } from "../../../sessions/fork.js";
-import { CUTTLEFISH_HOME } from "../../../shared/paths.js";
+import { CUTTLEFISH_HOME, ORG_DIR } from "../../../shared/paths.js";
 import { getClaudeExpectedResetAt } from "../../../shared/usageAwareness.js";
 import { logger } from "../../../shared/logger.js";
 import { isInterruptibleEngine } from "../../../shared/types.js";
@@ -56,6 +56,7 @@ import { acknowledgeLeaderAck } from "../../../sessions/leader-ack.js";
 import { claimManagerDelegationSynthesis, markManagerDelegationSynthesisDispatched } from "../../../sessions/manager-delegation.js";
 import { dispatchEmployeeSessionRun } from "../../mid-pair-orchestrator.js";
 import { buildWorkspaceProfilePrompt, resolveWorkspaceProfile, type ResolvedWorkspaceProfile } from "../../workspace-profiles.js";
+import { archiveSessionBoardTickets } from "../../board-service.js";
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -230,6 +231,18 @@ export async function handleSessionWriteRoutes(
       notFound(res);
       return true;
     }
+    try {
+      const archived = archiveSessionBoardTickets(ORG_DIR, [params.id]);
+      for (const department of archived.departments) {
+        context.emit("board:updated", { department });
+      }
+    } catch (err) {
+      context.emit("session:deleted", { sessionId: params.id });
+      logger.error(`Session ${params.id} was deleted but its Kanban cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      serverError(res, "Session was deleted, but its Kanban ticket cleanup failed");
+      return true;
+    }
+    context.emit("session:deleted", { sessionId: params.id });
     logger.info(`Session deleted: ${params.id}`);
     json(res, { status: "deleted" });
     return true;
@@ -440,6 +453,19 @@ export async function handleSessionWriteRoutes(
     }
     const count = deleteSessions(existingIds);
     const deletedIds = existingIds.filter((id) => !getSession(id));
+    try {
+      const archived = archiveSessionBoardTickets(ORG_DIR, deletedIds);
+      for (const department of archived.departments) {
+        context.emit("board:updated", { department });
+      }
+    } catch (err) {
+      for (const id of deletedIds) {
+        context.emit("session:deleted", { sessionId: id });
+      }
+      logger.error(`Bulk-deleted session Kanban cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
+      serverError(res, "Sessions were deleted, but their Kanban ticket cleanup failed");
+      return true;
+    }
     for (const id of deletedIds) {
       context.emit("session:deleted", { sessionId: id });
     }

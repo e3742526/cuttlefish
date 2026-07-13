@@ -343,7 +343,7 @@ describe("CodexEngine — systemPrompt / developer_instructions injection", () =
     const mcpConfigPath = path.join(os.tmpdir(), `codex-mcp-${Date.now()}.json`);
     fs.writeFileSync(mcpConfigPath, JSON.stringify({
       mcpServers: {
-        browser: { command: "npx", args: ["-y", "@playwright/mcp@latest"] },
+        browser: { command: "npx", args: ["-y", "@playwright/mcp@0.0.78"] },
       },
     }));
 
@@ -354,7 +354,7 @@ describe("CodexEngine — systemPrompt / developer_instructions injection", () =
 
     expect(call.args).toContain("-c");
     expect(call.args).toContain('mcp_servers.browser.command="npx"');
-    expect(call.args).toContain('mcp_servers.browser.args=["-y", "@playwright/mcp@latest"]');
+    expect(call.args).toContain('mcp_servers.browser.args=["-y", "@playwright/mcp@0.0.78"]');
   });
 });
 

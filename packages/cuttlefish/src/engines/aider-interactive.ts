@@ -4,7 +4,7 @@ import type { InterruptibleEngine, EngineRunOpts, EngineResult } from "../shared
 import { logger } from "../shared/logger.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { resolveBin } from "../shared/resolve-bin.js";
-import { buildEngineEnv } from "../shared/engine-env.js";
+import { buildAiderEngineEnv } from "./aider-env.js";
 import { neutralizeForPaste } from "../shared/skill-commands.js";
 import { PtyLifecycleManager, type PtyHandle } from "./pty-lifecycle.js";
 import { PtyStreamManager, createPtyHandle, setCapped, spawnPty } from "./pty-stream.js";
@@ -157,12 +157,7 @@ export class AiderInteractiveEngine implements InterruptibleEngine, PtyViewEngin
   }
 
   private buildEnv(): Record<string, string> {
-    // Keep provider API keys (aider authenticates via env) but strip Cuttlefish-internal
-    // tokens and the Claude/Codex harness env; force a real TERM for the TUI.
-    return buildEngineEnv({ TERM: "xterm-256color" }, {
-      allowUnsafeTokens: true,
-      stripPrefixes: ["CLAUDECODE", "CLAUDE_CODE_", "CODEX", "CUTTLEFISH_"],
-    });
+    return buildAiderEngineEnv({ TERM: "xterm-256color" });
   }
 
   private buildArgs(sessionId: string, model?: string): string[] {

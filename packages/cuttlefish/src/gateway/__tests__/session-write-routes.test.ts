@@ -291,6 +291,56 @@ describe("POST /api/sessions/bulk-delete duplicate ids (I-2)", () => {
     );
     expect(reg.getSession(session.id)).toBeUndefined();
   });
+
+  it("archives board tickets for every deleted session", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    const first = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:bulk-board-a", prompt: "first" });
+    const second = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:bulk-board-b", prompt: "second" });
+    const boardDir = path.join(testHome.home(), "org", "qa");
+    fs.mkdirSync(boardDir, { recursive: true });
+    fs.writeFileSync(path.join(boardDir, "board.json"), JSON.stringify([
+      { id: `session-${first.id}`, title: "First", description: "", status: "done", priority: "medium", assignee: "qa", source: "session", sessionId: first.id, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+      { id: `session-${second.id}`, title: "Second", description: "", status: "done", priority: "medium", assignee: "qa", source: "session", sessionId: second.id, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+      { id: "keep", title: "Keep", description: "", status: "todo", priority: "medium", assignee: "qa", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+    ]));
+
+    const cap = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions/bulk-delete", { ids: [first.id, second.id] }),
+      cap.res,
+      ctx,
+    );
+
+    expect(cap.status).toBe(200);
+    const board = JSON.parse(fs.readFileSync(path.join(boardDir, "board.json"), "utf-8"));
+    expect(board.tickets.map((ticket: { id: string }) => ticket.id)).toEqual(["keep"]);
+    expect(board.deletedTickets.map((ticket: { id: string }) => ticket.id).sort()).toEqual([`session-${first.id}`, `session-${second.id}`].sort());
+    expect(ctx.emit).toHaveBeenCalledWith("board:updated", { department: "qa" });
+  });
+});
+
+describe("DELETE /api/sessions/:id board cleanup", () => {
+  it("archives the deleted session's ticket without touching other board work", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:single-board", prompt: "single" });
+    const boardDir = path.join(testHome.home(), "org", "qa");
+    fs.mkdirSync(boardDir, { recursive: true });
+    fs.writeFileSync(path.join(boardDir, "board.json"), JSON.stringify([
+      { id: `session-${session.id}`, title: "Session work", description: "", status: "blocked", priority: "medium", assignee: "qa", source: "session", sessionId: session.id, createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+      { id: "keep", title: "Keep", description: "", status: "todo", priority: "medium", assignee: "qa", createdAt: "2026-07-13T00:00:00.000Z", updatedAt: "2026-07-13T00:00:00.000Z" },
+    ]));
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("DELETE", `/api/sessions/${session.id}`), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    const board = JSON.parse(fs.readFileSync(path.join(boardDir, "board.json"), "utf-8"));
+    expect(board.tickets.map((ticket: { id: string }) => ticket.id)).toEqual(["keep"]);
+    expect(board.deletedTickets.map((ticket: { id: string }) => ticket.id)).toEqual([`session-${session.id}`]);
+    expect(ctx.emit).toHaveBeenCalledWith("session:deleted", { sessionId: session.id });
+  });
 });
 
 describe("POST /api/sessions/:id/stop on an idle session (I-4)", () => {
