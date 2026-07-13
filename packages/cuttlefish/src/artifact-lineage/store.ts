@@ -3,6 +3,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import { v4 as uuidv4 } from "uuid";
 import { ARTIFACT_LINEAGE_DB } from "../shared/paths.js";
+import { isSqliteCorruptionError, quarantineCorruptDb } from "../shared/sqlite-corruption.js";
 import {
   type AddLineageEdgeInput,
   type AddQuarantineRecordInput,
@@ -107,14 +108,34 @@ export class ArtifactLineageStore {
     if (dbPath !== ":memory:") {
       fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     }
+    try {
+      return ArtifactLineageStore.openConnection(dbPath);
+    } catch (err) {
+      // Keep artifact-lineage startup available when an on-disk SQLite file is
+      // corrupt. Preserve the failed database for operator recovery, then build
+      // an empty replacement; in-memory databases cannot need disk recovery.
+      if (dbPath !== ":memory:" && isSqliteCorruptionError(err)) {
+        quarantineCorruptDb(dbPath, "artifact-lineage");
+        return ArtifactLineageStore.openConnection(dbPath);
+      }
+      throw err;
+    }
+  }
+
+  private static openConnection(dbPath: string): ArtifactLineageStore {
     const db = new Database(dbPath, { timeout: 5000 });
-    db.pragma("journal_mode = WAL");
-    db.pragma("synchronous = NORMAL");
-    db.pragma("foreign_keys = ON");
-    db.exec(CREATE_SCHEMA);
-    db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .run(String(SCHEMA_VERSION));
-    return new ArtifactLineageStore(db);
+    try {
+      db.pragma("journal_mode = WAL");
+      db.pragma("synchronous = NORMAL");
+      db.pragma("foreign_keys = ON");
+      db.exec(CREATE_SCHEMA);
+      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .run(String(SCHEMA_VERSION));
+      return new ArtifactLineageStore(db);
+    } catch (err) {
+      db.close();
+      throw err;
+    }
   }
 
   close(): void {

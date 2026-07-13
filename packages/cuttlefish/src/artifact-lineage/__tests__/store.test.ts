@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { ArtifactLineageStore } from "../store.js";
 
 let store: ArtifactLineageStore;
@@ -15,6 +18,18 @@ describe("ArtifactLineageStore", () => {
   describe("schema and meta", () => {
     it("opens and returns schema version 1", () => {
       expect(store.getSchemaVersion()).toBe("1");
+    });
+
+    it("quarantines a corrupt on-disk database and rebuilds an empty lineage store", () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-lineage-corrupt-"));
+      const dbPath = path.join(dir, "artifact-lineage.db");
+      fs.writeFileSync(dbPath, "not a sqlite database");
+
+      const recovered = ArtifactLineageStore.open(dbPath);
+      expect(recovered.getSchemaVersion()).toBe("1");
+      recovered.close();
+      expect(fs.readdirSync(dir).some((name) => name.startsWith("artifact-lineage.db.corrupt-"))).toBe(true);
+      fs.rmSync(dir, { recursive: true, force: true });
     });
   });
 
