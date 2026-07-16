@@ -30,7 +30,7 @@
   "dependencies": {
     "@cuttlefish/contracts": "0.1.0",
     "@qdrant/js-client-rest": "^1.9.0",
-    "@slack/bolt": "^4.3.0",
+    "@slack/bolt": "^5.0.0",
     "@whiskeysockets/baileys": "7.0.0-rc13",
     "better-sqlite3": "^11.8.0",
     "busboy": "^1.6.0",
