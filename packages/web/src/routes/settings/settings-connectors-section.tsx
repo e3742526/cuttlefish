@@ -235,7 +235,7 @@ export function SettingsConnectorsSection({
       </div>
       {instances.map((instance, idx) => (
         <div
-          key={instance.id || idx}
+          key={`connector-instance-${idx}`}
           className="mb-[var(--space-4)] p-[var(--space-3)] rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--bg-secondary)]"
         >
           <div className="flex items-center justify-between mb-[var(--space-2)]">

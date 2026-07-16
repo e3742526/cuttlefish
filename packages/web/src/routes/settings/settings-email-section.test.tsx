@@ -27,6 +27,20 @@ function Harness() {
 }
 
 describe("EmailSettingsSection", () => {
+  it("keeps the inbox ID input focused while its editable value changes", () => {
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole("button", { name: /add inbox/i }))
+    const inboxIdInput = screen.getByDisplayValue("inbox-1")
+    inboxIdInput.focus()
+
+    for (const value of ["c", "cu", "cut", "cutt"]) {
+      fireEvent.change(inboxIdInput, { target: { value } })
+      expect(screen.getByDisplayValue(value)).toBe(inboxIdInput)
+      expect(document.activeElement).toBe(inboxIdInput)
+    }
+  })
+
   it("adds and removes inboxes while enforcing the three-inbox cap", () => {
     render(<Harness />)
 

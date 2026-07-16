@@ -114,6 +114,20 @@ function Harness() {
 }
 
 describe("SettingsConnectorsSection", () => {
+  it("keeps the instance ID input focused while its editable value changes", () => {
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole("button", { name: /\+ add instance/i }))
+    const instanceIdInput = screen.getByDisplayValue("slack-1")
+    instanceIdInput.focus()
+
+    for (const value of ["o", "op", "ops"]) {
+      fireEvent.change(instanceIdInput, { target: { value } })
+      expect(screen.getByDisplayValue(value)).toBe(instanceIdInput)
+      expect(document.activeElement).toBe(instanceIdInput)
+    }
+  })
+
   it("adds, edits, switches, and removes connector instances through updateConfig", () => {
     render(<Harness />)
 

@@ -262,7 +262,7 @@ export function EmailSettingsSection({
 
       {inboxes.map((inbox, index) => (
         <div
-          key={inbox.id || `email-inbox-${index}`}
+          key={`email-inbox-${index}`}
           className="mb-[var(--space-4)] rounded-[var(--radius-md)] border border-[var(--separator)] bg-[var(--bg-secondary)] p-[var(--space-3)]"
         >
           <div className="flex items-center justify-between gap-[var(--space-3)] mb-[var(--space-2)]">
