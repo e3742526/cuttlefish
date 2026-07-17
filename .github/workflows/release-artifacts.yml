@@ -36,7 +36,7 @@ jobs:
         run: pnpm config set script-shell "C:\Program Files\Git\bin\bash.exe"
       - name: Set up MSVC dev environment (Windows native module builds)
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@7defe9254715b088f12dddd9942945a3d75cdad5 # v1.9.0
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Run tests (test gate skipped on Windows - see docs/audits or release notes for known native-Windows failures)
