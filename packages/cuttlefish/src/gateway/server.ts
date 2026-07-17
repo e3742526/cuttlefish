@@ -67,6 +67,7 @@ import { HookRegistry } from "./hook-registry.js";
 import { gatewayBaseUrl, readGatewayInfo, staleGatewayPids, updateGatewayPtyPids, writeGatewayInfo } from "./gateway-info.js";
 import { startWatchers, stopWatchers, syncSkillSymlinks } from "./watcher.js";
 import { cleanupOldUploads, ensureFilesDir } from "./files.js";
+import { sweepStaleMcpConfigFiles } from "../mcp/resolver.js";
 import { handleApiRequest, resumePendingWebQueueItems, type ApiContext } from "./api.js";
 import { dispatchWebSessionRun } from "./api/session-dispatch.js";
 import { startConfiguredConnectors } from "./server/connectors.js";
@@ -116,6 +117,15 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     try { cleanupOldUploads(30); } catch { }
   }, 24 * 60 * 60 * 1000);
   uploadCleanupTimer.unref?.();
+
+  // TMP-CUT-019 / DAT-BUS-006: sweep MCP per-session temp config files (can
+  // hold secrets) orphaned by a hard process kill mid-session, same
+  // 24h-interval convention as the upload cleanup above.
+  try { sweepStaleMcpConfigFiles(); } catch { }
+  const mcpConfigSweepTimer = setInterval(() => {
+    try { sweepStaleMcpConfigFiles(); } catch { }
+  }, 24 * 60 * 60 * 1000);
+  mcpConfigSweepTimer.unref?.();
 
   const recovered = recoverStaleSessions();
   if (recovered > 0) {
@@ -792,6 +802,7 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
     stopWatchers,
     stopWsHeartbeat: transports.stopWsHeartbeat,
     uploadCleanupTimer,
+    mcpConfigSweepTimer,
     knowledgeRelayTimer,
     wsClients: transports.wsClients,
     wss: transports.wss,

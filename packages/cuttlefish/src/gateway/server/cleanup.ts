@@ -28,6 +28,7 @@ interface GatewayCleanupDeps {
   stopWatchers: () => Promise<void>;
   stopWsHeartbeat: () => void;
   uploadCleanupTimer: NodeJS.Timeout;
+  mcpConfigSweepTimer?: NodeJS.Timeout;
   knowledgeRelayTimer?: NodeJS.Timeout;
   stopEmailService?: () => void;
   /** Release the macOS sleep assertion (no-op if not held). */
@@ -57,6 +58,7 @@ export function createGatewayCleanup({
   stopWatchers,
   stopWsHeartbeat,
   uploadCleanupTimer,
+  mcpConfigSweepTimer,
   knowledgeRelayTimer,
   stopEmailService,
   stopSleepGuard,
@@ -72,6 +74,7 @@ export function createGatewayCleanup({
     stopStuckTicketWatchdog();
     stopLeaderAckReconciler();
     clearInterval(uploadCleanupTimer);
+    if (mcpConfigSweepTimer) clearInterval(mcpConfigSweepTimer);
     if (knowledgeRelayTimer) clearInterval(knowledgeRelayTimer);
     stopEmailService?.();
 
