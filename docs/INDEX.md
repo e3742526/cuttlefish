@@ -47,6 +47,13 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-16-full-audit-repair-campaign.md`:
+  current-source full repository audit; records twelve confirmed P1–P3
+  findings, their repair dispositions, final regression evidence, and explicit
+  residual validation limits.
+- `docs/logs/session/072026/2026-07-16-full-audit-repair-campaign.md`:
+  staged repair-campaign record for the full audit, including locality gates,
+  adversarial reviews, commit boundaries, and final closure checks.
 - `docs/logs/session/072026/2026-07-13-deferred-backlog-repair-campaign.md`:
   repair-campaign record for the reopened architecture, scheduler-integrity,
   work-state, and Workers DataView backlog items.
