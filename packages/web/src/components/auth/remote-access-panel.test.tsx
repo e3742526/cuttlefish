@@ -24,8 +24,8 @@ describe("RemoteAccessPanel", () => {
     expect(screen.getByText(/single-use/i)).toBeTruthy()
   })
 
-  it("can forget the current browser", () => {
-    const onLogout = vi.fn()
+  it("can forget the current browser", async () => {
+    const onLogout = vi.fn().mockResolvedValue(undefined)
     render(
       <RemoteAccessPanel
         authState={{ authRequired: true, authenticated: true, canBootstrapLocal: false, networkExposed: false }}
@@ -36,7 +36,11 @@ describe("RemoteAccessPanel", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: /forget this browser/i }))
-    expect(onLogout).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onLogout).toHaveBeenCalledTimes(1))
+    await waitFor(() => {
+      const button = screen.getByRole("button", { name: /forget this browser/i }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+    })
   })
 
   it("disables pairing-code creation outside the paired local dashboard", () => {
@@ -55,8 +59,8 @@ describe("RemoteAccessPanel", () => {
     expect(screen.getByText(/Create codes from the local Mac dashboard/i)).toBeTruthy()
   })
 
-  it("shows paired browsers with the current browser marked", () => {
-    const onUnpairDevice = vi.fn()
+  it("shows paired browsers with the current browser marked", async () => {
+    const onUnpairDevice = vi.fn().mockResolvedValue(undefined)
     render(
       <RemoteAccessPanel
         authState={{ authRequired: true, authenticated: true, canBootstrapLocal: false, networkExposed: true }}
@@ -90,6 +94,10 @@ describe("RemoteAccessPanel", () => {
     expect(screen.getByText(/Current/i)).toBeTruthy()
     expect(screen.queryByRole("button", { name: /unpair this mac/i })).toBeNull()
     fireEvent.click(screen.getByRole("button", { name: /unpair iphone browser/i }))
-    expect(onUnpairDevice).toHaveBeenCalledWith("device-2")
+    await waitFor(() => expect(onUnpairDevice).toHaveBeenCalledWith("device-2"))
+    await waitFor(() => {
+      const button = screen.getByRole("button", { name: /unpair iphone browser/i }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+    })
   })
 })
