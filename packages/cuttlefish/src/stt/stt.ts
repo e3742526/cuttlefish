@@ -4,6 +4,7 @@ import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { STT_MODELS_DIR, TMP_DIR } from "../shared/paths.js";
 import { logger } from "../shared/logger.js";
+import { assertFileIntegrity } from "../shared/file-integrity.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,36 +23,30 @@ export const WHISPER_LANGUAGES: Record<string, string> = {
   lt: "Lithuanian", lv: "Latvian", sl: "Slovenian", et: "Estonian",
 };
 
-const MODEL_URLS: Record<string, string> = {
-  tiny: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-  "tiny.en": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin",
-  base: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-  "base.en": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin",
-  small: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-  "small.en": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin",
-  medium: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-  "medium.en": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin",
-  "large-v3-turbo": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-};
+const WHISPER_MODEL_REVISION = "5359861c739e955e79d9a303bcbc70fb988958b1";
+const WHISPER_MODEL_BASE = `https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_MODEL_REVISION}`;
 
-const MODEL_FILES: Record<string, string> = Object.fromEntries(
-  Object.entries(MODEL_URLS).map(([k, url]) => [k, path.basename(url)]),
-);
+interface WhisperModelAsset {
+  filename: string;
+  size: number;
+  sha256: string;
+}
 
-const EXPECTED_SIZES: Record<string, number> = {
-  tiny: 75_000_000,
-  "tiny.en": 75_000_000,
-  base: 142_000_000,
-  "base.en": 142_000_000,
-  small: 466_000_000,
-  "small.en": 466_000_000,
-  medium: 1_500_000_000,
-  "medium.en": 1_500_000_000,
-  "large-v3-turbo": 1_500_000_000,
+const MODEL_ASSETS: Record<string, WhisperModelAsset> = {
+  tiny: { filename: "ggml-tiny.bin", size: 77_691_713, sha256: "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21" },
+  "tiny.en": { filename: "ggml-tiny.en.bin", size: 77_704_715, sha256: "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f" },
+  base: { filename: "ggml-base.bin", size: 147_951_465, sha256: "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe" },
+  "base.en": { filename: "ggml-base.en.bin", size: 147_964_211, sha256: "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002" },
+  small: { filename: "ggml-small.bin", size: 487_601_967, sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b" },
+  "small.en": { filename: "ggml-small.en.bin", size: 487_614_201, sha256: "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d" },
+  medium: { filename: "ggml-medium.bin", size: 1_533_763_059, sha256: "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208" },
+  "medium.en": { filename: "ggml-medium.en.bin", size: 1_533_774_781, sha256: "cc37e93478338ec7700281a7ac30a10128929eb8f427dda2e865faa8f6da4356" },
+  "large-v3-turbo": { filename: "ggml-large-v3-turbo.bin", size: 1_624_555_275, sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69" },
 };
 
 let downloading = false;
 let downloadProgress = 0;
+const verifiedModelFiles = new Set<string>();
 
 /** Ensure models directory exists. */
 export function initStt(): void {
@@ -60,10 +55,25 @@ export function initStt(): void {
 }
 
 export function getModelPath(model: string): string | null {
-  const filename = MODEL_FILES[model];
-  if (!filename) return null;
-  const filePath = path.join(STT_MODELS_DIR, filename);
-  return fs.existsSync(filePath) ? filePath : null;
+  const asset = MODEL_ASSETS[model];
+  if (!asset) return null;
+  const filePath = path.join(STT_MODELS_DIR, asset.filename);
+  const stat = fs.statSync(filePath, {
+    throwIfNoEntry: false,
+  } as fs.StatSyncOptions & { throwIfNoEntry: false });
+  return stat?.isFile() && stat.size === asset.size ? filePath : null;
+}
+
+async function verifyModelFile(model: string, filePath: string): Promise<void> {
+  if (verifiedModelFiles.has(filePath)) return;
+  const asset = MODEL_ASSETS[model];
+  if (!asset) throw new Error(`Unknown model: ${model}`);
+  await assertFileIntegrity(filePath, {
+    size: asset.size,
+    sha256: asset.sha256,
+    label: `Whisper model '${model}'`,
+  });
+  verifiedModelFiles.add(filePath);
 }
 
 export interface SttStatus {
@@ -102,21 +112,34 @@ export async function downloadModel(
 ): Promise<void> {
   if (downloading) throw new Error("Download already in progress");
 
-  const url = MODEL_URLS[model];
-  if (!url) throw new Error(`Unknown model: ${model}`);
+  const asset = MODEL_ASSETS[model];
+  if (!asset) throw new Error(`Unknown model: ${model}`);
+  const url = `${WHISPER_MODEL_BASE}/${asset.filename}`;
 
-  if (getModelPath(model)) {
-    onProgress(100);
-    return;
+  const existingPath = getModelPath(model);
+  if (existingPath) {
+    try {
+      await verifyModelFile(model, existingPath);
+      onProgress(100);
+      return;
+    } catch (err) {
+      logger.warn(`Existing Whisper model '${model}' failed integrity verification and will be replaced: ${err instanceof Error ? err.message : err}`);
+      try { fs.unlinkSync(existingPath); } catch { /* download will surface any remaining conflict */ }
+    }
   }
 
   downloading = true;
   downloadProgress = 0;
 
-  const filename = MODEL_FILES[model]!;
-  const destPath = path.join(STT_MODELS_DIR, filename);
+  const destPath = path.join(STT_MODELS_DIR, asset.filename);
   const tmpPath = destPath + ".downloading";
-  const expectedSize = EXPECTED_SIZES[model] || 466_000_000;
+
+  // getModelPath() rejects wrong-size files. Remove that stale destination
+  // explicitly so the final rename is portable to platforms that will not
+  // replace an existing file atomically.
+  if (fs.existsSync(destPath)) {
+    try { fs.unlinkSync(destPath); } catch { /* download will surface the conflict */ }
+  }
 
   try {
     fs.mkdirSync(STT_MODELS_DIR, { recursive: true });
@@ -127,6 +150,9 @@ export async function downloadModel(
       // instead of holding the download (and its 1s progress poll) open forever.
       const curl = spawn("curl", [
         "-L", // follow redirects
+        "--fail",
+        "--proto", "=https",
+        "--tlsv1.2",
         "--connect-timeout", "30",
         "--speed-limit", "1024", "--speed-time", "60",
         "-o", tmpPath,
@@ -138,7 +164,7 @@ export async function downloadModel(
         try {
           const stat = fs.statSync(tmpPath, { throwIfNoEntry: false } as fs.StatSyncOptions & { throwIfNoEntry: false });
           if (stat && stat.size > 0) {
-            downloadProgress = Math.min(95, Math.round(((stat.size as number) / expectedSize) * 100));
+            downloadProgress = Math.min(95, Math.round(((stat.size as number) / asset.size) * 100));
             onProgress(downloadProgress);
           }
         } catch { /* file not created yet */ }
@@ -156,19 +182,15 @@ export async function downloadModel(
       });
     });
 
-    // Integrity sanity check before renaming into place: exact sizes drift
-    // upstream, so accept anything >= 90% of the expected size, but reject a
-    // truncated/empty download hard — a bad rename here would poison
-    // getModelPath() into reporting the model as available forever.
-    const actualSize = fs.statSync(tmpPath, { throwIfNoEntry: false } as fs.StatSyncOptions & { throwIfNoEntry: false })?.size ?? 0;
-    if (actualSize < expectedSize * 0.9) {
-      throw new Error(
-        `Downloaded model '${model}' looks truncated (${actualSize} bytes, expected ~${expectedSize}) — deleted; try again`,
-      );
-    }
+    await assertFileIntegrity(tmpPath, {
+      size: asset.size,
+      sha256: asset.sha256,
+      label: `Whisper model '${model}'`,
+    });
 
     // Rename temp file to final path
     fs.renameSync(tmpPath, destPath);
+    verifiedModelFiles.add(destPath);
 
     downloadProgress = 100;
     onProgress(100);
@@ -209,6 +231,7 @@ export async function transcribe(
   const modelPath = getModelPath(model);
   if (!modelPath)
     throw new Error(`Model '${model}' not found. Download it first.`);
+  await verifyModelFile(model, modelPath);
 
   // Convert to WAV if not already
   let wavPath = audioPath;

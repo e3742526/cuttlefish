@@ -301,6 +301,15 @@
 
 ## API
 
+### Local speech model acquisition
+- `packages/cuttlefish/src/stt/stt.ts`
+- `packages/cuttlefish/src/talk/kokoro.ts`
+- Whisper model URLs resolve through a repository-pinned upstream revision,
+  and downloaded Whisper and Kokoro assets must match exact recorded byte sizes
+  and SHA-256 digests before activation. Cached assets are verified on first use.
+- The Kokoro Python environment installs exact dependency versions, and its
+  synthesized-audio and error responses have explicit byte limits.
+
 ### Email inbox inspection and COO auto-ingest
 - `packages/cuttlefish/src/email/*`
 - `packages/cuttlefish/src/gateway/api.ts`

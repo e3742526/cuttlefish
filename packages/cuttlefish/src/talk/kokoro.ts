@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url"
 import { CUTTLEFISH_HOME } from "../shared/paths.js"
 import { logger } from "../shared/logger.js"
 import { safeRmSync } from "../shared/safe-delete.js"
+import { assertFileIntegrity } from "../shared/file-integrity.js"
+import { readResponseBuffer, readResponseJson } from "../shared/fetch-response.js"
 import { TALK_EVENTS, type Emit, type Tts } from "./protocol.js"
 
 /** Model / venv layout under CUTTLEFISH_HOME. */
@@ -31,15 +33,21 @@ const VOICES_FILE = path.join(KOKORO_DIR, "voices-v1.0.bin")
 /** kokoro-onnx official release assets. */
 const RELEASE_BASE =
   "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
-const DOWNLOADS: Array<{ url: string; dest: string; size: number }> = [
-  { url: `${RELEASE_BASE}/kokoro-v1.0.onnx`, dest: ONNX_FILE, size: 325_000_000 },
-  { url: `${RELEASE_BASE}/voices-v1.0.bin`, dest: VOICES_FILE, size: 28_000_000 },
+const DOWNLOADS: Array<{ url: string; filename: string; size: number; sha256: string }> = [
+  { url: `${RELEASE_BASE}/kokoro-v1.0.onnx`, filename: "kokoro-v1.0.onnx", size: 325_532_387, sha256: "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5" },
+  { url: `${RELEASE_BASE}/voices-v1.0.bin`, filename: "voices-v1.0.bin", size: 28_214_398, sha256: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d" },
 ]
+
+export function resolveKokoroDownloadAssets(modelDir: string): Array<{ url: string; filename: string; dest: string; size: number; sha256: string }> {
+  return DOWNLOADS.map((asset) => ({ ...asset, dest: path.join(modelDir, asset.filename) }));
+}
 
 const DEFAULT_VOICE = "af_heart"
 const DEFAULT_PORT = 8765
 const HEALTH_TIMEOUT_MS = 60_000 // model load is lazy + heavy on first synth
 const SYNTH_TIMEOUT_MS = 120_000
+const MAX_SYNTH_RESPONSE_BYTES = 256 * 1024 * 1024
+const MAX_SYNTH_ERROR_BYTES = 64 * 1024
 
 interface HealthResponse {
   ok: boolean
@@ -91,10 +99,30 @@ export function createKokoroTts(opts?: {
   let ready = false // last-known sidecar /health "ready" (model loaded)
   let downloading = false
   let downloadProgress = 0
+  let weightsVerified = false
+  const downloads = resolveKokoroDownloadAssets(modelDir)
 
   /** Are the on-disk weights present? */
   function weightsPresent(): boolean {
-    return fs.existsSync(onnxFile) && fs.existsSync(voicesFile)
+    const sizes = new Map(downloads.map((asset) => [asset.dest, asset.size]))
+    return [onnxFile, voicesFile].every((file) => {
+      const stat = fs.statSync(file, {
+        throwIfNoEntry: false,
+      } as fs.StatSyncOptions & { throwIfNoEntry: false })
+      return stat?.isFile() && stat.size === sizes.get(file)
+    })
+  }
+
+  async function verifyWeights(): Promise<void> {
+    if (weightsVerified) return
+    for (const asset of downloads) {
+      await assertFileIntegrity(asset.dest, {
+        size: asset.size,
+        sha256: asset.sha256,
+        label: asset.filename,
+      })
+    }
+    weightsVerified = true
   }
 
   /**
@@ -148,6 +176,7 @@ export function createKokoroTts(opts?: {
       if (!weightsPresent()) {
         throw new Error(`Kokoro weights missing in ${modelDir} — run download() first`)
       }
+      await verifyWeights()
 
       const chosen = opts?.sidecarPort || (await findFreePort(DEFAULT_PORT))
       const sidecar = resolveSidecarPath()
@@ -249,14 +278,14 @@ export function createKokoroTts(opts?: {
     if (!res.ok) {
       let detail = ""
       try {
-        detail = ((await res.json()) as { error?: string }).error || ""
+        detail = (await readResponseJson<{ error?: string }>(res, MAX_SYNTH_ERROR_BYTES)).error || ""
       } catch {
         /* non-json error body */
       }
       throw new Error(`Kokoro synth failed (${res.status})${detail ? `: ${detail}` : ""}`)
     }
     ready = true // a successful synth means the model is loaded
-    return Buffer.from(await res.arrayBuffer())
+    return readResponseBuffer(res, MAX_SYNTH_RESPONSE_BYTES)
   }
 
   /**
@@ -351,16 +380,22 @@ export function createKokoroTts(opts?: {
         }
 
         // 2. Fetch the onnx weights + voices if absent, reporting growth as progress.
-        const totalBytes = DOWNLOADS.reduce((n, d) => n + d.size, 0)
+        const totalBytes = downloads.reduce((n, d) => n + d.size, 0)
         let basePrior = 0
-        for (const d of DOWNLOADS) {
+        for (const d of downloads) {
           if (fs.existsSync(d.dest)) {
-            basePrior += d.size
-            downloadProgress = Math.min(99, Math.round((basePrior / totalBytes) * 100))
-            emit(TALK_EVENTS.ttsDownloadProgress, { progress: downloadProgress })
-            continue
+            try {
+              await assertFileIntegrity(d.dest, { size: d.size, sha256: d.sha256, label: d.filename })
+              basePrior += d.size
+              downloadProgress = Math.min(99, Math.round((basePrior / totalBytes) * 100))
+              emit(TALK_EVENTS.ttsDownloadProgress, { progress: downloadProgress })
+              continue
+            } catch (err) {
+              logger.warn(`[kokoro] existing ${d.filename} failed integrity verification and will be replaced: ${err instanceof Error ? err.message : err}`)
+              try { fs.unlinkSync(d.dest) } catch { /* curl will surface a remaining conflict */ }
+            }
           }
-          await curlDownload(d.url, d.dest, (bytes) => {
+          await curlDownload(d.url, d.dest, d.size, d.sha256, (bytes) => {
             downloadProgress = Math.min(
               99,
               Math.round(((basePrior + Math.min(bytes, d.size)) / totalBytes) * 100),
@@ -370,6 +405,7 @@ export function createKokoroTts(opts?: {
           basePrior += d.size
         }
 
+        weightsVerified = true
         downloadProgress = 100
         emit(TALK_EVENTS.ttsDownloadProgress, { progress: 100 })
         emit(TALK_EVENTS.ttsDownloadComplete, {})
@@ -440,7 +476,14 @@ function ensureVenv(modelDir: string): Promise<void> {
       if (code !== 0) return reject(new Error(`venv creation failed (code ${code})`))
       const pip = spawn(
         py,
-        ["-m", "pip", "install", "--quiet", "kokoro-onnx", "onnxruntime", "soundfile", "numpy"],
+        [
+          "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+          "kokoro-onnx==0.5.0",
+          "onnxruntime==1.22.1",
+          "numpy==2.2.6",
+          "espeakng-loader==0.2.4",
+          "phonemizer-fork==3.3.2",
+        ],
         { stdio: "ignore" },
       )
       pip.on("error", reject)
@@ -455,6 +498,8 @@ function ensureVenv(modelDir: string): Promise<void> {
 function curlDownload(
   url: string,
   dest: string,
+  expectedSize: number,
+  expectedSha256: string,
   onBytes: (bytes: number) => void,
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -464,6 +509,8 @@ function curlDownload(
     // forever; --connect-timeout bounds a dead host.
     const curl = spawn("curl", [
       "-L", "--fail",
+      "--proto", "=https",
+      "--tlsv1.2",
       "--connect-timeout", "30",
       "--speed-limit", "1024", "--speed-time", "60",
       "-o", tmp, url,
@@ -489,13 +536,23 @@ function curlDownload(
       }
       reject(err)
     })
-    curl.on("exit", (code) => {
+    curl.on("exit", async (code) => {
       clearInterval(poll)
       if (code === 0) {
         try {
+          await assertFileIntegrity(tmp, {
+            size: expectedSize,
+            sha256: expectedSha256,
+            label: path.basename(dest),
+          })
           fs.renameSync(tmp, dest)
           resolve()
         } catch (err) {
+          try {
+            fs.unlinkSync(tmp)
+          } catch {
+            /* ignore */
+          }
           reject(err as Error)
         }
       } else {
