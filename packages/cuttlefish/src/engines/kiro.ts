@@ -81,7 +81,7 @@ function sessionTimestamp(session: Record<string, unknown>): number {
   return 0;
 }
 
-export function parseKiroSessionList(output: string): string | undefined {
+export function parseKiroSessionList(output: string, filter?: { cwd?: string }): string | undefined {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);
@@ -92,6 +92,11 @@ export function parseKiroSessionList(output: string): string | undefined {
   const roots = Array.isArray(parsed) ? parsed : [parsed];
   const sessions = roots
     .filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
+    // Scope recovery to this turn's workspace when the listing groups sessions by
+    // cwd, so a concurrent Kiro session running against a different cwd can never
+    // be picked as "most recent" for this turn (TMP-CUT-012). Groups that don't
+    // report a cwd can't be scoped, so they're kept as-is rather than dropped.
+    .filter((root) => !filter?.cwd || typeof root.cwd !== "string" || root.cwd === filter.cwd)
     .flatMap((root) => {
       const nested = root.sessions;
       if (Array.isArray(nested)) return nested;
@@ -112,6 +117,15 @@ export function isKiroCreditExhaustion(text: string): boolean {
 export class KiroEngine implements InterruptibleEngine {
   name = "kiro" as const;
   private liveProcesses = new Map<string, LiveProcess>();
+  // Recovery correlation state (TMP-CUT-012): recoverSessionId() has no run/task
+  // id to key off (Kiro assigns its own session id and we only learn it after
+  // the fact via `--list-sessions`), so two fresh Kiro sessions finishing around
+  // the same time in the same cwd could otherwise both resolve to the same
+  // "most recent" session and mis-attribute it to the wrong turn. Serialize
+  // recovery per cwd and refuse to hand out a session id that a concurrent
+  // recovery already claimed, rather than silently guessing.
+  private recoveryLocks = new Map<string, Promise<unknown>>();
+  private claimedSessionIds = new Set<string>();
 
   constructor(private readonly opts: KiroEngineOpts = {}) {}
 
@@ -286,13 +300,41 @@ export class KiroEngine implements InterruptibleEngine {
   }
 
   private recoverSessionId(bin: string, cwd: string): Promise<string | undefined> {
-    if (this.opts.listSessions) return this.opts.listSessions(bin, cwd);
-    return new Promise((resolve) => {
-      execFile(bin, ["chat", "--list-sessions", "--format", "json"], { cwd, timeout: 5000 }, (err, stdout) => {
-        if (err) return resolve(undefined);
-        resolve(parseKiroSessionList(stdout));
-      });
+    // Chain onto any in-flight recovery for this cwd so concurrent turns don't
+    // race the same `--list-sessions` probe and both land on the same answer.
+    const prior = this.recoveryLocks.get(cwd) ?? Promise.resolve();
+    const attempt = prior.then(
+      () => this.recoverSessionIdOnce(bin, cwd),
+      () => this.recoverSessionIdOnce(bin, cwd),
+    );
+    const tracked = attempt.catch(() => undefined);
+    this.recoveryLocks.set(cwd, tracked);
+    void tracked.finally(() => {
+      if (this.recoveryLocks.get(cwd) === tracked) this.recoveryLocks.delete(cwd);
     });
+    return attempt;
+  }
+
+  private async recoverSessionIdOnce(bin: string, cwd: string): Promise<string | undefined> {
+    const id = this.opts.listSessions
+      ? await this.opts.listSessions(bin, cwd)
+      : await new Promise<string | undefined>((resolve) => {
+          execFile(bin, ["chat", "--list-sessions", "--format", "json"], { cwd, timeout: 5000 }, (err, stdout) => {
+            if (err) return resolve(undefined);
+            resolve(parseKiroSessionList(stdout, { cwd }));
+          });
+        });
+
+    if (!id) return id;
+    if (this.claimedSessionIds.has(id)) {
+      // Another concurrent recovery already attributed this session id to a
+      // different turn; handing it out again would cross-wire two sessions.
+      // Fail safe (no resume id) rather than guess.
+      logger.warn(`Kiro session recovery for ${cwd} resolved to an already-claimed session id; skipping to avoid a cross-turn mixup`);
+      return undefined;
+    }
+    this.claimedSessionIds.add(id);
+    return id;
   }
 
   private preflightAuth(bin: string, cwd: string): Promise<{ ok: boolean; error?: string }> {

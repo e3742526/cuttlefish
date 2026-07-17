@@ -61,10 +61,15 @@ export class HermesRpc {
     }
     if (typeof id === "number" && typeof msg.method === "string") {
       // server→client request: answer it
-      let result: unknown = null;
-      try { result = this.serverReqCb ? await this.serverReqCb(msg.method, (msg.params ?? {}) as Record<string, unknown>) : null; }
-      catch { result = null; }
-      this.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+      try {
+        const result = this.serverReqCb ? await this.serverReqCb(msg.method, (msg.params ?? {}) as Record<string, unknown>) : null;
+        this.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+      } catch (e) {
+        // Don't fake success on a failed server→client turn: send a real
+        // JSON-RPC error response so the caller can tell the turn failed.
+        const message = e instanceof Error ? e.message : String(e);
+        this.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code: -32000, message } }) + "\n");
+      }
       return;
     }
     if (typeof msg.method === "string") {

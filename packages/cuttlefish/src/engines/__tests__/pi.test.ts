@@ -81,6 +81,16 @@ const agentEnd = (text: string) => JSON.stringify({
   }],
 });
 
+const agentEndWithError = (text: string, errorMessage: string) => JSON.stringify({
+  type: "agent_end",
+  messages: [{
+    role: "assistant",
+    stopReason: "error",
+    errorMessage,
+    content: [{ type: "text", text }],
+  }],
+});
+
 async function startRun(): Promise<{ engine: PiEngine; promise: Promise<EngineResult>; call: SpawnCall }> {
   const engine = new PiEngine();
   const promise = engine.run({
@@ -123,6 +133,17 @@ describe("PiEngine lifecycle", () => {
     const result = await promise;
     expect(result.result).toBe("");
     expect(result.error).toMatch(/without a final assistant response/);
+  });
+
+  it("still surfaces a turnError when partial text is also present (FSR-CF-005)", async () => {
+    const { promise, call } = await startRun();
+    call.proc.emitStdout(agentEndWithError("partial answer", "boom: tool crashed mid-turn") + "\n");
+    await flush();
+
+    call.proc.close(0);
+    const result = await promise;
+    expect(result.result).toBe("partial answer");
+    expect(result.error).toBe("boom: tool crashed mid-turn");
   });
 
   it("does not return partial text as the result when interrupted", async () => {

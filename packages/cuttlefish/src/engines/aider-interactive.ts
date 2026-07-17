@@ -147,10 +147,21 @@ export class AiderInteractiveEngine implements InterruptibleEngine, PtyViewEngin
       if (turn.boundProc) pasteAndSubmit(turn.boundProc, prompt);
       else turn.interrupt("Interrupted: aider PTY unavailable");
     } else {
-      const handle = this.spawn(cuttlefishSessionId, opts, prompt);
-      turn.boundProc = (handle as any)._proc as IPty | undefined;
-      this.lifecycle.adopt(cuttlefishSessionId, handle, { turnRunning: true });
-      this.lifecycle.turnStarted(cuttlefishSessionId);
+      try {
+        const handle = this.spawn(cuttlefishSessionId, opts, prompt);
+        turn.boundProc = (handle as any)._proc as IPty | undefined;
+        this.lifecycle.adopt(cuttlefishSessionId, handle, { turnRunning: true });
+        this.lifecycle.turnStarted(cuttlefishSessionId);
+      } catch (err) {
+        // Spawn failed before any PTY handle was adopted (binary missing, EACCES,
+        // resource exhaustion, ...). Fail just this turn via the normal finish/cleanup
+        // path so `this.active` and the hard timeout are cleared and a later run()
+        // for this session can retry — never let the throw escape with the session
+        // still marked as having a turn in flight.
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(`AiderInteractiveEngine spawn failed for ${cuttlefishSessionId}: ${message}`);
+        turn.interrupt(`Interrupted: failed to spawn aider process: ${message}`);
+      }
     }
 
     return promise;

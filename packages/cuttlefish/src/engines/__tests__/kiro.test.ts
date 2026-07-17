@@ -104,6 +104,17 @@ describe("Kiro helpers", () => {
     expect(sessionId).toBe("newer");
   });
 
+  it("scopes session recovery to the turn's cwd instead of picking the globally most-recent session (TMP-CUT-012)", () => {
+    const output = JSON.stringify([
+      { cwd: "/tmp/other-project", sessions: [{ sessionId: "other-newest", updatedAt: "2026-07-17T00:00:00.000Z" }] },
+      { cwd: "/tmp/project", sessions: [{ sessionId: "mine-older", updatedAt: "2026-07-01T00:00:00.000Z" }] },
+    ]);
+    // Without a cwd filter, blind recency picks the other workspace's session.
+    expect(parseKiroSessionList(output)).toBe("other-newest");
+    // Scoped to this turn's cwd, the correct (if older) session wins instead.
+    expect(parseKiroSessionList(output, { cwd: "/tmp/project" })).toBe("mine-older");
+  });
+
   it("detects credit exhaustion failures", () => {
     expect(isKiroCreditExhaustion("Insufficient credits for this request")).toBe(true);
     expect(isKiroCreditExhaustion("ordinary tool error")).toBe(false);
@@ -264,6 +275,35 @@ describe("KiroEngine", () => {
     const result = await promise;
     expect(result.sessionId).toBe("kiro-existing");
     expect(result.result).toBe("resumed");
+  });
+
+  it("does not attribute the same recovered session id to two concurrent turns sharing a cwd (TMP-CUT-012)", async () => {
+    execFileMock.mockImplementation((_bin, _args, _opts, cb) => {
+      cb(null, JSON.stringify([{ cwd: "/tmp/project", sessions: [{ sessionId: "kiro-shared", updatedAt: "2026-07-17T00:00:00.000Z" }] }]), "");
+    });
+    const engine = new KiroEngine();
+
+    const promise1 = engine.run({ prompt: "first", cwd: "/tmp/project", sessionId: "track-a" } as any);
+    const promise2 = engine.run({ prompt: "second", cwd: "/tmp/project", sessionId: "track-b" } as any);
+    await flush();
+
+    expect(spawnCalls).toHaveLength(2);
+    const [call1, call2] = spawnCalls;
+
+    // Settle the first turn fully first (including its session-id recovery) so
+    // the claim on "kiro-shared" is recorded before the second turn recovers.
+    call1.proc.emitStdout("first answer\nCredits: 0.10 - Time: 1s\n");
+    call1.proc.close(0);
+    const result1 = await promise1;
+
+    call2.proc.emitStdout("second answer\nCredits: 0.10 - Time: 1s\n");
+    call2.proc.close(0);
+    const result2 = await promise2;
+
+    expect(result1.sessionId).toBe("kiro-shared");
+    // The second concurrent turn must NOT be attributed the same session id
+    // that was already claimed by the first turn.
+    expect(result2.sessionId).toBe("");
   });
 
   it("fails before spawning when the auth probe reports missing credentials", async () => {

@@ -312,13 +312,20 @@ export class PiEngine implements InterruptibleEngine {
       live.resolve({ sessionId: live.sessionIdOut, result: "", error: live.terminationReason });
       return;
     }
-    // A non-empty answer means the turn succeeded even if a benign error item
-    // also appeared — don't surface it as a failure.
+    // A non-empty answer usually means the turn succeeded, but `turnError` here
+    // is only ever set from the assistant's own `stopReason === "error"` (see
+    // extractFromMessages) — i.e. Pi itself reported the turn as having ended
+    // in error, not a benign transient item. Partial text produced before that
+    // failure doesn't make the failure go away, so don't discard it (FSR-CF-005):
+    // surface it on the result and log it rather than silently reporting success.
     if (result.trim()) {
+      if (live.turnError) {
+        logger.error(`Pi turn for session ${trackingId} ended in error despite partial output: ${live.turnError}`);
+      }
       live.resolve({
         sessionId: live.sessionIdOut,
         result,
-        error: undefined,
+        error: live.turnError ?? undefined,
       });
       return;
     }

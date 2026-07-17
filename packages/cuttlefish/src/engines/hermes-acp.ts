@@ -31,6 +31,10 @@ interface HermesProc {
 export class HermesAcpEngine implements InterruptibleEngine {
   name = "hermes" as const;
   private procs = new Map<string, HermesProc>();
+  /** Guards against two concurrent turns racing on the same session's single
+   *  shared HermesRpc notify callback (mirrors the `active` guard used by the
+   *  claude/codex/grok/antigravity interactive engines). */
+  private active = new Set<string>();
   /** Overridable in tests to shorten the handshake timeout. */
   protected handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS;
 
@@ -90,6 +94,12 @@ export class HermesAcpEngine implements InterruptibleEngine {
 
   async run(opts: EngineRunOpts): Promise<EngineResult> {
     const cuttlefishId = opts.sessionId || opts.resumeSessionId || "default";
+    // Concurrent-turn guard: two turns on the same session must not race on
+    // the single shared HermesRpc notify callback (see `onNote` below).
+    if (this.active.has(cuttlefishId)) {
+      return { sessionId: opts.resumeSessionId ?? "", result: "", error: "Hermes engine: a turn is already running for this session" };
+    }
+    this.active.add(cuttlefishId);
     const bin = resolveBin("hermes", opts.bin);
     const p = this.getOrSpawn(cuttlefishId, bin, opts.cwd);
     const { rpc } = p.handle;
@@ -149,6 +159,7 @@ export class HermesAcpEngine implements InterruptibleEngine {
       p.alive = false;
       try { p.handle.killProc(); } catch { /* ignore */ }
       if (this.procs.get(cuttlefishId) === p) this.procs.delete(cuttlefishId);
+      this.active.delete(cuttlefishId);
       return { sessionId: "", result: "", error: msg };
     } finally {
       if (handshakeWatchdog) clearTimeout(handshakeWatchdog);
@@ -195,6 +206,7 @@ export class HermesAcpEngine implements InterruptibleEngine {
           ? `Hermes turn ended: ${stop}`
           : undefined;
 
+      this.active.delete(cuttlefishId);
       return {
         sessionId: hermesSessionId!,
         result: resultText,
@@ -204,6 +216,7 @@ export class HermesAcpEngine implements InterruptibleEngine {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       logger.warn(`[hermes-acp] turn error for ${cuttlefishId}: ${msg}`);
+      this.active.delete(cuttlefishId);
       return {
         sessionId: hermesSessionId || "",
         result: resultText,

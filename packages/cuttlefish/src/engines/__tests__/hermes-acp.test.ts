@@ -192,4 +192,42 @@ describe("HermesAcpEngine.run", () => {
     expect(r.sessionId).toBe("NEW-1");
     expect(r.result).toBe("fallback ok");
   });
+
+  // TMP-CUT-007 — concurrent-turn guard: a second run() on the same
+  // cuttlefish session id while a turn is in flight must be rejected instead
+  // of racing on the shared HermesRpc notify callback.
+  it("rejects a second concurrent turn on the same session id", async () => {
+    class SlowEngine extends HermesAcpEngine {
+      protected spawnProc() {
+        const toServer = new PassThrough();
+        const fromServer = new PassThrough();
+        const rpc = new HermesRpc(toServer, fromServer);
+        toServer.on("data", (b: Buffer) => {
+          for (const line of b.toString().split("\n")) {
+            if (!line.trim()) continue;
+            const msg = JSON.parse(line) as Record<string, unknown>;
+            const reply = (result: unknown) =>
+              fromServer.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\n");
+            if (msg.method === "initialize") reply({ protocolVersion: 1 });
+            else if (msg.method === "session/new")
+              reply({ sessionId: "S1", models: { currentModelId: "hermes:default", availableModels: [] } });
+            else if (msg.method === "session/set_mode") reply({});
+            // session/prompt intentionally never replies — the first turn stays in flight.
+          }
+        });
+        return { rpc, killProc: () => {}, isAliveProc: () => true, onExit: (_cb: () => void) => {}, onError: (_cb: (e: Error) => void) => {} };
+      }
+    }
+
+    const eng = new SlowEngine();
+    const firstTurn = eng.run({ prompt: "first", cwd: "/tmp", sessionId: "concurrent-1" });
+    // Let the first turn get past the handshake and into session/prompt.
+    await new Promise((r) => setTimeout(r, 20));
+
+    const second = await eng.run({ prompt: "second", cwd: "/tmp", sessionId: "concurrent-1" });
+    expect(second.error).toMatch(/already running/);
+
+    // Cleanup: don't leave the first turn's timers/promise dangling past the test.
+    void firstTurn;
+  });
 });

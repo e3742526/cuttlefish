@@ -97,7 +97,13 @@ export function stripReasoningBlocks(text: string): string {
 /** Cost + context-meter stats for a settled turn from ONE read of the
  *  transcript. These .jsonl files grow monotonically for the life of a session
  *  (routinely multi-MB); the previous separate cost and context helpers each
- *  re-read and re-split the whole file, doubling the per-turn allocation burst. */
+ *  re-read and re-split the whole file, doubling the per-turn allocation burst.
+ *
+ *  NOTE: the transcript accumulates usage for the life of the whole PTY
+ *  session, so `cost`/`turns` here are CUMULATIVE totals since the transcript
+ *  started, not this turn's share. Callers that report a per-turn value must
+ *  use `computeInteractiveTurnStatsSinceAnchor` below instead of reporting
+ *  these numbers directly. */
 export function computeInteractiveTurnStats(
   transcriptPath: string,
   model?: string,
@@ -114,4 +120,41 @@ export function computeInteractiveTurnStats(
     };
   }
   return { cost, contextTokens: u.lastContextTokens };
+}
+
+/** Cumulative cost/turn totals observed at the end of a previous turn — the
+ *  anchor point `computeInteractiveTurnStatsSinceAnchor` subtracts from the
+ *  transcript's current running totals to recover just this turn's share. */
+export interface InteractiveCumulativeStats {
+  cost: number;
+  turns: number;
+}
+
+/** Cost + context-meter stats for a settled turn, reported as the DELTA since
+ *  `previousCumulative` rather than the transcript's running total.
+ *
+ *  `computeInteractiveTurnStats` returns cumulative totals for the whole PTY
+ *  session (the transcript .jsonl grows across every turn of that session),
+ *  so turn N's raw numbers already include turns 1..N-1. Mirrors the
+ *  since-anchor pattern in gateway/external-turns.ts (track what was already
+ *  observed, report/persist only what's new, advance the anchor): the caller
+ *  keeps the last-seen cumulative snapshot per session and passes it in as
+ *  `previousCumulative`; this returns both the per-turn delta to report AND
+ *  the new cumulative snapshot to store as the next anchor. */
+export function computeInteractiveTurnStatsSinceAnchor(
+  transcriptPath: string,
+  model: string | undefined,
+  previousCumulative: InteractiveCumulativeStats | undefined,
+): { cost: { cost: number; turns: number } | null; contextTokens: number | undefined; cumulative: InteractiveCumulativeStats | undefined } | null {
+  const stats = computeInteractiveTurnStats(transcriptPath, model);
+  if (!stats) return null;
+  if (!stats.cost) return { cost: null, contextTokens: stats.contextTokens, cumulative: undefined };
+  const prev = previousCumulative ?? { cost: 0, turns: 0 };
+  // Clamp at 0: guards a reset transcript (e.g. a new session reusing a stale
+  // anchor) from reporting a negative cost/turn count.
+  const cost = {
+    cost: Math.max(0, stats.cost.cost - prev.cost),
+    turns: Math.max(0, stats.cost.turns - prev.turns),
+  };
+  return { cost, contextTokens: stats.contextTokens, cumulative: { cost: stats.cost.cost, turns: stats.cost.turns } };
 }

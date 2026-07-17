@@ -13,9 +13,10 @@ import { SsePtyProxy, MAIN_AGENT_SENTINEL, type SseDataEvent, type UpstreamActiv
 import { findTranscriptForSession } from "./claude-transcript.js";
 import { buildInteractiveArgs, isNativeClaudeCommand, pasteAndSubmit } from "./claude-interactive-args.js";
 import {
-  computeInteractiveTurnStats,
+  computeInteractiveTurnStatsSinceAnchor,
   lastAssistantTextFromTranscript,
   stripReasoningBlocks,
+  type InteractiveCumulativeStats,
 } from "./claude-interactive-transcript.js";
 import { claudeHookToDeltas, rateLimitFromStopFailure, sseEventToDeltas } from "./claude-interactive-stream.js";
 import { TurnResolver } from "./claude-turn-resolver.js";
@@ -59,6 +60,15 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
    *  release (its job is to size the NEXT spawn); growth is bounded by setCapped. */
   private lastGeom = new Map<string, { cols: number; rows: number }>();
   private lastOutputAt = new Map<string, number>();
+  /** Cumulative cost/turns observed at the end of the previous turn, per
+   *  session — the transcript's totals are cumulative for the whole PTY
+   *  session (see computeInteractiveTurnStatsSinceAnchor), so this anchor is
+   *  subtracted out each turn to report just that turn's delta. Keyed by the
+   *  transcript path it was captured against so a resumed/new session's
+   *  transcript never gets diffed against a stale anchor from a different
+   *  transcript. Survives PTY release like lastGeom (meaningful across
+   *  respawns within the same session); growth bounded by setCapped. */
+  private turnStatsAnchor = new Map<string, InteractiveCumulativeStats & { transcriptPath: string }>();
   /** Per-session stall-watchdog liveness callback (opts.onActivity). Looked up
    *  dynamically from the PTY onData closure so a warm-reused PTY (wired once)
    *  always calls the CURRENT turn's callback. Any raw output = proof-of-life. */
@@ -291,12 +301,17 @@ export class InteractiveClaudeEngine implements InterruptibleEngine, PtyViewEngi
     // Reconstruct cost from the transcript (the Stop hook carries no cost).
     // Context-meter: most recent turn's input context (input + cache), mirroring
     // headless claude.ts so interactive/CLI-view turns also populate the meter.
-    // Both come from one read of the transcript.
+    // Both come from one read of the transcript. The transcript's totals are
+    // cumulative for the whole PTY session, so report the delta since the
+    // anchor captured at the end of the previous turn, then advance it.
     const transcriptPath = resolver.transcriptPath;
     if (transcriptPath && !result.error) {
-      const stats = computeInteractiveTurnStats(transcriptPath, opts.model);
+      const anchor = this.turnStatsAnchor.get(cuttlefishSessionId);
+      const previousCumulative = anchor?.transcriptPath === transcriptPath ? anchor : undefined;
+      const stats = computeInteractiveTurnStatsSinceAnchor(transcriptPath, opts.model, previousCumulative);
       if (stats?.cost) { result.cost = stats.cost.cost; result.numTurns = stats.cost.turns; }
       if (stats?.contextTokens) result.contextTokens = stats.contextTokens;
+      if (stats?.cumulative) setCapped(this.turnStatsAnchor, cuttlefishSessionId, { transcriptPath, ...stats.cumulative });
     }
     // Recover lost result text: if the turn settled with no text and no API-level
     // failure, the Stop hook (which carries last_assistant_message) was dropped —
