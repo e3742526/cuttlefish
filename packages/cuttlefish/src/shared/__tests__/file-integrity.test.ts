@@ -10,7 +10,6 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
-
 function fixture(content: string): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-integrity-"));
   dirs.push(dir);
@@ -34,4 +33,3 @@ describe("downloaded file integrity", () => {
     await expect(sha256File(file)).resolves.toBe(crypto.createHash("sha256").update("bad!").digest("hex"));
   });
 });
-

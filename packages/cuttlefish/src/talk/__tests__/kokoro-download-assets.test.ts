@@ -17,4 +17,3 @@ describe("Kokoro download asset resolution", () => {
     }
   });
 });
-

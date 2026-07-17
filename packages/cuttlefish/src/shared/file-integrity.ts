@@ -6,7 +6,6 @@ export interface ExpectedFileIntegrity {
   size: number;
   label?: string;
 }
-
 /** Hash a file without loading large model assets into the Node heap. */
 export function sha256File(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -44,4 +43,3 @@ export async function assertFileIntegrity(
     );
   }
 }
-
