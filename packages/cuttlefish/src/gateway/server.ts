@@ -34,7 +34,7 @@ import { ImapEmailMailboxClient } from "../email/client.js";
 import { EmailService } from "../email/service.js";
 import { markEmailMessageRunFailed } from "../email/store.js";
 import type { OrchestrationRuntime } from "../orchestration/runtime.js";
-import { initDb, clearAllPartialMessages, createSession, getInterruptedSessions, getSession, getSessionBySessionKey, listSessions, recoverStaleQueueItems, recoverStaleSessions, updateSession } from "../sessions/registry.js";
+import { initDb, clearAllPartialMessages, createSession, getInterruptedSessions, getSession, getSessionBySessionKey, listSessions, patchSessionTransportMeta, recoverStaleQueueItems, recoverStaleSessions, updateSession } from "../sessions/registry.js";
 import { SessionManager } from "../sessions/manager.js";
 import { wrapScreenedUntrustedMessage } from "../sessions/untrusted-input.js";
 import { initStt } from "../stt/stt.js";
@@ -438,9 +438,9 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
         },
         apiContext,
       );
-      const screenedMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-      screenedMeta["latestUntrustedContentScreening"] = screeningMetaForSession(screened.screening);
-      updateSession(session.id, { transportMeta: screenedMeta as any });
+      patchSessionTransportMeta(session.id, {
+        latestUntrustedContentScreening: screeningMetaForSession(screened.screening) as any,
+      });
       if (screened.blocked) {
         openUntrustedContentCheckpoint(
           { sessionId: session.id, location: sessionKey, screening: screened.screening },
@@ -522,9 +522,6 @@ export async function startGateway(config: CuttlefishConfig): Promise<GatewayCle
       },
       apiContext,
     );
-    const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-    nextMeta["latestUntrustedContentScreening"] = screeningMetaForSession(screened.screening);
-    updateSession(session.id, { transportMeta: nextMeta as any });
     const prompt = screenNotificationPrompt(text, session.source, screened.workerText);
     if (screened.blocked) {
       openUntrustedContentCheckpoint(

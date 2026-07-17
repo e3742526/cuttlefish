@@ -16,6 +16,7 @@ import {
   getSessionBySessionKey,
   getMessages,
   insertMessage,
+  patchSessionTransportMeta,
   updateSession,
 } from "./registry.js";
 import { notifyConnectorNotification, notifyParentSession, notifyRateLimited, notifyRateLimitResumed } from "./callbacks.js";
@@ -266,13 +267,15 @@ export class SessionManager {
       // Mark running only after preflight (system prompt / engine config / effort)
       // succeeded — and inside the try, so any failure transitions to "error" in the
       // catch below instead of leaving the session stuck looking "running".
-      updateSession(session.id, {
+      session = updateSession(session.id, {
         status: "running",
         replyContext: msg.replyContext,
         messageId: msg.messageId ?? null,
-        transportMeta: mergeTransportMeta(session.transportMeta, msg.transportMeta),
         lastActivity: new Date().toISOString(),
-      });
+      }) ?? session;
+      session = patchSessionTransportMeta(session.id, (current) =>
+        mergeTransportMeta(current, msg.transportMeta),
+      ) ?? session;
 
       // If we previously switched engines while rate-limited, inject a sync transcript
       // so the original engine can resume with full context when it comes back online.
@@ -288,17 +291,17 @@ export class SessionManager {
           employee,
         });
         promptToRun = gated.prompt;
-        const nextMeta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-        nextMeta["latestUntrustedContentScreening"] = {
-          source: gated.screening.source,
-          verdict: gated.screening.verdict,
-          action: gated.screening.action,
-          summary: gated.screening.summary,
-          suspiciousSpans: gated.screening.suspiciousSpans,
-          screener: gated.screening.screener,
-          occurredAt: gated.screening.occurredAt,
-        };
-        session = updateSession(session.id, { transportMeta: nextMeta as any }) ?? session;
+        session = patchSessionTransportMeta(session.id, {
+          latestUntrustedContentScreening: {
+            source: gated.screening.source,
+            verdict: gated.screening.verdict,
+            action: gated.screening.action,
+            summary: gated.screening.summary,
+            suspiciousSpans: gated.screening.suspiciousSpans,
+            screener: gated.screening.screener,
+            occurredAt: gated.screening.occurredAt,
+          },
+        }) ?? session;
         if (gated.action === "checkpoint") {
           await replyMessageLogged(connector, target, gated.notification, session.id);
           return;
@@ -452,15 +455,14 @@ export class SessionManager {
       const isDead = !wasInterrupted && isDeadSessionError(result);
       if (isDead) {
         logger.warn(`Dead session detected for ${session.id} — clearing stale engine IDs`);
-        const meta = { ...(session.transportMeta || {}) } as Record<string, unknown>;
-        delete meta["engineSessions"];
-        delete meta["engineOverride"];
-        updateSession(session.id, {
+        session = updateSession(session.id, {
           engineSessionId: null,
-          transportMeta: meta as any,
-        });
-        // Update local reference so subsequent code doesn't re-read stale IDs
-        session = { ...session, engineSessionId: null, transportMeta: meta as any };
+        }) ?? session;
+        session = patchSessionTransportMeta(session.id, (current) => {
+          delete current.engineSessions;
+          delete current.engineOverride;
+          return current;
+        }) ?? session;
       }
 
       // Detect rate limit / usage limit errors and auto-retry.
@@ -662,7 +664,9 @@ export class SessionManager {
       await finalizeManagedSessionTurn({
         session,
         msg,
-        result,
+        // A dead resume ID must not be immediately restored by the generic
+        // finalizer after the cleanup above.
+        result: isDead ? { ...result, sessionId: "" } : result,
         connector,
         target,
         threadTs,
