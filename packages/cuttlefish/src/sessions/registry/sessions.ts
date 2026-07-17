@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import type Database from 'better-sqlite3';
 import type { JsonObject, ReplyContext, Session } from '../../shared/types.js';
 import { initDb, parseJsonObject, rowToSession } from './core.js';
 import { portalEmployeeSlug } from '../../shared/portal-slug.js';
@@ -166,6 +167,25 @@ export function getSessionBySessionKey(sessionKey: string): Session | undefined 
   return row ? rowToSession(row) : undefined;
 }
 
+/**
+ * Atomic get-or-create for a session_key: the lookup and the insert run inside
+ * a single db.transaction so two near-simultaneous first-contact messages for
+ * the same new session_key can't both miss the getter and both create a
+ * session (a split-brain conversation with one half unreachable).
+ */
+export function getOrCreateSessionBySessionKey(
+  sessionKey: string,
+  opts: CreateSessionOpts & { prompt?: string; portalName?: string },
+): { session: Session; created: boolean } {
+  const db = initDb();
+  const tx = db.transaction(() => {
+    const row = db.prepare('SELECT * FROM sessions WHERE session_key = ? ORDER BY last_activity DESC LIMIT 1').get(sessionKey) as Record<string, unknown> | undefined;
+    if (row) return { session: rowToSession(row), created: false };
+    return { session: createSession({ ...opts, sessionKey }), created: true };
+  });
+  return tx();
+}
+
 export interface UpdateSessionFields {
   engine?: string;
   engineSessionId?: string | null;
@@ -243,7 +263,10 @@ export function patchSessionTransportMeta(
   const tx = db.transaction((sessionId: string) => {
     const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId) as Record<string, unknown> | undefined;
     if (!row) return undefined;
-    const current = parseJsonObject(row.transport_meta, 'transport_meta') ?? {};
+    // Include the session id in the label so a corrupt transport_meta blob
+    // (parseJsonObject warns and defaults to {}) can be traced back to the
+    // affected session instead of silently vanishing into a generic log line.
+    const current = parseJsonObject(row.transport_meta, `transport_meta (session ${sessionId})`) ?? {};
     const next = typeof patch === 'function'
       ? patch({ ...current })
       : { ...current, ...patch };
@@ -529,10 +552,10 @@ export function duplicateSession(sourceId: string, newTitle?: string): { session
       INSERT INTO sessions (
         id, engine, engine_session_id, source, source_ref, connector, session_key,
         reply_context, message_id, transport_meta,
-        employee, group_key, model, title, parent_session_id, effort_level, cwd, status,
+        employee, group_key, model, title, prompt_excerpt, parent_session_id, user_id, effort_level, cwd, status,
         total_cost, total_turns, created_at, last_activity
       )
-      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'idle', 0, 0, ?, ?)
+      VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'idle', 0, 0, ?, ?)
     `).run(
       newId,
       source.engine,
@@ -547,6 +570,8 @@ export function duplicateSession(sourceId: string, newTitle?: string): { session
       computeGroupKey(source.source, source.sourceRef, source.employee),
       source.model,
       title,
+      source.promptExcerpt,
+      source.userId ?? null,
       source.effortLevel,
       source.cwd ?? null,
       now,
@@ -564,6 +589,20 @@ export function duplicateSession(sourceId: string, newTitle?: string): { session
   return { session: getSession(newId)!, messageCount: messages.length };
 }
 
+/**
+ * Cached emails outlive the session that processed them: their session_id is a
+ * soft annotation. Unlink (set NULL) instead of deleting so the email record is
+ * preserved but no longer points at a removed session. Shared by deleteSession/
+ * deleteSessions and any other path that removes session rows (e.g. archiving),
+ * so email records never dangle regardless of which removal path is used.
+ */
+export function unlinkEmailReferencesForSessions(db: Database.Database, ids: string[]): void {
+  if (ids.length === 0) return;
+  const placeholders = ids.map(() => '?').join(',');
+  db.prepare(`UPDATE email_messages SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
+  db.prepare(`UPDATE email_ingest_state SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
+}
+
 export function deleteSession(id: string): boolean {
   const db = initDb();
   const session = getSession(id);
@@ -575,11 +614,7 @@ export function deleteSession(id: string): boolean {
     // approvals are owned by the session (session_id NOT NULL) — delete them so a
     // removed session leaves no dangling approval rows.
     db.prepare('DELETE FROM approvals WHERE session_id = ?').run(id);
-    // Cached emails outlive the session that processed them: their session_id is a
-    // soft annotation. Unlink (set NULL) instead of deleting so the email record is
-    // preserved but no longer points at a removed session.
-    db.prepare('UPDATE email_messages SET session_id = NULL WHERE session_id = ?').run(id);
-    db.prepare('UPDATE email_ingest_state SET session_id = NULL WHERE session_id = ?').run(id);
+    unlinkEmailReferencesForSessions(db, [id]);
     const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
     return result.changes > 0;
   });
@@ -603,8 +638,7 @@ export function deleteSessions(ids: string[]): number {
     }
     // See deleteSession: owned approvals are deleted; soft email links are unlinked.
     db.prepare(`DELETE FROM approvals WHERE session_id IN (${placeholders})`).run(...ids);
-    db.prepare(`UPDATE email_messages SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
-    db.prepare(`UPDATE email_ingest_state SET session_id = NULL WHERE session_id IN (${placeholders})`).run(...ids);
+    unlinkEmailReferencesForSessions(db, ids);
     return db.prepare(`DELETE FROM sessions WHERE id IN (${placeholders})`).run(...ids).changes;
   });
   return txn();

@@ -9,6 +9,7 @@ import type {
   Session,
 } from "../shared/types.js";
 import type { SessionMessage } from "./registry/messages.js";
+import { unlinkEmailReferencesForSessions } from "./registry/sessions.js";
 
 export interface ArchiveRegistryDeps {
   getDb: () => Database.Database;
@@ -52,6 +53,12 @@ export function snapshotSessionsForArchive(ids: string[], deps: ArchiveRegistryD
     snapshots.push({
       id: session.id,
       engine: session.engine,
+      engineSessionId: session.engineSessionId,
+      connector: session.connector,
+      sessionKey: session.sessionKey,
+      replyContext: session.replyContext,
+      messageId: session.messageId,
+      transportMeta: session.transportMeta,
       employee: session.employee,
       model: session.model,
       title: session.title,
@@ -63,7 +70,12 @@ export function snapshotSessionsForArchive(ids: string[], deps: ArchiveRegistryD
       lastActivity: session.lastActivity,
       totalCost: session.totalCost,
       totalTurns: session.totalTurns,
+      lastContextTokens: session.lastContextTokens,
+      lastError: session.lastError,
       parentSessionId: session.parentSessionId,
+      userId: session.userId ?? null,
+      effortLevel: session.effortLevel,
+      cwd: session.cwd ?? null,
       messages: deps.getMessages(id).map((message) => ({
         role: message.role,
         content: message.content,
@@ -162,6 +174,10 @@ export function createArchiveAndDeleteSessionsRecord(
       db.prepare(`DELETE FROM queue_pauses WHERE session_key IN (${keyPlaceholders})`)
         .run(...liveSessionKeys);
     }
+    // See deleteSession/deleteSessions: cached emails outlive the session that
+    // processed them, so unlink (set NULL) instead of deleting so archiving a
+    // session doesn't leave email_messages/email_ingest_state dangling.
+    unlinkEmailReferencesForSessions(db, ids);
     db.prepare(`DELETE FROM sessions WHERE id IN (${placeholders})`).run(...ids);
   });
 

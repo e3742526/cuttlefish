@@ -16,19 +16,48 @@ export interface QueueItem {
 export function enqueueQueueItem(sessionId: string, sessionKey: string, prompt: string): string {
   const db = initDb();
   const id = randomUUID();
-  const position = (db.prepare(
-    "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status IN ('pending', 'running')"
-  ).get(sessionKey) as { pos: number }).pos;
-  db.prepare(
-    "INSERT INTO queue_items (id, session_id, session_key, prompt, status, position, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)"
-  ).run(id, sessionId, sessionKey, prompt, position, new Date().toISOString());
+  // Read-then-insert must be one atomic unit: two concurrent enqueues for the
+  // same session_key could otherwise read the same MAX(position) and produce
+  // duplicate position values (DAT-SESS-007). Position ties are additionally
+  // self-mitigated by the created_at secondary sort in the read paths below,
+  // but the transaction removes the race rather than just tolerating it.
+  const insert = db.transaction(() => {
+    const position = (db.prepare(
+      "SELECT COALESCE(MAX(position), 0) + 1 as pos FROM queue_items WHERE session_key = ? AND status IN ('pending', 'running')"
+    ).get(sessionKey) as { pos: number }).pos;
+    db.prepare(
+      "INSERT INTO queue_items (id, session_id, session_key, prompt, status, position, created_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)"
+    ).run(id, sessionId, sessionKey, prompt, position, new Date().toISOString());
+  });
+  insert();
   return id;
 }
 
-export function markQueueItemRunning(itemId: string): void {
+/**
+ * Atomically claim a pending queue item for dispatch (FSR-CF-007). The
+ * status flip only takes effect `WHERE status = 'pending'`, so this is a
+ * compare-and-swap claim rather than a blind write: at most one caller can
+ * ever win the claim on a given item, which is what makes it safe to call
+ * this durably *before* the engine dispatch side-effect runs (mirrors the
+ * claim-lease idiom in external-outbox.ts's claimPendingExternalOutboxItems
+ * and the atomic-claim idiom in webhook-replay.ts's claimConnectorWebhookReplay).
+ * Returns true only if this call performed the claim.
+ *
+ * Residual risk: if the process crashes after a successful claim but before
+ * the engine call is confirmed, recoverStaleQueueItems() below will still
+ * reset the item to 'pending' on restart so it isn't stranded forever — that
+ * restart-recovery reset remains at-least-once by design (this file has no
+ * signal for "the engine call was actually sent"; only the dispatch call
+ * site could record that). What this claim fixes is the concurrent-claim
+ * race: two callers can no longer both observe 'pending' and both dispatch
+ * the same item.
+ */
+export function markQueueItemRunning(itemId: string): boolean {
   const db = initDb();
-  db.prepare("UPDATE queue_items SET status = 'running', started_at = ? WHERE id = ?")
-    .run(new Date().toISOString(), itemId);
+  const result = db.prepare(
+    "UPDATE queue_items SET status = 'running', started_at = ? WHERE id = ? AND status = 'pending'"
+  ).run(new Date().toISOString(), itemId);
+  return result.changes > 0;
 }
 
 export function markQueueItemCompleted(itemId: string): void {
@@ -107,6 +136,14 @@ export function listPausedQueueKeys(): string[] {
     .map((row) => (row as { sessionKey: string }).sessionKey);
 }
 
+/**
+ * Boot-time recovery for items orphaned by a crash: any item still 'running'
+ * from a previous process (a claim that markQueueItemRunning committed
+ * durably before dispatch, per FSR-CF-007) is handed back to 'pending' so it
+ * isn't stranded. Only rows in the transient 'running' state are touched —
+ * 'pending', 'cancelled', and 'completed' rows are left exactly as they are,
+ * so recovery never re-arms an item that already settled.
+ */
 export function recoverStaleQueueItems(): number {
   const db = initDb();
   const result = db.prepare(

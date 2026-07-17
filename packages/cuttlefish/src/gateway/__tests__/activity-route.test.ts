@@ -78,6 +78,10 @@ describe("GET /api/activity", () => {
       startTime: Date.now(),
       emit: vi.fn(),
       sessionManager: {
+        // No engine registered: isSessionLiveRunning treats a "running" status
+        // as live when the engine can't be found, preserving this test's
+        // status-driven expectations.
+        getEngine: () => undefined,
         getQueue: () => ({
           getTransportState: (_key: string, status: string) => status,
         }),
@@ -105,6 +109,62 @@ describe("GET /api/activity", () => {
             sessionId: child.id,
             employee: "content-lead",
           }),
+        }),
+      ]),
+    );
+  });
+
+  it("STT-CF-003: reports session:error, not session:started, when the live engine has crashed but session.status hasn't caught up yet", async () => {
+    vi.resetModules();
+    const api = await import("../api.js");
+    const reg = await import("../../sessions/registry.js");
+    reg.initDb();
+
+    const crashed = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:crashed",
+      prompt: "crashed",
+    });
+    reg.updateSession(crashed.id, { status: "running" });
+
+    const ctx = {
+      getConfig: () => ({ gateway: {}, engines: {}, portal: {} }),
+      connectors: new Map(),
+      startTime: Date.now(),
+      emit: vi.fn(),
+      sessionManager: {
+        getEngine: () => ({
+          name: "claude",
+          kill: () => {},
+          isAlive: () => false,
+          killAll: () => {},
+          killIdle: () => {},
+          isTurnRunning: () => false,
+        }),
+        getQueue: () => ({
+          getTransportState: (_key: string, status: string) => status,
+        }),
+      },
+    } as unknown as import("../api.js").ApiContext;
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/activity"), cap.res, ctx);
+
+    expect(cap.status).toBe(200);
+    expect(cap.body).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "session:error",
+          payload: expect.objectContaining({ sessionId: crashed.id }),
+        }),
+      ]),
+    );
+    expect(cap.body).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "session:started",
+          payload: expect.objectContaining({ sessionId: crashed.id }),
         }),
       ]),
     );

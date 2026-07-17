@@ -6,6 +6,13 @@ import type { MediaAttachment as MessageMedia, SessionMessage } from '@cuttlefis
 
 export type { MessageMedia, SessionMessage };
 
+/** Extra `partial` marker for rows swept at boot; see clearAllPartialMessages(). */
+const PARTIAL_QUARANTINED = 2;
+
+export interface QuarantinedMessage extends SessionMessage {
+  sessionId: string;
+}
+
 function parseMediaColumn(value: unknown): MessageMedia[] | undefined {
   if (typeof value !== 'string' || !value.trim()) return undefined;
   try {
@@ -67,8 +74,8 @@ export function insertMessage(sessionId: string, role: string, content: string, 
 export function getMessages(sessionId: string): SessionMessage[] {
   const db = initDb();
   const rows = db
-    .prepare('SELECT id, role, content, timestamp, media, partial, seq, tool_call, blocks FROM messages WHERE session_id = ? ORDER BY timestamp ASC, seq ASC')
-    .all(sessionId) as Array<{ id: string; role: string; content: string; timestamp: number; media: string | null; partial: number | null; seq: number | null; tool_call: string | null; blocks: string | null }>;
+    .prepare('SELECT id, role, content, timestamp, media, partial, seq, tool_call, blocks FROM messages WHERE session_id = ? AND (partial IS NULL OR partial != ?) ORDER BY timestamp ASC, seq ASC')
+    .all(sessionId, PARTIAL_QUARANTINED) as Array<{ id: string; role: string; content: string; timestamp: number; media: string | null; partial: number | null; seq: number | null; tool_call: string | null; blocks: string | null }>;
   return rows.map((r) => {
     const msg: SessionMessage = { id: r.id, role: r.role, content: r.content, timestamp: r.timestamp };
     const media = parseMediaColumn(r.media);
@@ -187,7 +194,44 @@ export function finalizePartialMessages(sessionId: string): number {
   return db.prepare('UPDATE messages SET partial = NULL WHERE session_id = ? AND partial = 1').run(sessionId).changes;
 }
 
+/**
+ * Boot-time recovery sweep. Messages still marked `partial = 1` belong to a
+ * turn that never finished writing (e.g. the process crashed mid-stream) —
+ * they are not safe to display as live/in-progress state on the next boot.
+ *
+ * Rather than deleting them outright (which would silently discard whatever
+ * content had been streamed so far), mark them `partial = 2` (quarantined).
+ * Quarantined rows are excluded from the normal getMessages() read path but
+ * remain in the table for operator inspection via getQuarantinedMessages().
+ */
 export function clearAllPartialMessages(): number {
   const db = initDb();
-  return db.prepare('DELETE FROM messages WHERE partial = 1').run().changes;
+  return db.prepare('UPDATE messages SET partial = ? WHERE partial = 1').run(PARTIAL_QUARANTINED).changes;
+}
+
+/**
+ * Lists messages quarantined by clearAllPartialMessages(), optionally scoped
+ * to one session. Intended for operator inspection/recovery of content left
+ * over from a crash mid-write; these rows are never returned by getMessages().
+ */
+export function getQuarantinedMessages(sessionId?: string): QuarantinedMessage[] {
+  const db = initDb();
+  const rows = (
+    sessionId
+      ? db
+        .prepare('SELECT id, session_id, role, content, timestamp, media, seq, tool_call, blocks FROM messages WHERE session_id = ? AND partial = ? ORDER BY timestamp ASC, seq ASC')
+        .all(sessionId, PARTIAL_QUARANTINED)
+      : db
+        .prepare('SELECT id, session_id, role, content, timestamp, media, seq, tool_call, blocks FROM messages WHERE partial = ? ORDER BY timestamp ASC, seq ASC')
+        .all(PARTIAL_QUARANTINED)
+  ) as Array<{ id: string; session_id: string; role: string; content: string; timestamp: number; media: string | null; seq: number | null; tool_call: string | null; blocks: string | null }>;
+  return rows.map((r) => {
+    const msg: QuarantinedMessage = { id: r.id, sessionId: r.session_id, role: r.role, content: r.content, timestamp: r.timestamp, partial: true };
+    const media = parseMediaColumn(r.media);
+    const blocks = parseBlocksColumn(r.blocks);
+    if (media) msg.media = media;
+    if (blocks) msg.blocks = blocks;
+    if (r.tool_call) msg.toolCall = r.tool_call;
+    return msg;
+  });
 }

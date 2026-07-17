@@ -42,6 +42,27 @@ describe("createSession cwd persistence", () => {
     expect(copy.cwd).toBe(dir);
     expect(reg.getSession(copy.id)?.cwd).toBe(dir);
   });
+
+  it("a duplicated session preserves the source session's user_id and prompt_excerpt (DAT-SESS-004)", () => {
+    const parent = reg.createSession({
+      ...base,
+      sourceRef: "web:ownership",
+      prompt: "some prompt for the excerpt",
+      userId: "user-42",
+    });
+    expect(parent.userId).toBe("user-42");
+    expect(parent.promptExcerpt).toBeTruthy();
+
+    reg.updateSession(parent.id, { engineSessionId: "eng-2" });
+    const { session: copy } = reg.duplicateSession(parent.id);
+
+    expect(copy.userId).toBe(parent.userId);
+    expect(copy.promptExcerpt).toBe(parent.promptExcerpt);
+    // Persisted row (not just the in-memory return value) must carry it too.
+    const reloaded = reg.getSession(copy.id);
+    expect(reloaded?.userId).toBe(parent.userId);
+    expect(reloaded?.promptExcerpt).toBe(parent.promptExcerpt);
+  });
 });
 
 describe("migrateSessionsSchema is idempotent for cwd", () => {

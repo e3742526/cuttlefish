@@ -21,6 +21,12 @@ export interface ArchivedMessage {
 export interface ArchivedSessionSnapshot {
   id: string;
   engine: string;
+  engineSessionId: string | null;
+  connector: string | null;
+  sessionKey: string;
+  replyContext: Session["replyContext"];
+  messageId: string | null;
+  transportMeta: Session["transportMeta"];
   employee: string | null;
   model: string | null;
   title: string | null;
@@ -32,7 +38,12 @@ export interface ArchivedSessionSnapshot {
   lastActivity: string;
   totalCost: number;
   totalTurns: number;
+  lastContextTokens: number | null;
+  lastError: string | null;
   parentSessionId: string | null;
+  userId: string | null;
+  effortLevel: string | null;
+  cwd: string | null;
   messages: ArchivedMessage[];
 }
 

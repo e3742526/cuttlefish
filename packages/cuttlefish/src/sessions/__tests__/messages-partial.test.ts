@@ -10,6 +10,8 @@ const { home: tmp } = withStaticTempCuttlefishHome("cuttlefish-partial-");
 
 type Reg = typeof import("../registry.js");
 let reg: Reg;
+type MessagesModule = typeof import("../registry/messages.js");
+let messagesModule: MessagesModule;
 
 function newSession(id: string): void {
   reg.initDb().prepare(
@@ -19,6 +21,7 @@ function newSession(id: string): void {
 
 beforeAll(async () => {
   reg = await import("../registry.js");
+  messagesModule = await import("../registry/messages.js");
 });
 
 describe("messages partial (mid-turn streaming) blocks", () => {
@@ -107,6 +110,37 @@ describe("messages partial (mid-turn streaming) blocks", () => {
     expect(swept).toBeGreaterThanOrEqual(2);
     expect(reg.getMessages("p4").map((m) => m.content)).toEqual(["kept"]);
     expect(reg.getMessages("p5")).toHaveLength(0);
+  });
+
+  it("clearAllPartialMessages quarantines stray partials instead of deleting them (FSR-CF-008)", () => {
+    newSession("p6");
+    reg.insertPartialMessage("p6", "assistant", "crash-interrupted content", 0, "Bash");
+
+    const swept = reg.clearAllPartialMessages();
+    expect(swept).toBeGreaterThanOrEqual(1);
+
+    // Quarantined rows must not resurface in the normal read path...
+    expect(reg.getMessages("p6")).toHaveLength(0);
+
+    // ...but the content must not be silently lost: it stays inspectable via
+    // the quarantine path, and the underlying row is still physically present
+    // in the messages table (not DELETEd).
+    const quarantined = messagesModule.getQuarantinedMessages("p6");
+    expect(quarantined).toHaveLength(1);
+    expect(quarantined[0].content).toBe("crash-interrupted content");
+    expect(quarantined[0].toolCall).toBe("Bash");
+    expect(quarantined[0].sessionId).toBe("p6");
+
+    const row = reg
+      .initDb()
+      .prepare("SELECT content, partial FROM messages WHERE session_id = ?")
+      .get("p6") as { content: string; partial: number } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.content).toBe("crash-interrupted content");
+    expect(row?.partial).toBe(2);
+
+    // Global (cross-session) quarantine listing also finds it.
+    expect(messagesModule.getQuarantinedMessages().some((m) => m.id === quarantined[0].id)).toBe(true);
   });
 
   it("persists structured block messages and applies patch/remove by block id", () => {

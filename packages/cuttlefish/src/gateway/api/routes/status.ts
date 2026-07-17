@@ -14,6 +14,7 @@ import { summarizeWorkspaceProfiles } from "../../workspace-profiles.js";
 import type { ApiContext } from "../context.js";
 import { json } from "../responses.js";
 import { isSessionLiveRunning } from "../serialize-session.js";
+import type { Session } from "../../../shared/types.js";
 
 type CommandCenterRangeKey = "day" | "week" | "month";
 type HealthCheckStatus = "ok" | "degraded" | "error";
@@ -334,6 +335,18 @@ function checkInstanceHealth(port: number): Promise<boolean> {
   });
 }
 
+// STT-CF-003: a DB-recorded "running" status can briefly disagree with the
+// actual live-engine state during the window between an engine crash and the
+// session row being updated to reflect it. Downgrade to "error" (the status a
+// crash handler eventually settles the row to — see sessions/manager.ts) using
+// the same isSessionLiveRunning predicate that buildCommandCenterPayload,
+// buildHealthSnapshot, and serializeSession already use, so /api/work and
+// /api/activity agree with the rest of the API surface instead of trusting
+// session.status/queue bookkeeping alone.
+function liveAwareStatus(session: Session, context: ApiContext): Session["status"] {
+  return session.status === "running" && !isSessionLiveRunning(session, context) ? "error" : session.status;
+}
+
 // Exact-match visibility routes only. These paths do not overlap any param
 // routes, so hoisting them behind one handler preserves precedence.
 export async function handleStatusRoutes(
@@ -422,9 +435,10 @@ export async function handleStatusRoutes(
 
     const counts = emptyWorkCounts();
     const items = listSessions().map((session) => {
-      const transportState = queue.getTransportState(session.sessionKey || session.sourceRef, session.status);
+      const effectiveStatus = liveAwareStatus(session, context);
+      const transportState = queue.getTransportState(session.sessionKey || session.sourceRef, effectiveStatus);
       const workState = deriveWorkState({
-        status: session.status,
+        status: effectiveStatus,
         transportState,
         approvalRequired: pendingApprovalSessionIds.has(session.id),
         hasRun: typeof session.transportMeta?.latestRunId === "string",
@@ -464,7 +478,7 @@ export async function handleStatusRoutes(
       const ts = new Date(session.lastActivity || session.createdAt).getTime();
       const transportState = context.sessionManager.getQueue().getTransportState(
         session.sessionKey || session.sourceRef,
-        session.status,
+        liveAwareStatus(session, context),
       );
       if (transportState === "running") {
         events.push({ event: "session:started", payload: { sessionId: session.id, employee: session.employee, engine: session.engine, connector: session.connector }, ts });

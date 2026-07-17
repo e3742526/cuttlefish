@@ -1,4 +1,4 @@
-import { getSession, listSessionsBySource, updateSession } from "./registry.js";
+import { getSession, listSessionsBySource, patchSessionTransportMeta } from "./registry.js";
 import { loadConfig } from "../shared/config.js";
 import { assertFetchOk, jsonApiHeaders } from "../gateway/internal-auth.js";
 import { logger } from "../shared/logger.js";
@@ -35,8 +35,10 @@ export function notifyParentSession(
 
   const parent = getSession(childSession.parentSessionId);
   if (parent) {
-    const transportMeta = recordManagerDelegationChildCompletion(parent.transportMeta, childSession.id);
-    if (transportMeta !== parent.transportMeta) updateSession(parent.id, { transportMeta });
+    // Atomic read-modify-write against the freshest DB state (not this
+    // possibly-stale `parent` snapshot) so two children completing near-
+    // simultaneously can't clobber each other's completedChildSessionIds entry.
+    patchSessionTransportMeta(parent.id, (current) => recordManagerDelegationChildCompletion(current, childSession.id));
   }
   markLeaderAckPending(childSession, {
     leaderSessionId: childSession.parentSessionId,

@@ -62,6 +62,11 @@ describe("GET /api/work", () => {
       getConfig: () => ({ gateway: {}, engines: {} }),
       emit: () => {},
       sessionManager: {
+        // No engine registered for any of these sessions: isSessionLiveRunning
+        // treats a "running" status as live when the engine can't be found (it
+        // only downgrades a session when it can positively confirm the engine
+        // died), so this preserves the status-driven expectations below.
+        getEngine: () => undefined,
         getQueue: () => ({ getTransportState: (_k: string, s: string) => s, getPendingCount: () => 0 }),
       },
     } as unknown as import("../api.js").ApiContext;
@@ -78,6 +83,42 @@ describe("GET /api/work", () => {
     expect(body.counts.waiting_on_human).toBe(1); // gated (approval beats running)
     expect(body.items.length).toBe(6);
     expect((body.items as Array<{ sessionId: string; workState: string }>).find((item) => item.sessionId === neverRun.id)?.workState).toBe("queued");
+  });
+
+  it("STT-CF-003: reclassifies a session as failed, not running, when the live engine has crashed but session.status hasn't caught up yet", async () => {
+    // Simulates the crash window: the DB row still says "running" (no crash
+    // handler has written status:"error" yet), but the live engine reports the
+    // process is gone. /api/work must agree with the live-engine check used by
+    // isSessionLiveRunning (and thus with serializeSession/command-center/health)
+    // instead of trusting session.status/queue bookkeeping alone.
+    const crashed = reg.createSession({ engine: "claude", source: "web", sourceRef: "w:crashed", prompt: "x" });
+    reg.updateSession(crashed.id, { status: "running" });
+    reg.patchSessionTransportMeta(crashed.id, { latestRunId: "crashed-run" });
+
+    const ctx = {
+      getConfig: () => ({ gateway: {}, engines: {} }),
+      emit: () => {},
+      sessionManager: {
+        getEngine: () => ({
+          name: "claude",
+          kill: () => {},
+          isAlive: () => false,
+          killAll: () => {},
+          killIdle: () => {},
+          isTurnRunning: () => false,
+        }),
+        getQueue: () => ({ getTransportState: (_k: string, s: string) => s, getPendingCount: () => 0 }),
+      },
+    } as unknown as import("../api.js").ApiContext;
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/work"), cap.res, ctx);
+    expect(cap.status).toBe(200);
+    // Session store is shared across tests in this file, so assert on this
+    // session's own item rather than the global counts (which also include
+    // sessions created by earlier tests).
+    const body = cap.body as { items: Array<{ sessionId: string; workState: string }> };
+    expect(body.items.find((item) => item.sessionId === crashed.id)?.workState).toBe("failed");
   });
 
   it("serves command-center summary counts, manager chat roster, and usage buckets", async () => {

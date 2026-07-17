@@ -37,14 +37,45 @@ export function serializeSession(session: Session, context: ApiContext): Session
   const bgIsStale = bg && Date.now() - bg.lastActivityAt > BACKGROUND_ACTIVITY_STALE_MS;
   if (bgIsStale) context.backgroundActivity?.delete(session.id);
   const executionRunState = extractExecutionRunState(session);
-  return {
-    ...session,
+  // Explicit field-by-field allowlist (not `...session`) so the API surface is
+  // gated by PublicSession: a new internal-only field added to Session later
+  // does not automatically leak into API responses — it has to be deliberately
+  // added here. This list intentionally mirrors PublicSession's field set.
+  const publicSession: Session & PublicSession = {
+    id: session.id,
+    engine: session.engine,
+    engineSessionId: session.engineSessionId,
+    source: session.source,
+    sourceRef: session.sourceRef,
+    connector: session.connector,
+    sessionKey: session.sessionKey,
+    replyContext: session.replyContext,
+    messageId: session.messageId,
+    transportMeta: session.transportMeta,
+    employee: session.employee,
+    model: session.model,
+    title: session.title,
+    promptExcerpt: session.promptExcerpt,
+    parentSessionId: session.parentSessionId,
+    userId: session.userId,
+    status: session.status,
+    effortLevel: session.effortLevel,
+    cwd: session.cwd,
+    totalCost: session.totalCost,
+    totalTurns: session.totalTurns,
+    lastContextTokens: session.lastContextTokens,
+    createdAt: session.createdAt,
+    lastActivity: session.lastActivity,
+    lastError: session.lastError,
     attachments: enrichRunAttachmentsForSession(session),
     queueDepth,
     transportState,
     backgroundActivity: bg && !bgIsStale
       ? { activeStreams: bg.activeStreams, lastActivityAt: new Date(bg.lastActivityAt).toISOString() }
       : null,
+  };
+  return {
+    ...publicSession,
     ...(executionRunState ? { executionRunState } : {}),
   };
 }
