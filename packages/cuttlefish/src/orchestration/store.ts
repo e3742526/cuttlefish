@@ -27,9 +27,11 @@ import {
   getLiveContinuationFromDb,
   getQueuePauseStateFromDb,
   listLiveContinuationsFromDb,
+  listLiveContinuationsWithGenerationFromDb,
   markLiveContinuationStateInDb,
   setQueuePauseStateInDb,
   stampContinuationRunIdInDb,
+  type LiveRunContinuationRecordWithGeneration,
   type QueuePauseState,
   upsertLiveContinuationInDb,
 } from "./store-continuations.js";
@@ -42,23 +44,55 @@ export type {
   ArtifactKind,
   ArtifactRecord,
   HoldRecord,
+  LiveRunContinuationRecordWithGeneration,
   PatchApplyAttemptRecord,
   TaskPauseRecord,
 };
 
+/**
+ * Serialize a read-modify-write mutation across gateway processes.
+ * SQLite's ordinary deferred transaction permits two processes to read the
+ * same state before either writes; acquiring the write lock first (`BEGIN
+ * IMMEDIATE`) makes the second process load the committed state after the
+ * first finishes, instead of losing the write-lock race between its read
+ * and write phases.
+ */
+export function transactionImmediate<T>(db: Database.Database, fn: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    if (db.inTransaction) db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
 export class OrchestrationStore {
   private constructor(
     private readonly db: Database.Database,
+    private readonly bootGenerationValue: number,
     private readonly recoveryEvent?: TelemetryEvent,
   ) {}
 
   static open(dbPath = ORCH_DB, opts: StoreOpenOptions = {}): OrchestrationStore {
     const opened = openStoreDatabase(dbPath, opts);
-    return new OrchestrationStore(opened.db, opened.recoveryEvent);
+    return new OrchestrationStore(opened.db, opened.bootGeneration, opened.recoveryEvent);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  /**
+   * Monotonic counter that increments every time this DB is opened (every
+   * daemon boot). See TMP-CUT-013: used alongside wall-clock cutoffs to
+   * detect continuations orphaned by a prior process, independent of clock
+   * skew/adjustment.
+   */
+  getBootGeneration(): number {
+    return this.bootGenerationValue;
   }
 
   loadSnapshot(): SchedulerSnapshot {
@@ -80,15 +114,7 @@ export class OrchestrationStore {
    * the second process load the committed snapshot after the first finishes.
    */
   transactionImmediate<T>(fn: () => T): T {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const result = fn();
-      this.db.exec("COMMIT");
-      return result;
-    } catch (err) {
-      if (this.db.inTransaction) this.db.exec("ROLLBACK");
-      throw err;
-    }
+    return transactionImmediate(this.db, fn);
   }
 
   applySnapshotDelta(before: SchedulerSnapshot, after: SchedulerSnapshot): void {
@@ -99,12 +125,21 @@ export class OrchestrationStore {
     return listLiveContinuationsFromDb(this.db, states);
   }
 
+  /**
+   * Same as `listLiveContinuations`, but also returns the boot generation
+   * each record was created under (TMP-CUT-013). Used by boot-time
+   * stale-continuation recovery.
+   */
+  listLiveContinuationsWithGeneration(states?: LiveRunContinuationState[]): LiveRunContinuationRecordWithGeneration[] {
+    return listLiveContinuationsWithGenerationFromDb(this.db, states);
+  }
+
   getLiveContinuation(taskId: string, coordinatorId: string): LiveRunContinuationRecord | undefined {
     return getLiveContinuationFromDb(this.db, taskId, coordinatorId);
   }
 
   upsertLiveContinuation(record: LiveRunContinuationRecord): void {
-    upsertLiveContinuationInDb(this.db, record);
+    upsertLiveContinuationInDb(this.db, record, this.bootGenerationValue);
   }
 
   deleteLiveContinuation(taskId: string, coordinatorId: string): void {

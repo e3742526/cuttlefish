@@ -9,12 +9,20 @@ import type { Allocation } from "./types.js";
  * immediately transitions it to `running`. Returns the new runId. Call this
  * at the top of `runAllocatedOrchestrationTask` / `runAllocatedDualLaneTask`,
  * after leases are confirmed, mirroring `beginSessionRun`.
+ *
+ * `engine` is deliberately kept as the literal "orchestration" marker — it is
+ * how `run-recovery.ts` and `sweepOrphanedOrchestrationRuns` (below) identify
+ * orchestration-sourced runs, and repurposing it would break that filter
+ * (DAT-BUS-002). The real worker/provider identity (claude/codex/antigravity)
+ * is recorded separately via `providerEngine`, carried on the initial
+ * `running` transition's event payload so provenance isn't lost.
  */
 export function beginOrchestrationRun(
   allocation: Allocation,
   mode: string,
   taskTitle?: string,
   now?: string,
+  providerEngine?: string,
 ): string {
   const runId = uuidv4();
   const createdAt = now ?? new Date().toISOString();
@@ -29,7 +37,12 @@ export function beginOrchestrationRun(
     promptExcerpt: `mode:${mode}`,
     createdAt,
   });
-  ledger.transitionRun({ runId, nextState: "running", at: createdAt });
+  ledger.transitionRun({
+    runId,
+    nextState: "running",
+    at: createdAt,
+    payload: providerEngine ? { providerEngine } : null,
+  });
   return runId;
 }
 

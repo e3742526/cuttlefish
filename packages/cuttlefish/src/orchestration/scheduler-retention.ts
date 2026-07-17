@@ -62,6 +62,31 @@ export function pruneTerminalAllocations(
   }
 }
 
+export function pruneTerminalLeases(
+  leases: Map<string, Lease>,
+  allocations: Map<string, Allocation>,
+  now: Date,
+  opts: ResolvedSchedulerRetentionOptions,
+): void {
+  const referencedLeaseIds = new Set<string>();
+  for (const allocation of allocations.values()) {
+    for (const lease of allocation.leases) referencedLeaseIds.add(lease.leaseId);
+  }
+
+  const terminal = [...leases.values()]
+    .filter((lease) => (lease.state === "released" || lease.state === "expired") && !referencedLeaseIds.has(lease.leaseId))
+    .sort(compareNewestLeaseFirst);
+  const newestKept = new Set(terminal.slice(0, opts.terminalAllocationLimit).map((lease) => lease.leaseId));
+  const cutoff = now.getTime() - opts.terminalAllocationRetentionMs;
+
+  for (const lease of terminal) {
+    const updatedAt = Date.parse(lease.heartbeatAt || lease.startedAt);
+    const overLimit = !newestKept.has(lease.leaseId);
+    const tooOld = Number.isFinite(updatedAt) && updatedAt < cutoff;
+    if (overLimit || tooOld) leases.delete(lease.leaseId);
+  }
+}
+
 export function pruneSchedulerTelemetry(
   telemetry: TelemetryEvent[],
   now: Date,
@@ -87,6 +112,12 @@ function compareNewestAllocationFirst(a: Allocation, b: Allocation): number {
   const time = Date.parse(b.updatedAt || b.createdAt) - Date.parse(a.updatedAt || a.createdAt);
   if (time !== 0) return time;
   return b.allocationId.localeCompare(a.allocationId);
+}
+
+function compareNewestLeaseFirst(a: Lease, b: Lease): number {
+  const time = Date.parse(b.heartbeatAt || b.startedAt) - Date.parse(a.heartbeatAt || a.startedAt);
+  if (time !== 0) return time;
+  return b.leaseId.localeCompare(a.leaseId);
 }
 
 function compareOldestTelemetryFirst(a: TelemetryEvent, b: TelemetryEvent): number {

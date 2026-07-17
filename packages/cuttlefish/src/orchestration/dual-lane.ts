@@ -145,12 +145,19 @@ export async function runAllocatedDualLaneTask(opts: {
   const runtime = opts.context.orchestration?.runtime;
   if (!runtime) throw new Error("orchestration runtime is not enabled");
 
-  const runId = beginOrchestrationRun(opts.allocation, "dual_lane", opts.task.title);
-  opts.allocation.runId = runId;
-
   const baseCwd = resolveTaskBaseCwd(opts.task.cwd, opts.context.getConfig());
   const lanes = initialLanes(opts.task);
   const sessions: OrchestrationRunSession[] = [];
+
+  // DAT-BUS-002: the run-ledger's `engine` column stays the literal "orchestration"
+  // marker (consumers such as run-recovery.ts and sweepOrphanedOrchestrationRuns
+  // filter on that exact value), but the real worker/provider identity for each
+  // lane is resolvable from the allocation's leases up front. Thread it through
+  // as a distinct providerEngine field on the run's initial transition payload
+  // so provenance for this orchestration run isn't lost.
+  const providerEngine = resolveDualLaneProviderEngine(runtime, opts.allocation, lanes);
+  const runId = beginOrchestrationRun(opts.allocation, "dual_lane", opts.task.title, undefined, providerEngine);
+  opts.allocation.runId = runId;
 
   try {
     for (const lane of lanes) {
@@ -168,6 +175,11 @@ export async function runAllocatedDualLaneTask(opts: {
       lane.worktreePath = prepared.handle.path;
     }
 
+    // CAS-CF-002: lanes are attempted independently — a session-level failure
+    // in one lane must not deny the other lane its own attempt. Continue past
+    // a failed lane so a partial result is still produced for both, and only
+    // fail the overall run once every lane has had its turn.
+    let firstFailure: { lane: DualLaneRunLane; errorSummary: string } | undefined;
     for (const lane of lanes) {
       const lease = opts.allocation.leases.find((candidate) => candidate.role === lane.role);
       if (!lease) throw new Error(`dual_lane allocation ${opts.allocation.allocationId} did not produce a lease for role ${lane.role}`);
@@ -198,21 +210,26 @@ export async function runAllocatedDualLaneTask(opts: {
       sessions.push(session);
       if (orchestrationSessionFailed(session)) {
         lane.error = session.error ?? session.status;
-        const errorSummary = `${lane.id} lane failed: ${lane.error}`;
-        finalizeOrchestrationRunFailed(runId, errorSummary);
-        const failed: DualLaneRunResult = {
-          ok: false,
-          state: "failed",
-          mode: "dual_lane",
-          sessions,
-          reviewPolicy: opts.reviewPolicy,
-          errorSummary,
-          lanes: lanes.map(stripLaneWorktreeHandle),
-        };
-        releaseRunningAllocationLeases(runtime, opts.allocation);
-        cleanupPreparedLanes(lanes);
-        return failed;
+        if (!firstFailure) {
+          firstFailure = { lane, errorSummary: `${lane.id} lane failed: ${lane.error}` };
+        }
       }
+    }
+
+    if (firstFailure) {
+      finalizeOrchestrationRunFailed(runId, firstFailure.errorSummary);
+      const failed: DualLaneRunResult = {
+        ok: false,
+        state: "failed",
+        mode: "dual_lane",
+        sessions,
+        reviewPolicy: opts.reviewPolicy,
+        errorSummary: firstFailure.errorSummary,
+        lanes: lanes.map(stripLaneWorktreeHandle),
+      };
+      releaseRunningAllocationLeases(runtime, opts.allocation);
+      cleanupPreparedLanes(lanes);
+      return failed;
     }
 
     const report = buildComparisonReport(opts.task.taskId, lanes);
@@ -252,7 +269,14 @@ export async function runAllocatedDualLaneTask(opts: {
   } catch (err) {
     finalizeOrchestrationRunFailed(runId, err instanceof Error ? err.message : String(err));
     releaseRunningAllocationLeases(runtime, opts.allocation);
-    cleanupPreparedLanes(lanes);
+    // CAS-CF-001: this catch also covers unrelated downstream I/O failures that
+    // happen AFTER both lanes have already completed (e.g. writing the manifest
+    // or persisting artifacts). Destroying a completed lane's worktree here would
+    // discard real, already-produced work over a failure that has nothing to do
+    // with the lane itself. Only clean up lanes that never finished; leave
+    // completed lanes' worktrees in place so their results remain recoverable
+    // (and the write can be retried) rather than being unrecoverably lost.
+    cleanupPreparedLanes(lanes, { skipCompleted: true });
     throw err;
   }
 }
@@ -478,15 +502,34 @@ function stripLaneWorktreeHandle(lane: DualLaneRunLane): DualLaneRunLane {
   };
 }
 
-function cleanupPreparedLanes(lanes: DualLaneRunLane[]): void {
+function cleanupPreparedLanes(lanes: DualLaneRunLane[], opts: { skipCompleted?: boolean } = {}): void {
   for (const lane of lanes) {
     if (!lane.worktree) continue;
+    // CAS-CF-001: a "completed" lane already produced real work. Callers that
+    // hit an unrelated failure after both lanes finished pass skipCompleted so
+    // that work isn't destroyed alongside genuinely unfinished lanes.
+    if (opts.skipCompleted && lane.state === "completed") continue;
     try {
       cleanupWorktree(lane.worktree);
     } catch (err) {
       logger.warn(`Dual-lane cleanup failed for ${lane.id} worktree ${lane.worktree.path}: ${err instanceof Error ? err.message : err}`);
     }
   }
+}
+
+function resolveDualLaneProviderEngine(
+  runtime: { listWorkers(): Worker[] },
+  allocation: Allocation,
+  lanes: DualLaneRunLane[],
+): string | undefined {
+  const workers = runtime.listWorkers();
+  const parts: string[] = [];
+  for (const lane of lanes) {
+    const lease = allocation.leases.find((candidate) => candidate.role === lane.role);
+    const worker = lease ? workers.find((candidate) => candidate.id === lease.workerId) : undefined;
+    if (worker) parts.push(`${lane.id}:${worker.provider}`);
+  }
+  return parts.length > 0 ? parts.join(",") : undefined;
 }
 
 function releaseRunningAllocationLeases(

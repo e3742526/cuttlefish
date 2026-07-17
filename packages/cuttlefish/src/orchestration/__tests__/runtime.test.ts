@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { OrchestrationRuntime } from "../runtime.js";
 import type { LiveRunContinuationRecord } from "../live-run.js";
 import type { OrchestrationConfig } from "../types.js";
 import type { CuttlefishConfig } from "../../shared/types.js";
+import { logger } from "../../shared/logger.js";
 
 let tmpDir: string;
 let dbPath: string;
@@ -433,6 +435,36 @@ describe("OrchestrationRuntime continuation dispatch", () => {
     runtime2.close();
   });
 
+  it("recovers dispatching continuations left by an older boot generation even when updated_at is recent (TMP-CUT-013)", () => {
+    const runtime1 = new OrchestrationRuntime({ config: config(), dbPath, startReaper: false });
+    const allocation = runtime1.requestAllocation(request("gen-stale-task", "gen-stale-coord"));
+    expect(allocation.ok).toBe(true);
+    if (!allocation.ok) return;
+    runtime1.queueLiveContinuation(continuation("gen-stale-task", "gen-stale-coord", {
+      state: "dispatching",
+      allocationId: allocation.allocation.allocationId,
+      // Recent by wall clock (default staleDispatchingContinuationMs is
+      // minutes), so the clock check alone would NOT flag this as stale.
+      // Only the monotonic boot-generation cross-check should catch it.
+      updatedAt: new Date().toISOString(),
+    }));
+    runtime1.close();
+
+    const runtime2 = new OrchestrationRuntime({
+      config: config(),
+      dbPath,
+      startReaper: false,
+    });
+
+    expect(runtime2.listLiveContinuations()).toMatchObject([{
+      taskId: "gen-stale-task",
+      state: "failed",
+      lastError: expect.stringContaining("Recovered stale dispatching continuation"),
+    }]);
+    expect(runtime2.listLeases()).toMatchObject([{ state: "released" }]);
+    runtime2.close();
+  });
+
   it("prepareForShutdown fails dispatching continuations and releases running leases", async () => {
     const runtime = new OrchestrationRuntime({ config: config(), dbPath, startReaper: false });
     const allocation = runtime.requestAllocation(request("shutdown-task", "shutdown-coord"));
@@ -480,6 +512,81 @@ describe("OrchestrationRuntime continuation dispatch", () => {
     runtime.close();
   });
 
+  it("warns when the target repo's HEAD moved between enqueue and dispatch", async () => {
+    const repoDir = initGitRepo();
+    try {
+      const shaAtEnqueue = headSha(repoDir);
+      const runtime = new OrchestrationRuntime({ config: config(), dbPath, startReaper: false });
+      const first = runtime.requestAllocation(request("task-1", "coord-1"));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      const blocked = runtime.requestAllocation(request("task-2", "coord-2"));
+      expect(blocked.ok).toBe(false);
+
+      runtime.queueLiveContinuation(continuation("task-2", "coord-2", { taskCwd: repoDir }));
+      // The enqueue-time HEAD SHA is captured once, up front, and never touched again.
+      expect(runtime.getLiveContinuation("task-2", "coord-2")?.task.enqueueHeadSha).toBe(shaAtEnqueue);
+
+      // Simulate the repo moving forward (a push/rebase elsewhere) while task-2 sits blocked.
+      commitFile(repoDir, "second-commit");
+      const shaAtDispatch = headSha(repoDir);
+      expect(shaAtDispatch).not.toBe(shaAtEnqueue);
+
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      const resumed: string[] = [];
+      runtime.setResumeQueuedRunHandler(async ({ continuation }) => {
+        resumed.push(continuation.taskId);
+      });
+
+      runtime.releaseLease(first.allocation.leases[0].leaseId, "coord-1");
+
+      await waitFor(() => resumed.length === 1);
+      // Dispatch proceeds exactly as before -- the warning does not block it.
+      expect(resumed).toEqual(["task-2"]);
+      expect(runtime.listLiveContinuations()).toMatchObject([{ taskId: "task-2", state: "completed" }]);
+      expect(warnSpy.mock.calls.some(([msg]) =>
+        typeof msg === "string"
+        && msg.includes("task-2/coord-2")
+        && msg.includes(shaAtEnqueue)
+        && msg.includes(shaAtDispatch)
+      )).toBe(true);
+      warnSpy.mockRestore();
+      runtime.close();
+    } finally {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not warn when the target repo's HEAD is unchanged between enqueue and dispatch", async () => {
+    const repoDir = initGitRepo();
+    try {
+      const runtime = new OrchestrationRuntime({ config: config(), dbPath, startReaper: false });
+      const first = runtime.requestAllocation(request("task-1", "coord-1"));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      const blocked = runtime.requestAllocation(request("task-2", "coord-2"));
+      expect(blocked.ok).toBe(false);
+
+      runtime.queueLiveContinuation(continuation("task-2", "coord-2", { taskCwd: repoDir }));
+
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      const resumed: string[] = [];
+      runtime.setResumeQueuedRunHandler(async ({ continuation }) => {
+        resumed.push(continuation.taskId);
+      });
+
+      runtime.releaseLease(first.allocation.leases[0].leaseId, "coord-1");
+
+      await waitFor(() => resumed.length === 1);
+      expect(resumed).toEqual(["task-2"]);
+      expect(warnSpy).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+      runtime.close();
+    } finally {
+      fs.rmSync(repoDir, { recursive: true, force: true });
+    }
+  });
+
   it("applies live headroom before allocating a worker", async () => {
     const runtime = new OrchestrationRuntime({
       config: twoWorkerConfig(),
@@ -509,7 +616,7 @@ describe("OrchestrationRuntime continuation dispatch", () => {
 function continuation(
   taskId: string,
   coordinatorId: string,
-  overrides: Partial<LiveRunContinuationRecord> = {},
+  overrides: Partial<LiveRunContinuationRecord> & { taskCwd?: string } = {},
 ): LiveRunContinuationRecord {
   return {
     taskId,
@@ -523,6 +630,7 @@ function continuation(
       priority: "normal",
       leaseDurationMs: 60_000,
       prompt: `Resume ${taskId}`,
+      cwd: overrides.taskCwd,
     },
     enqueuedAt: "2026-06-24T10:00:00.000Z",
     updatedAt: overrides.updatedAt ?? "2026-06-24T10:00:00.000Z",
@@ -531,6 +639,25 @@ function continuation(
     allocationId: overrides.allocationId,
     lastError: overrides.lastError,
   };
+}
+
+function initGitRepo(): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-orch-runtime-repo-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
+  execFileSync("git", ["config", "user.name", "Cuttlefish Test"], { cwd: dir });
+  commitFile(dir, "initial-commit");
+  return dir;
+}
+
+function commitFile(dir: string, message: string): void {
+  fs.writeFileSync(path.join(dir, `${message}.txt`), message);
+  execFileSync("git", ["add", "-A"], { cwd: dir });
+  execFileSync("git", ["commit", "-q", "-m", message], { cwd: dir });
+}
+
+function headSha(dir: string): string {
+  return execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf-8" }).trim();
 }
 
 function request(taskId: string, coordinatorId: string, overrides: { leaseDurationMs?: number } = {}) {

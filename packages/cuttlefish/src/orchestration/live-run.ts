@@ -15,6 +15,13 @@ export interface LiveRunTaskPayload {
   leaseDurationMs: number;
   prompt: string;
   cwd?: string;
+  /**
+   * Git HEAD SHA of `cwd` captured when this task was enqueued (including
+   * while blocked waiting for a slot). Used only for stale-HEAD detection
+   * at dispatch time (see runtime.ts); never re-derived or refreshed once
+   * set, so it always reflects the repo state at enqueue time.
+   */
+  enqueueHeadSha?: string;
   title?: string;
   model?: string;
   effortLevel?: string;

@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import { logger } from "../shared/logger.js";
 import type { LiveRunContinuationRecord, LiveRunContinuationState } from "./live-run.js";
 import { QUEUE_PAUSE_META_KEY } from "./store-schema.js";
+import { transactionImmediate } from "./store.js";
 import { parseDbJson, setMeta } from "./store-utils.js";
 
 export const DEFAULT_MAX_LIVE_CONTINUATION_RETRIES = 3;
@@ -25,6 +26,18 @@ interface LiveRunContinuationRow {
   allocation_id: string | null;
   last_error: string | null;
   run_id: string | null;
+  boot_generation: number | null;
+}
+
+/**
+ * A live-run continuation record together with the boot generation that was
+ * active when the record was created (TMP-CUT-013). Not part of the public
+ * `LiveRunContinuationRecord` shape returned by the rest of the store API;
+ * used only by boot-time stale-continuation recovery, which needs it to
+ * cross-check against wall-clock staleness.
+ */
+export interface LiveRunContinuationRecordWithGeneration extends LiveRunContinuationRecord {
+  bootGeneration: number | null;
 }
 
 export function listLiveContinuationsFromDb(
@@ -47,6 +60,26 @@ export function listLiveContinuationsFromDb(
   return rows.map(rowToLiveRunContinuation);
 }
 
+export function listLiveContinuationsWithGenerationFromDb(
+  db: Database.Database,
+  states?: LiveRunContinuationState[],
+): LiveRunContinuationRecordWithGeneration[] {
+  if (!states || states.length === 0) {
+    const rows = db.prepare(`
+      SELECT * FROM live_run_continuations
+      ORDER BY updated_at, task_id, coordinator_id
+    `).all() as LiveRunContinuationRow[];
+    return rows.map(rowToLiveRunContinuationWithGeneration);
+  }
+  const placeholders = states.map(() => "?").join(", ");
+  const rows = db.prepare(`
+    SELECT * FROM live_run_continuations
+    WHERE state IN (${placeholders})
+    ORDER BY updated_at, task_id, coordinator_id
+  `).all(...states) as LiveRunContinuationRow[];
+  return rows.map(rowToLiveRunContinuationWithGeneration);
+}
+
 export function getLiveContinuationFromDb(
   db: Database.Database,
   taskId: string,
@@ -59,7 +92,11 @@ export function getLiveContinuationFromDb(
   return row ? rowToLiveRunContinuation(row) : undefined;
 }
 
-export function upsertLiveContinuationInDb(db: Database.Database, record: LiveRunContinuationRecord): void {
+export function upsertLiveContinuationInDb(
+  db: Database.Database,
+  record: LiveRunContinuationRecord,
+  bootGeneration?: number,
+): void {
   const existing = getLiveContinuationFromDb(db, record.taskId, record.coordinatorId);
   if (existing && (existing.state === "queued" || existing.state === "dispatching")) {
     throw new Error(`live continuation ${record.taskId}/${record.coordinatorId} is active (${existing.state}) and cannot be overwritten`);
@@ -67,8 +104,8 @@ export function upsertLiveContinuationInDb(db: Database.Database, record: LiveRu
   db.prepare(`
     INSERT INTO live_run_continuations (
       task_id, coordinator_id, mode, state, task_json, enqueued_at, updated_at,
-      retry_count, last_dispatched_at, allocation_id, last_error, run_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      retry_count, last_dispatched_at, allocation_id, last_error, run_id, boot_generation
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(task_id, coordinator_id) DO UPDATE SET
       mode = excluded.mode,
       state = excluded.state,
@@ -79,7 +116,8 @@ export function upsertLiveContinuationInDb(db: Database.Database, record: LiveRu
       last_dispatched_at = excluded.last_dispatched_at,
       allocation_id = excluded.allocation_id,
       last_error = excluded.last_error,
-      run_id = excluded.run_id
+      run_id = excluded.run_id,
+      boot_generation = excluded.boot_generation
   `).run(
     record.taskId,
     record.coordinatorId,
@@ -93,6 +131,7 @@ export function upsertLiveContinuationInDb(db: Database.Database, record: LiveRu
     record.allocationId ?? null,
     record.lastError ?? null,
     record.runId ?? null,
+    bootGeneration ?? null,
   );
 }
 
@@ -117,7 +156,7 @@ export function claimQueuedLiveContinuationInDb(
 ): LiveRunContinuationRecord | undefined {
   const updatedAt = opts.updatedAt ?? new Date().toISOString();
   const maxRetryCount = opts.maxRetryCount ?? DEFAULT_MAX_LIVE_CONTINUATION_RETRIES;
-  const claim = db.transaction(() => {
+  return transactionImmediate(db, () => {
     const current = db.prepare(`
       SELECT * FROM live_run_continuations
       WHERE task_id = ? AND coordinator_id = ?
@@ -158,7 +197,6 @@ export function claimQueuedLiveContinuationInDb(
     `).get(taskId, coordinatorId) as LiveRunContinuationRow | undefined;
     return claimed ? rowToLiveRunContinuation(claimed) : undefined;
   });
-  return claim();
 }
 
 export function markLiveContinuationStateInDb(
@@ -173,7 +211,7 @@ export function markLiveContinuationStateInDb(
   } = {},
 ): LiveRunContinuationRecord | undefined {
   const updatedAt = opts.updatedAt ?? new Date().toISOString();
-  const update = db.transaction(() => {
+  return transactionImmediate(db, () => {
     db.prepare(`
       UPDATE live_run_continuations
       SET state = ?, updated_at = ?, allocation_id = ?, last_error = ?
@@ -192,7 +230,6 @@ export function markLiveContinuationStateInDb(
     `).get(taskId, coordinatorId) as LiveRunContinuationRow | undefined;
     return row ? rowToLiveRunContinuation(row) : undefined;
   });
-  return update();
 }
 
 export function getQueuePauseStateFromDb(db: Database.Database): QueuePauseState {
@@ -233,5 +270,12 @@ function rowToLiveRunContinuation(row: LiveRunContinuationRow): LiveRunContinuat
     allocationId: row.allocation_id ?? undefined,
     lastError: row.last_error ?? undefined,
     runId: row.run_id ?? undefined,
+  };
+}
+
+function rowToLiveRunContinuationWithGeneration(row: LiveRunContinuationRow): LiveRunContinuationRecordWithGeneration {
+  return {
+    ...rowToLiveRunContinuation(row),
+    bootGeneration: row.boot_generation ?? null,
   };
 }

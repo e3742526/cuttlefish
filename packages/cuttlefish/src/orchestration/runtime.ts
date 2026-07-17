@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { ORCH_CONFIG_DIR, ORCH_DB, ORCH_RECOVERY_DIR, ORCH_WORKTREE_ROOT } from "../shared/paths.js";
@@ -39,6 +40,9 @@ const DEFAULT_STALE_DISPATCHING_CONTINUATION_MS = 10 * 60 * 1_000;
 const DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS = 5_000;
 const EMPIRICAL_ROUTING_MAX_BYTES = 1_000_000;
 const EMPIRICAL_ROUTING_MAX_RECORDS = 5_000;
+// Bounds the `git rev-parse HEAD` calls used for enqueue/dispatch HEAD-drift
+// detection so a wedged git process can never hang enqueue or dispatch.
+const GIT_HEAD_SHA_TIMEOUT_MS = 5_000;
 
 type HeadroomFilter = (workers: OrchestrationConfig["workers"], config: CuttlefishConfig) => Promise<HeadroomFilterResult>;
 export interface ExpiredLeaseHandlingResult {
@@ -229,6 +233,13 @@ export class OrchestrationRuntime {
   }
 
   queueLiveContinuation(record: LiveRunContinuationRecord): void {
+    // Capture the enqueue-time HEAD SHA once, if not already set by the
+    // caller. This snapshot is never re-derived or refreshed afterward; see
+    // resumeQueuedAllocation for the stale-HEAD detection that compares
+    // against it at dispatch time.
+    if (record.task.cwd && record.task.enqueueHeadSha === undefined) {
+      record.task.enqueueHeadSha = resolveGitHeadSha(record.task.cwd);
+    }
     this.store.upsertLiveContinuation(record);
     if (record.runId) {
       this.store.stampContinuationRunId(record.taskId, record.coordinatorId, record.runId);
@@ -548,6 +559,7 @@ export class OrchestrationRuntime {
       this.releaseAllocationLeases(allocation);
       return;
     }
+    this.warnIfHeadDriftedSinceEnqueue(claimed);
     try {
       await this.resumeQueuedRunHandler({
         continuation: claimed,
@@ -563,6 +575,21 @@ export class OrchestrationRuntime {
     }
   }
 
+  // Detection-only: logs when the target repo's HEAD moved between enqueue
+  // and dispatch. Does not block, delay, or otherwise alter dispatch — the
+  // design question of what (if anything) to do about drift is out of scope
+  // here and owned by a future change.
+  private warnIfHeadDriftedSinceEnqueue(continuation: LiveRunContinuationRecord): void {
+    const { cwd, enqueueHeadSha } = continuation.task;
+    if (!cwd || !enqueueHeadSha) return;
+    const currentHeadSha = resolveGitHeadSha(cwd);
+    if (!currentHeadSha || currentHeadSha === enqueueHeadSha) return;
+    logger.warn(
+      `Orchestration task ${continuation.taskId}/${continuation.coordinatorId} is dispatching against a moved HEAD: `
+      + `repo ${cwd} was at ${enqueueHeadSha} when enqueued but is now at ${currentHeadSha}.`,
+    );
+  }
+
   private releaseAllocationLeases(allocation: Allocation, opts: { retryQueued?: boolean } = {}): void {
     for (const lease of allocation.leases) {
       try {
@@ -576,10 +603,21 @@ export class OrchestrationRuntime {
 
   private recoverStaleDispatchingContinuations(): void {
     const cutoff = Date.now() - this.staleDispatchingContinuationMs;
+    // TMP-CUT-013: the wall clock alone is vulnerable to skew/adjustment
+    // (NTP jumps, manual clock changes), which can hide or fabricate
+    // staleness. Cross-check it against the monotonic boot-generation
+    // counter: a continuation stamped with a strictly older boot generation
+    // than the current one was left dispatching by a prior process and is
+    // stale regardless of what the wall clock says. Neither check replaces
+    // the other; a continuation is recovered if either says it's stale.
+    const currentBootGeneration = this.store.getBootGeneration();
     const liveAllocationIds = new Set(this.scheduler.listAllocations().map((a) => a.allocationId));
-    for (const continuation of this.store.listLiveContinuations(["dispatching"])) {
+    for (const continuation of this.store.listLiveContinuationsWithGeneration(["dispatching"])) {
       const updatedAt = Date.parse(continuation.updatedAt);
-      if (Number.isFinite(updatedAt) && updatedAt > cutoff) continue;
+      const staleByClock = !(Number.isFinite(updatedAt) && updatedAt > cutoff);
+      const staleByGeneration = typeof continuation.bootGeneration === "number"
+        && continuation.bootGeneration < currentBootGeneration;
+      if (!staleByClock && !staleByGeneration) continue;
       const error = `Recovered stale dispatching continuation after runtime restart`;
       logger.warn(`Orchestration ${error}: ${continuation.taskId}/${continuation.coordinatorId}`);
       recoverOrchestrationRun(continuation, DEFAULT_MAX_LIVE_CONTINUATION_RETRIES, error);
@@ -698,6 +736,23 @@ export function resolveLiveLeaseDurationMs(config: CuttlefishConfig): number {
   return typeof configured === "number" && Number.isFinite(configured) && configured > 0
     ? Math.floor(configured)
     : DEFAULT_LEASE_DURATION_MS;
+}
+
+// Best-effort HEAD SHA lookup used only for stale-HEAD *detection* (logging).
+// Never throws: a missing/non-git cwd, missing git binary, or timeout all
+// resolve to `undefined`, which callers treat as "nothing to compare".
+function resolveGitHeadSha(cwd: string): string | undefined {
+  try {
+    const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: GIT_HEAD_SHA_TIMEOUT_MS,
+    }).trim();
+    return sha || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function buildContinuationRequest(record: LiveRunContinuationRecord, config: OrchestrationConfig): AllocationRequest {

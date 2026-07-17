@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { TMP_DIR } from "../shared/paths.js";
+import { logger } from "../shared/logger.js";
 import { safeWriteFile } from "../shared/safe-write.js";
 import type { OrchestrationRunSession } from "./run-mode.js";
 import type { WorktreeHandle } from "./worktree.js";
@@ -22,6 +23,21 @@ export interface DualLaneManifest {
   archivedLane?: "openai" | "anthropic";
   lanes: DualLaneManifestLane[];
   comparisonReport: DualLaneComparisonReport;
+  /**
+   * Durable "attempt started" marker (STT-CF-002). Set BEFORE the winner's
+   * patch is applied to the real git tree, and cleared once the attempt's
+   * outcome (applied/failed) has been durably recorded. If a crash leaves
+   * this set, it is evidence that a git-apply attempt was in flight when the
+   * process died, even though the git tree may already have been mutated.
+   */
+  pendingApply?: DualLaneApplyAttemptMarker | null;
+}
+
+export interface DualLaneApplyAttemptMarker {
+  attemptId: string;
+  lane: "openai" | "anthropic";
+  startedAt: string;
+  patchPath: string;
 }
 
 export interface DualLaneManifestLane {
@@ -122,10 +138,29 @@ function dualLaneManifestPath(taskId: string, coordinatorId: string): string {
 
 function readManifestFile(file: string, taskId: string, coordinatorId?: string): DualLaneManifest | undefined {
   if (!fs.existsSync(file)) return undefined;
-  const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as DualLaneManifest;
+  // FSR-CF-012: a single-record manifest read has no guard against the file being
+  // corrupt/truncated (e.g. an interrupted write that raced the atomic rename).
+  // Quarantine rather than crash or silently treat it as empty/default state.
+  let parsed: DualLaneManifest;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as DualLaneManifest;
+  } catch (err) {
+    quarantineCorruptManifest(file, err);
+    return undefined;
+  }
   if (parsed.taskId !== taskId) throw new Error(`dual-lane manifest task mismatch: ${file}`);
   if (coordinatorId && parsed.coordinatorId !== coordinatorId) throw new Error(`dual-lane manifest coordinator mismatch: ${file}`);
   return parsed;
+}
+
+function quarantineCorruptManifest(file: string, err: unknown): void {
+  const backup = `${file}.corrupt-${Date.now()}`;
+  try {
+    fs.renameSync(file, backup);
+  } catch {
+    // If rename fails the path may already be gone; proceed.
+  }
+  logger.error(`Quarantined corrupt dual-lane manifest ${file} -> ${backup}: ${err instanceof Error ? err.message : String(err)}`);
 }
 
 function manifestPathsUnder(dir: string): string[] {

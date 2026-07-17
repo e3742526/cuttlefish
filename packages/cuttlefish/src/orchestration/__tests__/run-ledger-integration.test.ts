@@ -90,6 +90,26 @@ describe("beginOrchestrationRun", () => {
     const runId = beginOrchestrationRun(makeAllocation(), "single_worker");
     expect(runId).toMatch(/^[0-9a-f-]{36}$/);
   });
+
+  // DAT-BUS-002: engine must stay the literal "orchestration" marker (run-recovery.ts
+  // and sweepOrphanedOrchestrationRuns filter on it), but the real worker/provider
+  // identity must not be lost — it is carried on the running-transition payload.
+  it("keeps engine as the literal orchestration marker even when a providerEngine is supplied", () => {
+    mockTransitionRun.mockReturnValue({ runId: "r8", currentState: "running" });
+    beginOrchestrationRun(makeAllocation(), "dual_lane", "My Task", "2026-06-30T00:07:00.000Z", "openai:codex,anthropic:claude");
+
+    const createArgs = mockCreateRun.mock.calls[0][0];
+    expect(createArgs.engine).toBe("orchestration");
+
+    const transitionArgs = mockTransitionRun.mock.calls[0][0];
+    expect(transitionArgs.payload).toEqual({ providerEngine: "openai:codex,anthropic:claude" });
+  });
+
+  it("omits the payload when no providerEngine is supplied", () => {
+    beginOrchestrationRun(makeAllocation(), "single_worker");
+    const transitionArgs = mockTransitionRun.mock.calls[0][0];
+    expect(transitionArgs.payload).toBeNull();
+  });
 });
 
 describe("createBlockedOrchestrationRun", () => {

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getMessages } from "../sessions/registry.js";
 import { getArtifactLineage } from "../artifact-lineage/index.js";
+import { logger } from "../shared/logger.js";
 import { appendOrchestrationAudit } from "./audit.js";
 import {
   dualLaneTaskDir,
@@ -123,21 +124,35 @@ export function applyDualLaneWinner(opts: {
       store: opts.store,
       note: "dual-lane apply patch",
     });
+    // STT-CF-002: the git-apply, DB insert, and JSON manifest write are three
+    // unsynchronized substrates. Durably mark the attempt as in-flight BEFORE
+    // mutating the real git tree, so a crash mid-apply leaves evidence the
+    // attempt happened rather than silent inconsistency. Cleared once the
+    // outcome (applied/failed) has been durably recorded below.
+    const attemptId = `apply_${randomUUID()}`;
+    const withPendingApply = updateDualLaneManifest({
+      ...manifest,
+      pendingApply: { attemptId, lane: selectedLane, startedAt: new Date().toISOString(), patchPath: patchRecord.path },
+    });
     try {
       applyPatchToGitWorkspace(manifest.baseCwd, patch);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      recordPatchAttempt(opts.store, opts.taskId, selectedLane, "failed", manifest.baseCwd, patchRecord.path, message);
+      recordPatchAttempt(opts.store, opts.taskId, selectedLane, "failed", manifest.baseCwd, patchRecord.path, message, attemptId);
+      updateDualLaneManifest({ ...withPendingApply, pendingApply: null });
       return { ok: false, reason: "conflict", message: `winner patch conflicts or cannot apply: ${message}` };
     }
-    const attempt = recordPatchAttempt(opts.store, opts.taskId, selectedLane, "applied", manifest.baseCwd, patchRecord.path, null);
-    if (manifest.state === "selection_required") {
+    const attempt = recordPatchAttempt(opts.store, opts.taskId, selectedLane, "applied", manifest.baseCwd, patchRecord.path, null, attemptId);
+    if (withPendingApply.state === "selection_required") {
       updateDualLaneManifest({
-        ...manifest,
+        ...withPendingApply,
         state: "selected",
         selectedLane,
-        archivedLane: manifest.lanes.find((lane) => lane.id !== selectedLane)?.id,
+        archivedLane: withPendingApply.lanes.find((lane) => lane.id !== selectedLane)?.id,
+        pendingApply: null,
       });
+    } else {
+      updateDualLaneManifest({ ...withPendingApply, pendingApply: null });
     }
     return {
       ok: true,
@@ -161,9 +176,23 @@ export function persistDualLaneArtifacts(opts: {
   now?: () => Date;
 }): void {
   writeDualLanePromptArtifact(opts.taskId, opts.coordinatorId, opts.prompt, opts.store, { now: opts.now });
+  // CAS-CF-001: persistence of each lane's result must be independent — a
+  // downstream I/O failure writing one lane's artifact must not prevent the
+  // other (already-completed) lane's artifact from being persisted, and must
+  // not propagate out of this function and trigger the caller's failure
+  // cleanup, which would otherwise discard both lanes' completed worktrees
+  // over an unrelated artifact-write error.
   for (const lane of opts.lanes) {
-    writeDualLaneOutputArtifact(opts.taskId, opts.coordinatorId, lane.id, rawOutputForSession(lane.session.sessionId), opts.store, { now: opts.now });
-    writeDualLaneDiffArtifact(opts.taskId, opts.coordinatorId, lane.id, patchWorktree(lane.worktree), opts.store, { now: opts.now });
+    try {
+      writeDualLaneOutputArtifact(opts.taskId, opts.coordinatorId, lane.id, rawOutputForSession(lane.session.sessionId), opts.store, { now: opts.now });
+    } catch (err) {
+      logger.warn(`Dual-lane output artifact persistence failed for ${lane.id} (task ${opts.taskId}): ${err instanceof Error ? err.message : String(err)}`);
+    }
+    try {
+      writeDualLaneDiffArtifact(opts.taskId, opts.coordinatorId, lane.id, patchWorktree(lane.worktree), opts.store, { now: opts.now });
+    } catch (err) {
+      logger.warn(`Dual-lane diff artifact persistence failed for ${lane.id} (task ${opts.taskId}): ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }
 
@@ -261,8 +290,8 @@ function recordPatchAttempt(
   baseCwd: string,
   patchPath: string | null,
   error: string | null,
+  attemptId: string = `apply_${randomUUID()}`,
 ): string {
-  const attemptId = `apply_${randomUUID()}`;
   store?.addPatchApplyAttempt({
     attemptId,
     taskId,

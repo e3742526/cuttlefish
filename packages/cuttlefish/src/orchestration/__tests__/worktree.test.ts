@@ -11,6 +11,7 @@ import {
   diffGitWorkspace,
   diffWorktree,
   listManagedWorktrees,
+  PENDING_WORKTREE_MARKER_SUFFIX,
   reapExpiredReviewBundles,
   reapOrphanedWorktrees,
 } from "../worktree.js";
@@ -157,6 +158,80 @@ describe("orchestration worktrees", () => {
     // The worktree's own generated branch was removed from its real owning repo.
     expect(listBranches(repoDir)).not.toContain(realBranch);
     expect(fs.existsSync(prepared.cwd)).toBe(false);
+  });
+
+  it("cleans up the pending marker after a successful two-phase worktree creation (FSR-CF-011)", () => {
+    const prepared = createImplementationWorktree({
+      taskId: "task-pending-ok",
+      lane: "implementation",
+      baseCwd: repoDir,
+      worktrees: { root: worktreeRoot, maxWorktrees: 4 },
+    });
+    expect(prepared.mode).toBe("implementation_worktree");
+    if (prepared.mode !== "implementation_worktree") return;
+
+    // The real marker round-trips normally...
+    expect(fs.existsSync(path.join(prepared.cwd, ".cuttlefish-worktree.json"))).toBe(true);
+    expect(listManagedWorktrees(worktreeRoot).map((item) => item.taskId)).toEqual(["task-pending-ok"]);
+    // ...and the transient pending marker written before `git worktree add` is
+    // gone once creation succeeds.
+    expect(fs.existsSync(`${prepared.cwd}${PENDING_WORKTREE_MARKER_SUFFIX}`)).toBe(false);
+
+    cleanupWorktree(prepared.handle);
+  });
+
+  it("reaps a worktree directory that was created but never got its marker, as if the daemon died between `git worktree add` and the marker write (FSR-CF-011)", () => {
+    fs.mkdirSync(worktreeRoot, { recursive: true });
+    const worktreePath = path.join(worktreeRoot, "cuttlefish-task-crashed-implementation");
+    git(["worktree", "add", "-b", "cuttlefish/task-crashed/implementation/123", worktreePath, "HEAD"], repoDir);
+
+    // A real worktree exists on disk, but no marker was ever written for it —
+    // it is invisible to listManagedWorktrees.
+    expect(fs.existsSync(path.join(worktreePath, ".cuttlefish-worktree.json"))).toBe(false);
+    expect(listManagedWorktrees(worktreeRoot)).toEqual([]);
+
+    const removed = reapOrphanedWorktrees(worktreeRoot, new Set());
+
+    expect(removed.map((item) => item.path)).toContain(worktreePath);
+    expect(fs.existsSync(worktreePath)).toBe(false);
+    expect(listBranches(repoDir)).not.toContain("cuttlefish/task-crashed/implementation/123");
+  });
+
+  it("does not remove a directory that merely matches the generated naming convention but isn't a real git worktree (FSR-CF-011)", () => {
+    fs.mkdirSync(worktreeRoot, { recursive: true });
+    const fakeDir = path.join(worktreeRoot, "cuttlefish-task-fake-implementation");
+    fs.mkdirSync(fakeDir);
+    fs.writeFileSync(path.join(fakeDir, "not-a-worktree.txt"), "hi\n");
+
+    const removed = reapOrphanedWorktrees(worktreeRoot, new Set());
+
+    expect(removed).toEqual([]);
+    expect(fs.existsSync(fakeDir)).toBe(true);
+    expect(fs.existsSync(path.join(fakeDir, "not-a-worktree.txt"))).toBe(true);
+  });
+
+  it("does not touch a directory under the worktree root that doesn't match the generated naming convention (FSR-CF-011)", () => {
+    fs.mkdirSync(worktreeRoot, { recursive: true });
+    const unrelatedDir = path.join(worktreeRoot, "not-a-cuttlefish-worktree");
+    fs.mkdirSync(unrelatedDir);
+    fs.writeFileSync(path.join(unrelatedDir, "keep-me.txt"), "do not touch\n");
+
+    const removed = reapOrphanedWorktrees(worktreeRoot, new Set());
+
+    expect(removed).toEqual([]);
+    expect(fs.existsSync(unrelatedDir)).toBe(true);
+    expect(fs.existsSync(path.join(unrelatedDir, "keep-me.txt"))).toBe(true);
+  });
+
+  it("cleans up a stray pending marker left with no matching worktree directory, as if the daemon died before `git worktree add` ran (FSR-CF-011)", () => {
+    fs.mkdirSync(worktreeRoot, { recursive: true });
+    const strayPending = path.join(worktreeRoot, `cuttlefish-task-stray-implementation${PENDING_WORKTREE_MARKER_SUFFIX}`);
+    fs.writeFileSync(strayPending, JSON.stringify({ taskId: "task-stray" }, null, 2));
+
+    const removed = reapOrphanedWorktrees(worktreeRoot, new Set());
+
+    expect(removed).toEqual([]);
+    expect(fs.existsSync(strayPending)).toBe(false);
   });
 
   it("builds a diff-only review bundle outside the implementation worktree", () => {

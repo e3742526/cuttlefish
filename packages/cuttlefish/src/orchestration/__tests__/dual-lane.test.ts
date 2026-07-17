@@ -7,6 +7,7 @@ import type { ApiContext } from "../../gateway/api.js";
 import type { Engine, EngineRunOpts, EngineResult, CuttlefishConfig } from "../../shared/types.js";
 import { withTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
 import type { OrchestrationConfig, Worker } from "../types.js";
+import type { DualLaneRunLane } from "../dual-lane.js";
 
 let tmpHome: string;
 const testHome = withTempCuttlefishHome("cuttlefish-dual-lane-");
@@ -153,7 +154,8 @@ describe("dual-lane orchestration", () => {
       worktreeRoot: path.join(tmpHome, "worktrees"),
       maxWorktrees: 4,
     });
-    const ctx = makeContext(runtime, new LaneWritingEngine({ failLane: "openai" }));
+    const engine = new LaneWritingEngine({ failLane: "openai" });
+    const ctx = makeContext(runtime, engine);
 
     const result = await runOrchestrationTask({
       context: ctx,
@@ -172,6 +174,16 @@ describe("dual-lane orchestration", () => {
     expect(runtime.listLeases().every((lease) => lease.state === "released")).toBe(true);
     expect(fs.existsSync(path.join(tmpHome, "worktrees", "cuttlefish-task-dual-failed-openai"))).toBe(false);
     expect(fs.existsSync(path.join(tmpHome, "worktrees", "cuttlefish-task-dual-failed-anthropic"))).toBe(false);
+    // CAS-CF-002: the openai lane failing must not deny the anthropic lane its
+    // own attempt — both engine invocations should have happened, and the
+    // failed result should carry a session for each lane, not just the one
+    // that happened to fail first.
+    expect(engine.prompts).toHaveLength(2);
+    if (!result.ok && result.state === "failed" && "lanes" in result) {
+      expect(result.sessions).toHaveLength(2);
+      const anthropicLane = result.lanes.find((lane: DualLaneRunLane) => lane.id === "anthropic");
+      expect(anthropicLane?.state).toBe("completed");
+    }
     runtime.close();
   });
 

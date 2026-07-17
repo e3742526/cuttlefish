@@ -140,6 +140,34 @@ describe("PersistentMatrixScheduler", () => {
     reopened.close();
   });
 
+  it("persists terminal lease pruning across reopen, removing orphaned lease rows", () => {
+    let now = fixedNow;
+    const first = PersistentMatrixScheduler.open(config(), {
+      dbPath,
+      now: () => now,
+      retention: { terminalAllocationRetentionMs: 500, terminalAllocationLimit: 10 },
+    });
+    const terminal = first.requestAllocation(request({ taskId: "terminal" }));
+    expect(terminal.ok).toBe(true);
+    if (!terminal.ok) return;
+    first.releaseLease(terminal.allocation.leases[0].leaseId, "coord-1");
+
+    now = new Date(fixedNow.getTime() + 1_000);
+    const running = first.requestAllocation(request({ taskId: "running", coordinatorId: "coord-running" }));
+    expect(running.ok).toBe(true);
+    expect(first.listLeases().map((lease) => lease.taskId)).toEqual(["running"]);
+    first.close();
+
+    const reopened = PersistentMatrixScheduler.open(config(), {
+      dbPath,
+      now: () => now,
+      retention: { terminalAllocationRetentionMs: 500, terminalAllocationLimit: 10 },
+    });
+    expect(reopened.listAllocations().map((allocation) => allocation.taskId)).toEqual(["running"]);
+    expect(reopened.listLeases().map((lease) => lease.taskId)).toEqual(["running"]);
+    reopened.close();
+  });
+
   it("rehydrates the in-memory scheduler when applySnapshotDelta throws", () => {
     const store = OrchestrationStore.open(dbPath);
     // Inject a failing applySnapshotDelta via the stored object to simulate disk failure

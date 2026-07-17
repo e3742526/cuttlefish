@@ -24,6 +24,7 @@ import {
 import {
   pruneSchedulerTelemetry,
   pruneTerminalAllocations,
+  pruneTerminalLeases,
   refreshAllocationLifecycle,
   resolveSchedulerRetentionOptions,
   type SchedulerRetentionOptions,
@@ -586,6 +587,7 @@ export class MatrixScheduler {
   private pruneRetainedState(now: Date): void {
     this.refreshAllocationStates(now.toISOString());
     pruneTerminalAllocations(this.allocations, now, this.retention);
+    pruneTerminalLeases(this.leases, this.allocations, now, this.retention);
     pruneSchedulerTelemetry(this.telemetry, now, this.retention);
   }
 }

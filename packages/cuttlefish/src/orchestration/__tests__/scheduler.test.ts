@@ -431,6 +431,62 @@ describe("MatrixScheduler", () => {
     expect(s.listAllocations().map((allocation) => allocation.taskId)).toEqual(["new-terminal"]);
   });
 
+  it("prunes terminal leases with no owning allocation, but keeps leases still referenced by a live allocation", () => {
+    let now = fixedNow;
+    const workers = [
+      worker({ id: "codexSenior", provider: "openai", family: "openai" }),
+      worker({ id: "claudeReviewer", provider: "anthropic", family: "anthropic" }),
+    ];
+    const cfg = config(workers, {
+      coordinatorTemplates: [
+        {
+          id: "twoRole",
+          purpose: "feature work",
+          requiredRoles: ["seniorImplementer", "independentReviewer"],
+          optionalRoles: [],
+        },
+      ],
+    });
+    const s = new MatrixScheduler(cfg, {
+      now: () => now,
+      retention: { terminalAllocationRetentionMs: 500, terminalAllocationLimit: 10 },
+    });
+
+    const result = s.requestAllocation(request({
+      taskId: "task-1",
+      coordinatorId: "coord-1",
+      coordinatorTemplate: "twoRole",
+      requiredRoles: ["seniorImplementer", "independentReviewer"],
+    }));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const implLease = result.allocation.leases.find((lease) => lease.role === "seniorImplementer")!;
+    const reviewLease = result.allocation.leases.find((lease) => lease.role === "independentReviewer")!;
+
+    // Releasing only one of two leases leaves the allocation live ("allocated"); the
+    // released lease is still referenced by that allocation and must not be pruned.
+    s.releaseLease(implLease.leaseId, "coord-1");
+    expect(s.listLeases().map((lease) => lease.leaseId)).toContain(implLease.leaseId);
+    expect(s.listAllocations()).toHaveLength(1);
+
+    // Releasing the remaining lease completes the allocation, but it is still fresh
+    // (within the retention window), so neither the allocation nor its leases are pruned yet.
+    s.releaseLease(reviewLease.leaseId, "coord-1");
+    expect(s.listAllocations()).toHaveLength(1);
+    expect(s.listLeases().map((lease) => lease.leaseId).sort()).toEqual([implLease.leaseId, reviewLease.leaseId].sort());
+
+    // Age the completed allocation past the retention window, then trigger another
+    // mutation so a prune pass runs: the allocation is pruned, orphaning its leases,
+    // which must then be pruned from memory as well.
+    now = new Date(now.getTime() + 1_000);
+    const unrelated = s.requestAllocation(request({ taskId: "unrelated", coordinatorId: "coord-unrelated" }));
+    expect(unrelated.ok).toBe(true);
+
+    expect(s.listAllocations().map((allocation) => allocation.taskId)).toEqual(["unrelated"]);
+    expect(s.listLeases().map((lease) => lease.taskId)).toEqual(["unrelated"]);
+  });
+
   it("bounds scheduler internal telemetry while preserving allocation behavior", () => {
     let now = fixedNow;
     const s = new MatrixScheduler(config([worker({ id: "codexSenior", provider: "openai", family: "openai" })]), {

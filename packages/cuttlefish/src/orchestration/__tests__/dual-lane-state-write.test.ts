@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
+import path from "node:path";
 import {
   dualLaneTaskDir,
   readDualLaneManifest,
@@ -58,5 +59,22 @@ describe("writeDualLaneManifest (atomic)", () => {
     writeDualLaneManifest(manifest({ state: "selection_required" }));
     writeDualLaneManifest(manifest({ state: "failed" }));
     expect(readDualLaneManifest("task-1", "coord-1")?.state).toBe("failed");
+  });
+
+  // FSR-CF-012: a single-record manifest read had no guard against the file
+  // being corrupt/truncated (e.g. from an interrupted write).
+  it("quarantines a corrupt manifest instead of crashing or treating it as valid", () => {
+    const manifestPath = path.join(taskDir, "manifest.json");
+    fs.mkdirSync(taskDir, { recursive: true });
+    fs.writeFileSync(manifestPath, '{"taskId": "task-1", "coordinatorId": "coord-1", "state": "sel'); // truncated JSON
+
+    expect(() => readDualLaneManifest("task-1", "coord-1")).not.toThrow();
+    expect(readDualLaneManifest("task-1", "coord-1")).toBeUndefined();
+
+    // The corrupt file must be moved aside, not deleted or left in place.
+    expect(fs.existsSync(manifestPath)).toBe(false);
+    const quarantined = fs.readdirSync(taskDir).filter((name) => name.startsWith("manifest.json.corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(taskDir, quarantined[0]), "utf-8")).toContain('"state": "sel');
   });
 });

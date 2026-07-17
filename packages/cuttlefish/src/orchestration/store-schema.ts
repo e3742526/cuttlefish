@@ -10,6 +10,8 @@ import { setMeta } from "./store-utils.js";
 export const SCHEMA_VERSION = 5;
 export const NEXT_SEQ_META_KEY = "scheduler_next_seq";
 export const QUEUE_PAUSE_META_KEY = "queue_pause";
+export const SCHEMA_VERSION_META_KEY = "schema_version";
+export const BOOT_GENERATION_META_KEY = "boot_generation";
 
 export interface StoreOpenOptions {
   recoverCorrupt?: boolean;
@@ -18,6 +20,14 @@ export interface StoreOpenOptions {
 
 export interface OpenedStoreDatabase {
   db: Database.Database;
+  /**
+   * Monotonic counter that increments every time the orchestration DB is
+   * opened (i.e. every daemon boot). Used alongside wall-clock cutoffs to
+   * detect stale in-flight state left behind by a prior process, without
+   * relying solely on a clock that may skew or jump (NTP adjustments,
+   * manual changes).
+   */
+  bootGeneration: number;
   recoveryEvent?: TelemetryEvent;
 }
 
@@ -159,7 +169,8 @@ CREATE INDEX IF NOT EXISTS idx_orch_patch_apply_task ON patch_apply_attempts (ta
 
 export function openStoreDatabase(dbPath: string, opts: StoreOpenOptions = {}): OpenedStoreDatabase {
   try {
-    return { db: openDatabase(dbPath) };
+    const opened = openDatabase(dbPath);
+    return { db: opened.db, bootGeneration: opened.bootGeneration };
   } catch (err) {
     if (!isSqliteCorruptionError(err)) {
       throw err;
@@ -181,8 +192,10 @@ export function openStoreDatabase(dbPath: string, opts: StoreOpenOptions = {}): 
       operatorGuidance: "Inspect the quarantined database files manually if recovery is needed. Cuttlefish started with an empty orchestration database and did not requeue work automatically.",
     });
     logger.warn(`orchestration store: moved corrupt DB to ${quarantine.corruptDbPath}; starting empty and surfacing recovery telemetry`);
+    const reopened = openDatabase(dbPath);
     return {
-      db: openDatabase(dbPath),
+      db: reopened.db,
+      bootGeneration: reopened.bootGeneration,
       recoveryEvent: {
         eventId: "evt_store_corrupt_recovered_1",
         type: "store_corrupt_recovered",
@@ -206,7 +219,7 @@ function isSqliteCorruptionError(err: unknown): boolean {
     || message.includes("not a database");
 }
 
-function openDatabase(dbPath: string): Database.Database {
+function openDatabase(dbPath: string): { db: Database.Database; bootGeneration: number } {
   if (dbPath !== ":memory:") {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   }
@@ -221,12 +234,58 @@ function openDatabase(dbPath: string): Database.Database {
     ensureQueueDiagnosticsColumns(db);
     ensureArtifactCoordinatorColumn(db);
     ensureContinuationRunIdColumn(db);
-    setMeta(db, "schema_version", String(SCHEMA_VERSION));
-    return db;
+    ensureContinuationBootGenerationColumn(db);
+    assertSchemaVersionNotNewer(db);
+    setMeta(db, SCHEMA_VERSION_META_KEY, String(SCHEMA_VERSION));
+    const bootGeneration = advanceBootGeneration(db);
+    return { db, bootGeneration };
   } catch (err) {
     db.close();
     throw err;
   }
+}
+
+function getMetaValue(db: Database.Database, key: string): string | undefined {
+  const row = db.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value;
+}
+
+/**
+ * TMP-CUT-015: the running binary stamps its SCHEMA_VERSION on every open,
+ * but never checked what was already stamped there. A DB last written by a
+ * *newer* binary (schema_version greater than this binary's SCHEMA_VERSION)
+ * may contain schema shapes this binary's migrations don't know about;
+ * silently continuing risks misreading or corrupting that state. A DB
+ * stamped with a *lower* version is the normal upgrade case, already
+ * handled by the additive `ensure*Column` migrations above, so it is
+ * intentionally not guarded here.
+ */
+function assertSchemaVersionNotNewer(db: Database.Database): void {
+  const stamped = getMetaValue(db, SCHEMA_VERSION_META_KEY);
+  if (stamped === undefined) return;
+  const stampedVersion = Number(stamped);
+  if (!Number.isFinite(stampedVersion)) return;
+  if (stampedVersion > SCHEMA_VERSION) {
+    throw new Error(
+      `orchestration DB schema_version (${stampedVersion}) is newer than this binary's SCHEMA_VERSION (${SCHEMA_VERSION}); ` +
+        "refusing to open with an older binary to avoid misreading or corrupting a newer schema. Upgrade cuttlefish before opening this database.",
+    );
+  }
+}
+
+/**
+ * TMP-CUT-013: increments a durable counter every time this DB is opened
+ * (i.e. every daemon boot). Continuation records are stamped with the boot
+ * generation active when they were created so stale-continuation recovery
+ * at boot can cross-check against it, as a signal independent of wall-clock
+ * time (which can skew or jump).
+ */
+function advanceBootGeneration(db: Database.Database): number {
+  const stamped = getMetaValue(db, BOOT_GENERATION_META_KEY);
+  const previous = stamped !== undefined ? Number(stamped) : 0;
+  const next = Number.isFinite(previous) && previous > 0 ? previous + 1 : 1;
+  setMeta(db, BOOT_GENERATION_META_KEY, String(next));
+  return next;
 }
 
 function ensureArtifactCoordinatorColumn(db: Database.Database): void {
@@ -288,6 +347,12 @@ function ensureContinuationRunIdColumn(db: Database.Database): void {
   const columns = db.pragma("table_info(live_run_continuations)") as Array<{ name: string }>;
   if (columns.some((column) => column.name === "run_id")) return;
   db.prepare("ALTER TABLE live_run_continuations ADD COLUMN run_id TEXT").run();
+}
+
+function ensureContinuationBootGenerationColumn(db: Database.Database): void {
+  const columns = db.pragma("table_info(live_run_continuations)") as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "boot_generation")) return;
+  db.prepare("ALTER TABLE live_run_continuations ADD COLUMN boot_generation INTEGER").run();
 }
 
 function ensureQueueDiagnosticsColumns(db: Database.Database): void {

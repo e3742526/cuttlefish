@@ -6,6 +6,9 @@ import { safeRmSync } from "../shared/safe-delete.js";
 import type { CuttlefishConfig } from "../shared/types.js";
 
 export const WORKTREE_MARKER = ".cuttlefish-worktree.json";
+// Written *beside* the (not-yet-created) worktree directory before `git worktree
+// add` runs — see the two-phase marker comment in createImplementationWorktree.
+export const PENDING_WORKTREE_MARKER_SUFFIX = ".cuttlefish-worktree.pending.json";
 export const DEFAULT_MAX_WORKTREES = 8;
 export const DEFAULT_REVIEW_BUNDLE_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
@@ -89,6 +92,10 @@ export function createImplementationWorktree(opts: {
 
   const root = path.resolve(opts.worktrees.root);
   fs.mkdirSync(root, { recursive: true });
+  // FSR-CF-011 defense-in-depth: reap any directory left behind by a daemon that
+  // died mid-creation before counting toward the cap, so a marker-less orphan
+  // can't silently consume a slot forever.
+  sweepUnmarkedWorktreeDirs(root);
   const existing = listManagedWorktrees(root);
   if (existing.length >= opts.worktrees.maxWorktrees) {
     throw new Error(`orchestration worktree limit reached: ${existing.length}/${opts.worktrees.maxWorktrees}`);
@@ -112,13 +119,37 @@ export function createImplementationWorktree(opts: {
     createdAt,
   };
 
+  // Two-phase marker write (FSR-CF-011): a hard kill (SIGKILL/OOM/reboot) between
+  // `git worktree add` and the marker write used to leave a real worktree on disk
+  // with no trace of it at all — invisible to listManagedWorktrees, the reaper, and
+  // the maxWorktrees cap. We can't write the final marker before the directory
+  // exists (git hasn't created it yet), so instead we record intent to a *sibling*
+  // pending marker in `root` first. If the daemon dies before `git worktree add`
+  // ever runs, only that small sibling file is left behind (no worktree, nothing to
+  // reap). If it dies after `git worktree add` succeeds but before the final marker
+  // is written inside the directory, the directory itself now matches the generated
+  // naming convention and is picked up by the sweep in reapOrphanedWorktrees /
+  // sweepUnmarkedWorktreeDirs as a defense-in-depth backstop.
+  const pendingMarkerPath = `${worktreePath}${PENDING_WORKTREE_MARKER_SUFFIX}`;
+  fs.writeFileSync(pendingMarkerPath, JSON.stringify(handle, null, 2));
   try {
     runGit(["worktree", "add", "-b", branch, worktreePath, "HEAD"], gitRoot);
     fs.writeFileSync(path.join(worktreePath, WORKTREE_MARKER), JSON.stringify(handle, null, 2));
+    removePendingMarker(pendingMarkerPath);
     return { mode: "implementation_worktree", cwd: worktreePath, handle };
   } catch (err) {
     safeRmSync(worktreePath, { within: root, label: "orchestration worktree" });
+    removePendingMarker(pendingMarkerPath);
     throw new Error(`failed to create orchestration worktree: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function removePendingMarker(pendingMarkerPath: string): void {
+  try {
+    fs.rmSync(pendingMarkerPath, { force: true });
+  } catch {
+    // Best effort — a stray pending marker with no matching directory is harmless
+    // and is swept up on the next pass (see sweepUnmarkedWorktreeDirs).
   }
 }
 
@@ -283,7 +314,97 @@ export function reapOrphanedWorktrees(root: string, activeTaskIds: Set<string>):
     cleanupWorktree(handle);
     removed.push(handle);
   }
+  // FSR-CF-011 defense-in-depth backstop: also sweep directories that match the
+  // generated worktree naming convention but never got (or lost) a valid marker.
+  removed.push(...sweepUnmarkedWorktreeDirs(root));
   return removed;
+}
+
+// Directories created by createImplementationWorktree are always named
+// `cuttlefish-<taskId>-<lane>` with safeSegment'd parts (same charset as the
+// generated branch name below). Matching this shape is only ever a *filter* for
+// candidates to inspect — sweepUnmarkedWorktreeDirs still confirms real git
+// linkage before removing anything, exactly like cleanupWorktree does for marked
+// worktrees.
+const GENERATED_WORKTREE_DIR_RE = /^cuttlefish-[A-Za-z0-9._-]+$/;
+
+/**
+ * Defense-in-depth backstop for FSR-CF-011: find directories under `root` that
+ * look like managed worktrees (by name) but have no valid `WORKTREE_MARKER` —
+ * e.g. because the daemon was killed between `git worktree add` and the marker
+ * write. A directory is only ever removed after its *real* git linkage
+ * (`--git-common-dir`) confirms it is genuinely a git worktree; name matching
+ * alone never triggers deletion. Also clears out stray pending markers
+ * (see PENDING_WORKTREE_MARKER_SUFFIX) that no longer have a matching directory.
+ */
+function sweepUnmarkedWorktreeDirs(root: string): WorktreeHandle[] {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const dirNames = new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+  const markedDirNames = new Set(listManagedWorktrees(root).map((handle) => path.basename(handle.path)));
+
+  const removed: WorktreeHandle[] = [];
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      if (markedDirNames.has(entry.name) || !GENERATED_WORKTREE_DIR_RE.test(entry.name)) continue;
+      const handle = reapUnmarkedWorktreeDir(path.join(root, entry.name));
+      if (handle) removed.push(handle);
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(PENDING_WORKTREE_MARKER_SUFFIX)) {
+      const dirName = entry.name.slice(0, -PENDING_WORKTREE_MARKER_SUFFIX.length);
+      if (!dirNames.has(dirName)) removePendingMarker(path.join(root, entry.name));
+    }
+  }
+  return removed;
+}
+
+function reapUnmarkedWorktreeDir(worktreePath: string): WorktreeHandle | null {
+  // No marker to trust or distrust here — confirm the same way cleanupWorktree
+  // does, from the worktree's real git linkage, before touching anything. If it
+  // doesn't resolve as an actual worktree (mid pending-creation, or unrelated
+  // clutter that happens to match the naming convention), leave it alone.
+  const gitRoot = resolveWorktreeGitRoot(worktreePath);
+  if (!gitRoot) return null;
+  makeWritable(worktreePath);
+  const branch = resolveWorktreeBranch(worktreePath);
+  let createdAt: string;
+  try {
+    createdAt = fs.statSync(worktreePath).birthtime.toISOString();
+  } catch {
+    createdAt = new Date(0).toISOString();
+  }
+  try {
+    runGit(["worktree", "remove", "--force", "--", worktreePath], gitRoot);
+  } catch {
+    safeRmSync(worktreePath, { label: "orchestration worktree" });
+  }
+  // Same strict-name + real-linkage guard as cleanupWorktree: only ever delete a
+  // branch matching the generated shape, from the repo git itself resolved.
+  if (branch && isGeneratedWorktreeBranch(branch)) {
+    try {
+      runGit(["branch", "-D", "--", branch], gitRoot);
+    } catch {
+      // The branch may already be gone or may not have been created.
+    }
+  }
+  const [taskId, lane] = splitGeneratedWorktreeDirName(path.basename(worktreePath));
+  return { taskId, lane, path: worktreePath, baseCwd: gitRoot, gitRoot, branch: branch ?? "", createdAt };
+}
+
+// Best-effort split of `cuttlefish-<taskId>-<lane>` back into its parts for
+// reporting purposes only (taskId/lane may themselves contain hyphens, so this
+// is not guaranteed to exactly recover the original segments — it is never used
+// for anything security-sensitive, unlike the git-linkage checks above).
+function splitGeneratedWorktreeDirName(dirName: string): [taskId: string, lane: string] {
+  const rest = dirName.slice("cuttlefish-".length);
+  const idx = rest.lastIndexOf("-");
+  if (idx <= 0) return [rest || "unknown", "unknown"];
+  return [rest.slice(0, idx), rest.slice(idx + 1)];
 }
 
 function reviewBundleRoot(): string {
