@@ -62,6 +62,49 @@ describe("loadJobs", () => {
     // Original file is left in place
     expect(fs.existsSync(jobsPath)).toBe(true);
   });
+
+  it("drops a structurally malformed job entry (e.g. non-string id) with a warning instead of scheduling it", async () => {
+    const cronDir = path.join(tmpHome, "cron");
+    fs.mkdirSync(cronDir, { recursive: true });
+    const jobsPath = path.join(cronDir, "jobs.json");
+    const validJob = makeJob({ id: "keep-me" });
+    // A non-string `id` is a genuine shape error (JSON.parse only guarantees
+    // valid JSON syntax, not a valid CronJob shape) — this must still be dropped.
+    const malformedJob = { id: 12345, name: "Broken", enabled: true, schedule: "0 * * * *" };
+    fs.writeFileSync(jobsPath, JSON.stringify([validJob, malformedJob]), "utf-8");
+
+    const { logger } = await import("../../shared/logger.js");
+    const jobs = loadJobs();
+
+    // Only the valid job survives; the malformed one is dropped, not silently scheduled.
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].id).toBe("keep-me");
+    expect(logger.warn).toHaveBeenCalled();
+    expect(String(vi.mocked(logger.warn).mock.calls[0][0])).toContain("Dropping invalid cron job entry");
+
+    // Original file (with the malformed entry) is preserved for the operator.
+    const backups = fs.readdirSync(cronDir).filter((f) => f.startsWith("jobs.json.invalid-"));
+    expect(backups).toHaveLength(1);
+    expect(fs.existsSync(jobsPath)).toBe(true);
+  });
+
+  it("keeps a job with an invalid (but well-typed) schedule string, rather than dropping it", async () => {
+    // GET /api/cron intentionally surfaces already-persisted jobs with a broken
+    // schedule (scheduleValid: false) instead of hiding them — see
+    // gateway/__tests__/route-hardening.test.ts. loadJobs() must not silently
+    // drop such a job; only the scheduler skips it (with a warning) at run time.
+    const cronDir = path.join(tmpHome, "cron");
+    fs.mkdirSync(cronDir, { recursive: true });
+    const jobsPath = path.join(cronDir, "jobs.json");
+    const brokenScheduleJob = makeJob({ id: "bad-schedule", schedule: "99 99 99 99 99" });
+    fs.writeFileSync(jobsPath, JSON.stringify([brokenScheduleJob]), "utf-8");
+
+    const jobs = loadJobs();
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].id).toBe("bad-schedule");
+    expect(jobs[0].schedule).toBe("99 99 99 99 99");
+  });
 });
 
 describe("saveJobs", () => {
@@ -92,5 +135,38 @@ describe("appendRunLog", () => {
     const logPath = path.join(tmpHome, "cron", "runs", "test-job.jsonl");
     const entries = fs.readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
     expect(entries.map((entry) => entry.runId)).toEqual(["run-1", "run-2"]);
+  });
+
+  it("sanitizes a job id containing a newline so it cannot corrupt the run-log path or forge fake log entries", () => {
+    const maliciousJobId = 'evil\n2026-07-17T00:00:00.000Z [ERROR] forged entry';
+    appendRunLog(maliciousJobId, {
+      runId: "run-0",
+      timestamp: "2026-07-17T00:00:00.000Z",
+      status: "success",
+      trigger: "manual",
+      resultPreview: null,
+    });
+
+    const runsDir = path.join(tmpHome, "cron", "runs");
+    const files = fs.readdirSync(runsDir);
+    // Exactly one log file was created, and its name contains no newline.
+    expect(files).toHaveLength(1);
+    expect(files[0]).not.toContain("\n");
+    expect(files[0].endsWith(".jsonl")).toBe(true);
+  });
+
+  it("sanitizes a job id containing path separators so it cannot escape the run-log directory", () => {
+    appendRunLog("../../outside", {
+      runId: "run-0",
+      timestamp: "2026-07-17T00:00:00.000Z",
+      status: "success",
+      trigger: "manual",
+      resultPreview: null,
+    });
+
+    const runsDir = path.join(tmpHome, "cron", "runs");
+    const files = fs.readdirSync(runsDir);
+    expect(files).toHaveLength(1);
+    expect(fs.existsSync(path.join(tmpHome, "outside.jsonl"))).toBe(false);
   });
 });

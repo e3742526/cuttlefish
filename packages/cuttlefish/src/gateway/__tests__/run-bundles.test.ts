@@ -152,6 +152,46 @@ describe("run bundle export", () => {
     expect(logText).not.toContain("unrelated other session");
   });
 
+  it("redacts secrets from run.json, summary.md, and errors.json (not just the log excerpt)", async () => {
+    const ctx = makeCtx();
+    const session = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:bundle-secret-1",
+      prompt: "API_KEY=super-secret-prompt do the thing",
+    });
+    reg.updateSession(session.id, {
+      title: "API_KEY=super-secret-title",
+      engineSessionId: "engine-bundle-secret-1",
+      lastError: "auth failed: API_KEY=super-secret-error",
+    });
+    reg.insertMessage(session.id, "user", "here you go API_KEY=super-secret-message use it");
+    reg.insertMessage(session.id, "notification", "warning API_KEY=super-secret-notification detected");
+
+    const cap = makeRes();
+    await api.handleApiRequest(makeReq("POST", `/api/sessions/${session.id}/bundle`), cap.res, ctx);
+    expect(cap.status).toBe(201);
+
+    const bundlePath = cap.body.bundlePath as string;
+
+    const runJsonText = fs.readFileSync(path.join(bundlePath, "run.json"), "utf-8");
+    expect(runJsonText).not.toContain("super-secret-prompt");
+    expect(runJsonText).not.toContain("super-secret-title");
+    expect(runJsonText).not.toContain("super-secret-message");
+    expect(runJsonText).not.toContain("super-secret-notification");
+    // Must still be valid, well-formed JSON after redaction.
+    expect(() => JSON.parse(runJsonText)).not.toThrow();
+
+    const summaryText = fs.readFileSync(path.join(bundlePath, "summary.md"), "utf-8");
+    expect(summaryText).not.toContain("super-secret-title");
+    expect(summaryText).not.toContain("super-secret-prompt");
+
+    const errorsText = fs.readFileSync(path.join(bundlePath, "errors.json"), "utf-8");
+    expect(errorsText).not.toContain("super-secret-error");
+    expect(errorsText).not.toContain("super-secret-notification");
+    expect(() => JSON.parse(errorsText)).not.toThrow();
+  });
+
   it("refuses to export a still-running session", async () => {
     const session = reg.createSession({
       engine: "claude",

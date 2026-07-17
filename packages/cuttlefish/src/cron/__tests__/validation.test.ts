@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCronJob, patchCronJob } from "../validation.js";
+import { buildCronJob, patchCronJob, sanitizeCronLogId } from "../validation.js";
 import type { CronJob } from "../../shared/types.js";
 
 function baseJob(): CronJob {
@@ -42,5 +42,29 @@ describe("cron job validation", () => {
       prompt: "daily report",
       delivery: { connector: "slack", channel: "#ops" },
     });
+  });
+});
+
+describe("sanitizeCronLogId", () => {
+  it("strips embedded newlines and control characters so a job id cannot forge fake log entries", () => {
+    const malicious = 'job-1\n2026-07-17T00:00:00.000Z [ERROR] fake entry"}\n{"runId":"evil';
+    const sanitized = sanitizeCronLogId(malicious);
+    expect(sanitized).not.toContain("\n");
+    expect(sanitized).not.toContain("\r");
+  });
+
+  it("strips path separators and leading dot segments so a job id cannot escape the run-log directory", () => {
+    expect(sanitizeCronLogId("../../etc/passwd")).not.toContain("/");
+    expect(sanitizeCronLogId("../../etc/passwd")).not.toMatch(/^\.\./);
+    expect(sanitizeCronLogId("a/b\\c")).not.toMatch(/[/\\]/);
+  });
+
+  it("leaves ordinary job ids untouched", () => {
+    expect(sanitizeCronLogId("daily-digest_v2")).toBe("daily-digest_v2");
+  });
+
+  it("falls back to a placeholder for an id that sanitizes to empty", () => {
+    expect(sanitizeCronLogId("")).toBeTruthy();
+    expect(sanitizeCronLogId("..")).toBeTruthy();
   });
 });

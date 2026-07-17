@@ -181,6 +181,23 @@ function filterGatewayLog(session: Session): string[] {
     .map(redactText);
 }
 
+// Recursively redacts every string leaf in an arbitrary JSON-shaped value via
+// redactText, preserving structure. Used instead of stringify-then-redact so
+// JSON escaping in the final output is never at risk of being mangled by the
+// redaction regexes.
+function redactDeep<T>(value: T): T {
+  if (typeof value === "string") return redactText(value) as unknown as T;
+  if (Array.isArray(value)) return value.map((item) => redactDeep(item)) as unknown as T;
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = redactDeep(v);
+    }
+    return out as T;
+  }
+  return value;
+}
+
 function summarizeMessages(messages: SessionMessage[]): { count: number; firstAt: number | null; lastAt: number | null } {
   if (messages.length === 0) return { count: 0, firstAt: null, lastAt: null };
   return {
@@ -235,23 +252,26 @@ function buildSummaryMarkdown(input: {
   if (input.skippedArtifacts.length > 0) {
     lines.push("", "## Skipped Artifacts", "", ...input.skippedArtifacts.map((id) => `- ${id}`));
   }
-  return lines.join("\n");
+  // Redact the fully-assembled markdown (not field-by-field) so no interpolated
+  // session/attachment/checkpoint field can smuggle a secret into the exported
+  // bundle, mirroring how the gateway-log excerpt above is redacted per line.
+  return redactText(lines.join("\n"));
 }
 
 function buildErrorsJson(input: { session: Session; approvals: Approval[]; messages: SessionMessage[] }): string {
   const checkpointIssues = input.approvals.filter((approval) => approval.state === "rejected" || approval.state === "deferred");
   const notifications = input.messages
     .filter((message) => message.role === "notification")
-    .map((message) => ({ timestamp: message.timestamp, content: message.content }))
+    .map((message) => ({ timestamp: message.timestamp, content: redactText(message.content) }))
     .slice(-50);
   return JSON.stringify({
     sessionId: input.session.id,
     status: input.session.status,
-    lastError: input.session.lastError,
+    lastError: input.session.lastError !== null ? redactText(input.session.lastError) : null,
     checkpoints: checkpointIssues.map((approval) => ({
       id: approval.id,
       state: approval.state,
-      notes: approval.decisionNotes ?? null,
+      notes: approval.decisionNotes ? redactText(approval.decisionNotes) : null,
       resultingAction: approval.resultingAction ?? null,
     })),
     notifications,
@@ -269,6 +289,9 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
   const messages = getMessages(sessionId);
   const approvals = listApprovalRecords({ state: "all", sessionId });
   const attachments = enrichRunAttachmentsForSession(baseSession);
+  // NOTE: `producingRunId` here is the session id, not a run-ledger run_id —
+  // that is the established meaning of this filter field across the artifact
+  // registry (sessions/registry/files.ts), not a naming bug local to this file.
   const producedArtifacts = listArtifacts({ producingRunId: sessionId, limit: 1000 });
   const now = new Date().toISOString();
   const bundleId = `${safeSegment(sessionId)}-${Date.now().toString(36)}`;
@@ -279,6 +302,8 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
     locator: bundlePath,
     sizeBytes: null,
     mimeType: null,
+    // Same as above: PolicyArtifactDescriptor#producingRunId (policy/types.ts)
+    // is populated with the session id here, not a run-ledger run_id.
     producingRunId: sessionId,
   });
   if (!exportVerdict.allowed) {
@@ -294,10 +319,10 @@ export function exportRunBundle(sessionId: string, context: ApiContext): Exporte
 
   writeBundleFile(bundlePath, "run.json", JSON.stringify({
     exportedAt: now,
-    session,
-    messages,
-    approvals,
-    attachments,
+    session: redactDeep(session),
+    messages: redactDeep(messages),
+    approvals: redactDeep(approvals),
+    attachments: redactDeep(attachments),
   }, null, 2), manifestFiles);
 
   writeBundleFile(bundlePath, "summary.md", buildSummaryMarkdown({

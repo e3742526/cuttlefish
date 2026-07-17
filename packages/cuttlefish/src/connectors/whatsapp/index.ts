@@ -22,12 +22,13 @@ import { CUTTLEFISH_HOME } from "../../shared/paths.js";
 import { formatResponse } from "./format.js";
 import path from "node:path";
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import { safeWriteFile } from "../../shared/safe-write.js";
 
 export interface WhatsAppConnectorConfig {
   /** Where to store session credentials (default: CUTTLEFISH_HOME/.whatsapp-auth) */
   authDir?: string;
-  /** Allowed phone numbers in JID format (e.g. "447700900000@s.whatsapp.net") — empty = allow all */
+  /** Allowed phone numbers in JID format (e.g. "447700900000@s.whatsapp.net") — empty = allow only self-chat (fail-closed) */
   allowFrom?: string[];
   ignoreOldMessagesOnBoot?: boolean;
 }
@@ -98,7 +99,11 @@ export class WhatsAppConnector implements Connector {
     const delay = Math.min(5000 * Math.pow(2, this.reconnectAttempts), 60000);
     this.reconnectAttempts++;
     logger.info(`WhatsApp reconnecting in ${delay / 1000}s (attempt ${this.reconnectAttempts})`);
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => {
+      void this.connect().catch((err) => {
+        logger.error(`WhatsApp reconnect failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, delay);
   }
 
   private async connect(): Promise<void> {
@@ -336,10 +341,19 @@ export class WhatsAppConnector implements Connector {
         const ext = message.message?.imageMessage ? "jpg"
           : message.message?.audioMessage ? "ogg"
           : "bin";
-        // WhatsApp media uses the platform-generated message id, not a sender filename.
-        const filename = `wa-attachment-${message.key.id}.${ext}`;
+        // Use a random disk filename so the saved path never trusts the
+        // attacker-influenced message.key.id (IOP-CTF-001) — mirrors the
+        // Slack connector's downloadAttachment (connectors/slack/format.ts).
+        const filename = `wa-attachment-${randomUUID()}.${ext}`;
         const tmpDir = path.join(CUTTLEFISH_HOME, "tmp");
         const localPath = path.join(tmpDir, filename);
+        // Belt-and-suspenders: assert the resolved path is still contained
+        // within tmpDir before writing.
+        const resolvedTmpDir = path.resolve(tmpDir) + path.sep;
+        const resolvedLocalPath = path.resolve(localPath);
+        if (!resolvedLocalPath.startsWith(resolvedTmpDir)) {
+          throw new Error("WhatsApp attachment path escapes tmp directory");
+        }
         fs.mkdirSync(tmpDir, { recursive: true });
         safeWriteFile(localPath, buffer as Buffer, { fsync: false }); // atomic media write; durability unneeded
         const mimeType = ext === "jpg" ? "image/jpeg"

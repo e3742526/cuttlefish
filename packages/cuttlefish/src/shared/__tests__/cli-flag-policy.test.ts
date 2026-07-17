@@ -15,4 +15,25 @@ describe("cli-flag policy (audit A-F2/F-10)", () => {
     expect(stripDisallowedCliFlags(["--verbose", "--dangerously-skip-permissions", "--foo"]))
       .toEqual(["--verbose", "--foo"]);
   });
+
+  // ARC-CF-001: the Claude CLI headless-bypass flags let the CLI skip its
+  // interactive permission/sandbox prompts. These were previously only
+  // guarded in the unwired orchestration/adapter/real-adapter.ts path; the
+  // shared policy is what actually gates production config-load
+  // (gateway/org-validation.ts) and spawn (engines/claude-interactive-args.ts).
+  it("flags Claude headless-bypass flags (config-load-time check, as used by org-validation)", () => {
+    expect(findDisallowedCliFlag(["-p"])).toBe("-p");
+    expect(findDisallowedCliFlag(["--print"])).toBe("--print");
+    expect(findDisallowedCliFlag(["--json"])).toBe("--json");
+    expect(findDisallowedCliFlag(["--headless"])).toBe("--headless");
+    expect(findDisallowedCliFlag(["--output-format", "json"])).toBe("--output-format");
+    expect(findDisallowedCliFlag(["--Output-Format=json"])).toBe("--Output-Format=json");
+  });
+
+  it("strips Claude headless-bypass flags on the spawn path (as used by claude-interactive-args)", () => {
+    expect(stripDisallowedCliFlags(["--verbose", "-p", "--json", "--foo"]))
+      .toEqual(["--verbose", "--foo"]);
+    expect(stripDisallowedCliFlags(["--model", "opus", "--output-format=json"]))
+      .toEqual(["--model", "opus"]);
+  });
 });
