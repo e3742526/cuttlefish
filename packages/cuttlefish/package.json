@@ -18,14 +18,14 @@
     "assets/"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json && mkdir -p dist/src/talk && (cp src/talk/*.md src/talk/*.py dist/src/talk/ 2>/dev/null || true) && (rm -rf dist/web && cp -r ../web/out dist/web 2>/dev/null || true)",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && node scripts/build-postprocess.mjs",
     "dev": "tsc && (tsc --watch &) && node --watch-path=dist dist/bin/cuttlefish.js start",
     "lint": "eslint \"src/**/*.ts\" --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "test:watch": "vitest",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@cuttlefish/contracts": "0.1.0",
