@@ -379,6 +379,32 @@ describe("OrchestrationStore", () => {
   });
 });
 
+describe("OrchestrationStore.open — file permissions (SEC-CFDB-001)", () => {
+  it("creates the orchestration DB file with owner-only (0600) permissions", () => {
+    const store = OrchestrationStore.open(dbPath);
+    try {
+      const mode = fs.statSync(dbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      store.close();
+    }
+  });
+
+  it("tightens a pre-existing world-readable DB file back to 0600 on open", () => {
+    const first = OrchestrationStore.open(dbPath);
+    first.close();
+    fs.chmodSync(dbPath, 0o644); // simulate a pre-hardening world-readable install
+
+    const reopened = OrchestrationStore.open(dbPath);
+    try {
+      const mode = fs.statSync(dbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      reopened.close();
+    }
+  });
+});
+
 function exampleSnapshot(): SchedulerSnapshot {
   const lease = exampleLease();
   return {

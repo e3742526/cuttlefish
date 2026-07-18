@@ -210,6 +210,22 @@ export function openStoreDatabase(dbPath: string, opts: StoreOpenOptions = {}): 
   }
 }
 
+// SEC-CFDB-001: the orchestration DB (and its WAL/SHM sidecars) must not be
+// world/group readable. Applied on every open (not just first creation) so
+// an existing install with looser default-OS-perm files gets tightened up
+// over time without a migration. Sidecars are created lazily by SQLite once
+// WAL mode is enabled, so a missing file here is expected, not an error.
+function chmodDbFiles(dbPath: string): void {
+  if (process.platform === "win32") return;
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {
+      // best-effort; sidecar may not exist yet
+    }
+  }
+}
+
 function isSqliteCorruptionError(err: unknown): boolean {
   const code = typeof err === "object" && err && "code" in err ? String((err as { code?: unknown }).code) : "";
   if (code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB") return true;
@@ -238,6 +254,7 @@ function openDatabase(dbPath: string): { db: Database.Database; bootGeneration: 
     assertSchemaVersionNotNewer(db);
     setMeta(db, SCHEMA_VERSION_META_KEY, String(SCHEMA_VERSION));
     const bootGeneration = advanceBootGeneration(db);
+    if (dbPath !== ":memory:") chmodDbFiles(dbPath);
     return { db, bootGeneration };
   } catch (err) {
     db.close();

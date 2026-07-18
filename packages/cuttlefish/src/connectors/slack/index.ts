@@ -25,6 +25,10 @@ export class SlackConnector implements Connector {
   private readonly bootTimeMs = Date.now();
   private started = false;
   private lastError: string | null = null;
+  // TMP-CUT-017: true only while our own stop() is tearing the connection
+  // down, so the deliberate disconnect it triggers isn't reported as an
+  // error by the connection monitor below.
+  private stopping = false;
   private channelNameCache = new Map<string, { name: string; cachedAt: number }>();
   private botUserId: string | null = null;
   private static CHANNEL_CACHE_TTL_MS = 3600_000; // 1 hour
@@ -78,6 +82,43 @@ export class SlackConnector implements Connector {
     if (this.allowedUsers.size === 0) {
       logger.warn("[slack] No allowFrom configured — ignoring ALL inbound messages. Set connectors.slack.allowFrom to authorize users.");
     }
+    this.attachConnectionMonitor();
+  }
+
+  /**
+   * TMP-CUT-017: getHealth() previously only reflected the outcome of the
+   * initial start() call — a socket-mode connection that silently dropped
+   * afterward left the connector reporting "running" forever. Port the
+   * WhatsApp connector's disconnect-lifecycle pattern (listen on the
+   * underlying transport's own connection events and update the health
+   * flag as it actually changes) to Slack's socket-mode client.
+   *
+   * Bolt's `App` keeps the `@slack/socket-mode` client at `receiver.client`.
+   * That field is typed private on `App`, but is a plain instance property
+   * at runtime — the same kind of cast already used for `setTypingStatus`
+   * above (`this.app.client as any`).
+   */
+  private attachConnectionMonitor(): void {
+    const client = (this.app as unknown as {
+      receiver?: { client?: { on(event: string, listener: (...args: unknown[]) => void): unknown } };
+    }).receiver?.client;
+    if (!client) return;
+    client.on("connected", () => {
+      this.lastError = null;
+      logger.info("[slack] Socket Mode connection (re)established");
+    });
+    client.on("disconnected", (err: unknown) => {
+      // A deliberate stop() also drives the client through "disconnected";
+      // don't let that read back as an error.
+      if (this.stopping) return;
+      this.lastError = err instanceof Error ? err.message : "Slack Socket Mode connection disconnected";
+      logger.warn(`[slack] Socket Mode disconnected: ${this.lastError}`);
+    });
+    client.on("error", (err: unknown) => {
+      if (this.stopping) return;
+      this.lastError = err instanceof Error ? err.message : String(err);
+      logger.warn(`[slack] Socket Mode error: ${this.lastError}`);
+    });
   }
 
   private async resolveChannelName(channelId: string): Promise<string | undefined> {
@@ -441,8 +482,14 @@ export class SlackConnector implements Connector {
   }
 
   async stop() {
-    await this.app.stop();
+    this.stopping = true;
+    try {
+      await this.app.stop();
+    } finally {
+      this.stopping = false;
+    }
     this.started = false;
+    this.lastError = null;
     logger.info("Slack connector stopped");
   }
 

@@ -102,6 +102,22 @@ DELETE FROM run_artifact_xref
 CREATE UNIQUE INDEX IF NOT EXISTS idx_lineage_xref_unique ON run_artifact_xref (run_id, artifact_id, relation);
 `;
 
+// SEC-CFDB-001: the artifact-lineage DB (and its WAL/SHM sidecars) must not
+// be world/group readable. Applied on every open (not just first creation)
+// so an existing install with looser default-OS-perm files gets tightened
+// up over time without a migration. Sidecars are created lazily by SQLite
+// once WAL mode is enabled, so a missing file here is expected, not an error.
+function chmodDbFiles(dbPath: string): void {
+  if (process.platform === "win32") return;
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {
+      // best-effort; sidecar may not exist yet
+    }
+  }
+}
+
 export class ArtifactLineageStore {
   private constructor(private readonly db: Database.Database) {}
 
@@ -132,6 +148,7 @@ export class ArtifactLineageStore {
       db.exec(CREATE_SCHEMA);
       db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .run(String(SCHEMA_VERSION));
+      if (dbPath !== ":memory:") chmodDbFiles(dbPath);
       return new ArtifactLineageStore(db);
     } catch (err) {
       db.close();

@@ -38,6 +38,13 @@ export async function handleConnectorRoutes(
     const action = body.action as string;
     const target = body.target as Target | undefined;
     let messageId: string | undefined;
+    // ARC-CF-003: some connectors (e.g. Twilio SMS/WhatsApp) implement
+    // editMessage/addReaction/removeReaction as silent no-ops because the
+    // underlying transport has no concept of message edits or reactions.
+    // Gate on the connector's own reported capabilities instead of calling
+    // through and reporting a blanket "ok" regardless of whether anything
+    // actually happened.
+    const capabilities = connector.getCapabilities();
 
     switch (action) {
       case "sendMessage":
@@ -59,6 +66,10 @@ export async function handleConnectorRoutes(
           badRequest(res, "target and text are required");
           return true;
         }
+        if (!capabilities.messageEdits) {
+          json(res, { status: "unsupported", reason: `${connector.name} connector does not support editing messages` });
+          return true;
+        }
         await connector.editMessage(target, redactText(String(body.text)));
         break;
       case "addReaction":
@@ -66,11 +77,19 @@ export async function handleConnectorRoutes(
           badRequest(res, "target and emoji are required");
           return true;
         }
+        if (!capabilities.reactions) {
+          json(res, { status: "unsupported", reason: `${connector.name} connector does not support reactions` });
+          return true;
+        }
         await connector.addReaction(target, body.emoji);
         break;
       case "removeReaction":
         if (!target || !body.emoji) {
           badRequest(res, "target and emoji are required");
+          return true;
+        }
+        if (!capabilities.reactions) {
+          json(res, { status: "unsupported", reason: `${connector.name} connector does not support reactions` });
           return true;
         }
         await connector.removeReaction(target, body.emoji);

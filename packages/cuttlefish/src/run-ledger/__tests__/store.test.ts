@@ -362,3 +362,41 @@ describe("RunLedgerStore.open — corruption quarantine (FSR-CF-001)", () => {
     }
   });
 });
+
+describe("RunLedgerStore.open — file permissions (SEC-CFDB-001)", () => {
+  let permDir: string;
+  let permDbPath: string;
+
+  beforeEach(() => {
+    permDir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-run-ledger-perm-"));
+    permDbPath = path.join(permDir, "run-ledger.db");
+  });
+
+  afterEach(() => {
+    fs.rmSync(permDir, { recursive: true, force: true });
+  });
+
+  it("creates the run-ledger DB file with owner-only (0600) permissions", () => {
+    const permStore = RunLedgerStore.open(permDbPath);
+    try {
+      const mode = fs.statSync(permDbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      permStore.close();
+    }
+  });
+
+  it("tightens a pre-existing world-readable DB file back to 0600 on open", () => {
+    const first = RunLedgerStore.open(permDbPath);
+    first.close();
+    fs.chmodSync(permDbPath, 0o644); // simulate a pre-hardening world-readable install
+
+    const reopened = RunLedgerStore.open(permDbPath);
+    try {
+      const mode = fs.statSync(permDbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      reopened.close();
+    }
+  });
+});

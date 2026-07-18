@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { chmodSync, mkdirSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { SESSIONS_DB } from '../../shared/paths.js';
 import { logger } from '../../shared/logger.js';
@@ -58,6 +58,23 @@ export function rowToSession(row: Record<string, unknown>): Session {
   };
 }
 
+// SEC-CFDB-001: the sessions DB (and its WAL/SHM sidecars) must not be
+// world/group readable — it holds message content, transcripts, and other
+// session data. Applied on every open (not just first creation) so an
+// existing install with looser default-OS-perm files gets tightened up over
+// time without a migration. Sidecars are created lazily by SQLite once WAL
+// mode is enabled, so a missing file here is expected, not an error.
+function chmodDbFiles(dbPath: string): void {
+  if (process.platform === 'win32') return;
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      chmodSync(file, 0o600);
+    } catch {
+      // best-effort; sidecar may not exist yet
+    }
+  }
+}
+
 function applyConnectionPragmas(database: Database.Database): void {
   database.pragma('journal_mode = WAL');
   database.pragma('synchronous = NORMAL');
@@ -107,5 +124,6 @@ export function initDb(): Database.Database {
   // queue_items is created by installPostMigrationSchema above; the FK-rebuild
   // migration for it must run after that (DAT-SESS-001).
   migrateQueueItemsSchema(db);
+  chmodDbFiles(SESSIONS_DB);
   return db;
 }

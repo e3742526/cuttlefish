@@ -116,6 +116,22 @@ CREATE INDEX IF NOT EXISTS idx_run_ledger_parent_child_parent ON parent_child_ru
 CREATE INDEX IF NOT EXISTS idx_run_ledger_parent_child_child ON parent_child_run_links (child_run_id, created_at, parent_run_id);
 `;
 
+// SEC-CFDB-001: the run-ledger DB (and its WAL/SHM sidecars) must not be
+// world/group readable. Applied on every open (not just first creation) so
+// an existing install with looser default-OS-perm files gets tightened up
+// over time without a migration. Sidecars are created lazily by SQLite once
+// WAL mode is enabled, so a missing file here is expected, not an error.
+function chmodDbFiles(dbPath: string): void {
+  if (process.platform === "win32") return;
+  for (const file of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      fs.chmodSync(file, 0o600);
+    } catch {
+      // best-effort; sidecar may not exist yet
+    }
+  }
+}
+
 export interface CreateRunInput {
   runId?: string;
   sessionId?: string | null;
@@ -316,6 +332,7 @@ export class RunLedgerStore {
     db.exec(CREATE_SCHEMA);
     db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
       .run(String(SCHEMA_VERSION));
+    if (dbPath !== ":memory:") chmodDbFiles(dbPath);
     return new RunLedgerStore(db);
   }
 

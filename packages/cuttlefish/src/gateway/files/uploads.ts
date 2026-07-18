@@ -8,6 +8,7 @@ import type { ApiContext } from "../api/context.js";
 import { safeFetch, SsrfError } from "../../shared/ssrf-guard.js";
 import { logger } from "../../shared/logger.js";
 import { insertFile, type ArtifactKind, type FileMeta } from "../../sessions/registry.js";
+import { principalBodySessionForbidden, type GatewayPrincipal } from "../auth.js";
 import { badRequest, FileRequestError, json, serverError } from "./responses.js";
 import {
   FILES_DIR,
@@ -31,6 +32,20 @@ const MAX_JSON_UPLOAD_BODY_SIZE = MAX_UPLOAD_SIZE * 2;
 
 function uploadTooLargeMessage(): string {
   return `File exceeds ${MAX_UPLOAD_SIZE_MB} MB limit`;
+}
+
+/**
+ * AR-04: an upload's target session lives in the request body (`sessionId`),
+ * which the transport-layer scoped-token gate (URL-only) cannot see. Without
+ * this a session-scoped agent token could stash an upload under another
+ * session by naming its id in the body. Mirrors the guard used by
+ * `handleTalkApi`'s `rejectCrossSessionBody` (talk/routes.ts).
+ */
+function rejectCrossSessionUpload(req: HttpRequest, res: ServerResponse, bodySessionId: unknown): boolean {
+  const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+  if (!principalBodySessionForbidden(principal, bodySessionId)) return false;
+  json(res, { error: "Forbidden: session-scoped token cannot target another session" }, 403);
+  return true;
 }
 
 function estimateBase64DecodedBytes(content: string): number {
@@ -201,6 +216,10 @@ export async function handleMultipartUpload(req: HttpRequest, res: ServerRespons
         resolve();
         return;
       }
+      if (rejectCrossSessionUpload(req, res, sessionId)) {
+        resolve();
+        return;
+      }
       try {
         const meta = await saveFile({
           id: crypto.randomUUID(),
@@ -257,6 +276,7 @@ export async function handleJsonUpload(req: HttpRequest, res: ServerResponse, co
   if (!filename) return badRequest(res, "filename is required");
   if (content && url) return badRequest(res, "content and url are mutually exclusive");
   if (!content && !url) return badRequest(res, "content or url is required");
+  if (rejectCrossSessionUpload(req, res, body.sessionId)) return;
 
   let buffer: Buffer;
 

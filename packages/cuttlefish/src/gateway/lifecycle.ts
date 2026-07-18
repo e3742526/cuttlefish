@@ -67,8 +67,27 @@ function pidIsAlive(pid: number): boolean {
   }
 }
 
+/**
+ * SEC-CFDB-001: CUTTLEFISH_HOME holds the sessions/run-ledger/orchestration/
+ * artifact-lineage SQLite DBs, config, and other sensitive runtime state, so
+ * it must be owner-only. `mode` on mkdirSync only applies to a directory this
+ * call creates; an existing install (pre-dating this hardening) keeps
+ * whatever perms it had, so chmod it explicitly too, defensively, on every
+ * daemon start.
+ */
+export function ensureSecureCuttlefishHome(home: string = CUTTLEFISH_HOME): void {
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") {
+    try {
+      fs.chmodSync(home, 0o700);
+    } catch {
+      // best-effort; e.g. permission denied on a shared/read-only mount
+    }
+  }
+}
+
 function acquireDaemonLock(): () => void {
-  fs.mkdirSync(CUTTLEFISH_HOME, { recursive: true });
+  ensureSecureCuttlefishHome();
   const writeLock = (pid: number) => {
     const fd = fs.openSync(DAEMON_LOCK_FILE, "wx");
     fs.writeFileSync(fd, `${pid}\n`, "utf8");

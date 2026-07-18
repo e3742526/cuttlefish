@@ -338,3 +338,41 @@ describe("ArtifactLineageStore", () => {
     });
   });
 });
+
+describe("ArtifactLineageStore.open — file permissions (SEC-CFDB-001)", () => {
+  let permDir: string;
+  let permDbPath: string;
+
+  beforeEach(() => {
+    permDir = fs.mkdtempSync(path.join(os.tmpdir(), "cuttlefish-lineage-perm-"));
+    permDbPath = path.join(permDir, "artifact-lineage.db");
+  });
+
+  afterEach(() => {
+    fs.rmSync(permDir, { recursive: true, force: true });
+  });
+
+  it("creates the artifact-lineage DB file with owner-only (0600) permissions", () => {
+    const permStore = ArtifactLineageStore.open(permDbPath);
+    try {
+      const mode = fs.statSync(permDbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      permStore.close();
+    }
+  });
+
+  it("tightens a pre-existing world-readable DB file back to 0600 on open", () => {
+    const first = ArtifactLineageStore.open(permDbPath);
+    first.close();
+    fs.chmodSync(permDbPath, 0o644); // simulate a pre-hardening world-readable install
+
+    const reopened = ArtifactLineageStore.open(permDbPath);
+    try {
+      const mode = fs.statSync(permDbPath).mode & 0o777;
+      expect(mode).toBe(0o600);
+    } finally {
+      reopened.close();
+    }
+  });
+});

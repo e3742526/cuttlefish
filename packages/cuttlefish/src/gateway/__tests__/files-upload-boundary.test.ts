@@ -118,3 +118,53 @@ describe("POST /api/files JSON upload boundaries", () => {
     expect(JSON.parse(out.body!)).toEqual({ error: "File exceeds 50 MB limit" });
   });
 });
+
+describe("POST /api/files session confinement (AR-04)", () => {
+  it("rejects a scoped session token whose JSON upload body names another session", async () => {
+    const { res, out } = fakeRes();
+    const req = fakeReq(
+      [JSON.stringify({ filename: "note.txt", content: "aGVsbG8=", sessionId: "session-elsewhere" })],
+      "application/json",
+    );
+    (req as unknown as { cuttlefishPrincipal?: unknown }).cuttlefishPrincipal = {
+      kind: "session",
+      sessionId: "session-mine",
+    };
+
+    await files.handleFilesRequest(req, res, "/api/files", "POST", ctx);
+
+    expect(out.status).toBe(403);
+    expect(JSON.parse(out.body!)).toEqual({
+      error: "Forbidden: session-scoped token cannot target another session",
+    });
+  });
+
+  it("allows a scoped session token to upload into its own session", async () => {
+    const { res, out } = fakeRes();
+    const req = fakeReq(
+      [JSON.stringify({ filename: "note.txt", content: "aGVsbG8=", sessionId: "session-mine" })],
+      "application/json",
+    );
+    (req as unknown as { cuttlefishPrincipal?: unknown }).cuttlefishPrincipal = {
+      kind: "session",
+      sessionId: "session-mine",
+    };
+
+    await files.handleFilesRequest(req, res, "/api/files", "POST", ctx);
+
+    expect(out.status).toBe(201);
+  });
+
+  it("does not confine an admin/internal principal to a single session on upload", async () => {
+    const { res, out } = fakeRes();
+    const req = fakeReq(
+      [JSON.stringify({ filename: "note.txt", content: "aGVsbG8=", sessionId: "session-elsewhere" })],
+      "application/json",
+    );
+    (req as unknown as { cuttlefishPrincipal?: unknown }).cuttlefishPrincipal = { kind: "admin" };
+
+    await files.handleFilesRequest(req, res, "/api/files", "POST", ctx);
+
+    expect(out.status).toBe(201);
+  });
+});
