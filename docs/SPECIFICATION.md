@@ -18,7 +18,7 @@ operator dashboards.
 - `operator`: human running `cuttlefish setup`, `cuttlefish start`, and the dashboard.
 - `engine CLI`: external tool such as Claude Code, Codex, Grok, Antigravity, Pi, Hermes, or Kiro.
 - `employee`: configured org persona that selects an engine/model/role.
-- `connector user`: user interacting through Slack, Discord, Telegram, WhatsApp, or similar connectors.
+- `connector user`: user interacting through Slack, Twilio SMS, WhatsApp, or similar connectors. Discord and Telegram connectors were removed (`DEC-20260628-006`); they are no longer part of the connector surface.
 - `manager/executive`: org role authorized for orchestration/hold operations.
 
 ## Core Entities
@@ -122,3 +122,4 @@ operator dashboards.
 - 2026-06-26: Added generic human checkpoint requirement and API surface.
 - 2026-06-26: Added exportable run-bundle requirement and session API surface.
 - 2026-06-26: Added provider-neutral external knowledge outbox, sink/read seam, and knowledge API surface.
+- 2026-07-18: Corrected the `connector user` actor description to match the current `packages/cuttlefish/src/connectors/` set (Slack, Twilio SMS, WhatsApp); removed stale Discord/Telegram references per `DEC-20260628-006`.

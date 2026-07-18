@@ -34,15 +34,17 @@
   - `/command` for the command-center overview.
   - `/talk` for multi-agent talk sessions.
   - `/kanban` for department ticket boards and dispatch controls.
+  - `/approvals` for the unified pending-approvals and human-checkpoint queue.
+  - `/archive` for archived session browsing.
+  - `/activity` for runtime log/activity inspection; `/logs` redirects to `/activity`.
   - `/orchestration` for matrix orchestration operations.
   - `/cron` for scheduled job management.
-  - `/logs` for runtime log inspection.
   - `/limits` for usage/rate-limit visibility.
   - `/org` for organization and employee configuration.
   - `/settings` for gateway, engine, connector, and feature configuration.
   - `/skills` for local skill browsing/management.
   - `/file` for file viewing.
-- `/redesign` is development-only and is not part of the public operator surface.
+- There is no `/redesign` route registered in `main.tsx`.
 
 ### Talk hook structure
 

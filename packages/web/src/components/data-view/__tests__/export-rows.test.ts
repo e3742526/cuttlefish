@@ -74,4 +74,32 @@ describe("exportRowsAsCsv / exportRowsAsJson", () => {
     const text = await createdBlobs[0].text()
     expect(text.split("\n")).toHaveLength(2) // header + 1 row
   })
+
+  it("neutralizes a leading = to prevent formula injection", async () => {
+    exportRowsAsCsv([{ name: "Mallory", note: "=SUM(A1:A10)", count: 1 }], COLUMNS, "test-export")
+    const text = await createdBlobs[0].text()
+    expect(text.split("\n")[1]).toBe("Mallory,'=SUM(A1:A10),1")
+  })
+
+  it.each(["+", "-", "@"])("neutralizes a leading %s to prevent formula injection", async (prefix) => {
+    exportRowsAsCsv([{ name: "Mallory", note: `${prefix}cmd|'/c calc'!A1`, count: 1 }], COLUMNS, "test-export")
+    const text = await createdBlobs[0].text()
+    expect(text.split("\n")[1]).toBe(`Mallory,'${prefix}cmd|'/c calc'!A1,1`)
+  })
+
+  it("leaves normal text and numeric cells unaffected", async () => {
+    exportRowsAsCsv([{ name: "hello", note: "plain", count: 42 }], COLUMNS, "test-export")
+    const text = await createdBlobs[0].text()
+    expect(text.split("\n")[1]).toBe("hello,plain,42")
+  })
+
+  it("applies formula-injection neutralization together with comma/quote escaping", async () => {
+    exportRowsAsCsv(
+      [{ name: "Mallory", note: '=HYPERLINK("http://evil","x"), oops', count: 1 }],
+      COLUMNS,
+      "test-export",
+    )
+    const text = await createdBlobs[0].text()
+    expect(text.split("\n")[1]).toBe('Mallory,"\'=HYPERLINK(""http://evil"",""x""), oops",1')
+  })
 })

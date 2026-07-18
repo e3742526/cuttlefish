@@ -6,8 +6,13 @@ export interface ExportColumn<T> {
 
 function escapeCsvCell(value: unknown): string {
   const str = value === null || value === undefined ? "" : String(value)
-  if (/[",\r\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
-  return str
+  // Neutralize CSV/Excel formula injection: a leading =, +, -, or @ can be
+  // interpreted as a formula (or, on older Excel, a DDE command) when the
+  // file is opened in a spreadsheet app. Prefixing with a single quote marks
+  // the cell as text without changing its visible content (OWASP mitigation).
+  const safe = /^[=+\-@]/.test(str.trimStart()) ? `'${str}` : str
+  if (/[",\r\n]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`
+  return safe
 }
 
 function download(filename: string, content: string, mimeType: string) {

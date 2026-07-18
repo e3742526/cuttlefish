@@ -72,6 +72,83 @@ export function parseScheduleSlots(
 }
 
 /**
+ * The browser's IANA timezone name (e.g. "America/Los_Angeles"), used as the
+ * display zone when a cron job has no explicit `timezone` configured.
+ * Falls back to "UTC" if the runtime can't resolve one.
+ */
+export function getBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  } catch {
+    return 'UTC'
+  }
+}
+
+/**
+ * Offset (in minutes) such that `wallClockInZone = utcInstant + offset`, for
+ * the given zone at the given instant. Computed via Intl rather than a
+ * lookup table so it stays correct across DST transitions without a new
+ * dependency.
+ */
+function getTimezoneOffsetMinutes(date: Date, timeZone: string): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  const parts = dtf.formatToParts(date)
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value)
+  const asUTC = Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'))
+  return (asUTC - date.getTime()) / 60000
+}
+
+/**
+ * Convert an { hour, minute, days } schedule slot (as parsed from a cron
+ * job's schedule string, interpreted in `jobTimezone`) into the equivalent
+ * wall-clock slot in the browser's local timezone, so the weekly grid shows
+ * when a job actually fires from the viewer's perspective (audit TMP-CUT-004).
+ *
+ * If `jobTimezone` is unset, or matches the browser zone, or can't be
+ * resolved, the slot is returned unchanged — the existing "treat as
+ * browser-local" behavior for jobs with no explicit timezone.
+ */
+export function convertSlotToLocalTime(
+  slot: { hour: number; minute: number; days: number[] },
+  jobTimezone: string | undefined,
+  referenceDate: Date = new Date()
+): { hour: number; minute: number; days: number[] } {
+  if (!jobTimezone) return slot
+
+  const localZone = getBrowserTimezone()
+  if (localZone === jobTimezone) return slot
+
+  try {
+    const jobOffset = getTimezoneOffsetMinutes(referenceDate, jobTimezone)
+    const localOffset = getTimezoneOffsetMinutes(referenceDate, localZone)
+    const deltaMinutes = localOffset - jobOffset
+
+    let totalMinutes = slot.hour * 60 + slot.minute + deltaMinutes
+    const dayShift = Math.floor(totalMinutes / 1440)
+    totalMinutes = ((totalMinutes % 1440) + 1440) % 1440
+
+    const hour = Math.floor(totalMinutes / 60)
+    const minute = totalMinutes % 60
+    const days = slot.days.map((d) => ((d + dayShift) % 7 + 7) % 7)
+
+    return { hour, minute, days }
+  } catch {
+    // Unresolvable/invalid timezone (e.g. bad IANA name) — fall back to the
+    // pre-existing behavior rather than showing a broken grid.
+    return slot
+  }
+}
+
+/**
  * Convert a 5-field cron expression to a human-readable description.
  * Falls back to the raw expression for anything unparseable.
  */

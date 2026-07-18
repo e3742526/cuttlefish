@@ -1,6 +1,6 @@
 
 import { useMemo, useState, useRef, useEffect, useCallback } from "react"
-import { parseScheduleSlots, describeCron } from "@/lib/cron-utils"
+import { parseScheduleSlots, describeCron, convertSlotToLocalTime, getBrowserTimezone } from "@/lib/cron-utils"
 
 interface CronJob {
   id: string
@@ -8,6 +8,7 @@ interface CronJob {
   schedule: string
   enabled: boolean
   employee?: string
+  timezone?: string
   [key: string]: unknown
 }
 
@@ -82,6 +83,7 @@ function PillTooltip({ slot, rect, containerRect }: { slot: SlotInfo; rect: DOMR
       {/* Raw cron */}
       <div className="font-[family-name:var(--font-mono)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)] mb-[var(--space-2)]">
         {slot.cron.schedule}
+        {slot.cron.timezone && <span className="ml-1">({slot.cron.timezone})</span>}
       </div>
       {/* Status */}
       <div className="flex items-center gap-[var(--space-2)] text-[length:var(--text-caption1)]">
@@ -141,14 +143,19 @@ export function WeeklySchedule({ crons }: WeeklyScheduleProps) {
       const parsed = parseScheduleSlots(cron.schedule)
       if (!parsed) continue
 
-      for (const dow of parsed.days) {
+      // The job's schedule fires in `cron.timezone` (if set); convert to the
+      // browser's local zone so the grid position reflects when it actually
+      // fires from the viewer's perspective (audit TMP-CUT-004).
+      const { hour, minute, days } = convertSlotToLocalTime(parsed, cron.timezone)
+
+      for (const dow of days) {
         const col = DOW_TO_COL[dow]
         if (col === undefined) continue
-        const key = `${col}-${parsed.hour}`
+        const key = `${col}-${hour}`
         const existing = map.get(key) || []
-        existing.push({ cron, hour: parsed.hour, minute: parsed.minute, col })
+        existing.push({ cron, hour, minute, col })
         map.set(key, existing)
-        hourSet.add(parsed.hour)
+        hourSet.add(hour)
       }
     }
 
@@ -227,7 +234,13 @@ export function WeeklySchedule({ crons }: WeeklyScheduleProps) {
       className="relative"
       onClick={() => setTooltip(null)}
     >
-      <div className="grid grid-cols-[56px_repeat(7,1fr)] bg-[var(--material-regular)] rounded-[var(--radius-md)] border border-[var(--separator)] overflow-hidden">
+      <div className="mb-[var(--space-2)] text-[length:var(--text-caption2)] text-[var(--text-tertiary)]">
+        Times shown in your local time zone ({getBrowserTimezone()}); jobs with a configured time zone are converted, others assume local time.
+      </div>
+      <div
+        data-testid="weekly-schedule-grid"
+        className="grid grid-cols-[56px_repeat(7,1fr)] bg-[var(--material-regular)] rounded-[var(--radius-md)] border border-[var(--separator)] overflow-hidden"
+      >
         {/* Header row */}
         <div className="p-[var(--space-3)_var(--space-2)] border-b border-[var(--separator)] bg-[var(--material-thick)]" />
         {DAY_LABELS.map((label, i) => {

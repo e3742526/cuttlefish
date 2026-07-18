@@ -21,6 +21,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm validate:rdc-r03
 
   unit-tests:
     runs-on: ubuntu-latest
