@@ -5,19 +5,20 @@ import { ORG_DIR } from "../../../shared/paths.js";
 import { logger } from "../../../shared/logger.js";
 import { createSession, getSession, insertMessage, listSessions } from "../../../sessions/registry.js";
 import { readJsonBody } from "../../http-helpers.js";
-import { authorizeManagerScope, isManagerNameAuthorizedForPrincipal } from "../../manager-auth.js";
+import { authorizeManagerScope, disallowedManagerScopedFields, isHrHumanOnlyBlocked, isManagerNameAuthorizedForPrincipal, MANAGER_MUTABLE_EMPLOYEE_FIELDS } from "../../manager-auth.js";
 import type { GatewayPrincipal } from "../../auth.js";
-import { archiveEmployeeBoardTickets, BoardConflictError, defaultBoardState, readBoardArray, readBoardState, writeMergedBoardPartial } from "../../board-service.js";
+import { archiveEmployeeBoardTickets, BoardConflictError, defaultBoardState, readBoardArray, readBoardState, validateBoardAssigneesForDepartment, writeMergedBoardPartial } from "../../board-service.js";
 import { resolveBestSessionForTicket, resolveTicketSessionFallbackState, resolveTicketSessionFailureReason, resolveTicketSessionStalled, shouldExposeSessionForTicket } from "../../ticket-session-resolver.js";
 import { dispatchTicket } from "../../ticket-dispatch.js";
 import { RESERVED_ORG_DIRS, isActiveEmployee, scanOrg } from "../../org.js";
 import { HR_EMPLOYEE_NAME } from "../../org-policy.js";
+import { parseChangeInput } from "../../org-validation.js";
 import { resolveUserHeader } from "../../connector-reply.js";
 import type { ApiContext } from "../context.js";
 import { matchRoute } from "../match-route.js";
 import { badRequest, json, notFound, serverError } from "../responses.js";
 import { loadSessionMessagesForApi } from "../session-query-routes.js";
-import { EXECUTION_TIERS, ORG_CHANGE_TYPES, type Employee, type EmployeeExecutionConfig, type OrgChangeType, type OrgWarning } from "../../../shared/types.js";
+import { EXECUTION_TIERS, type Employee, type EmployeeExecutionConfig, type OrgWarning } from "../../../shared/types.js";
 
 const TICKET_SESSION_TAIL_LIMIT = 8;
 
@@ -146,54 +147,6 @@ function buildCrossRequestBrief(input: {
   ].join("\n");
 }
 
-function chainToRoot(name: string, hierarchy: import("../../../shared/types.js").OrgHierarchy): string[] {
-  const out: string[] = [];
-  let current: string | null | undefined = name;
-  const seen = new Set<string>();
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    out.push(current);
-    current = hierarchy.nodes[current]?.parentName ?? null;
-  }
-  return out;
-}
-
-function resolveCrossRequestRoute(
-  fromEmployee: string,
-  providerEmployee: string,
-  hierarchy: import("../../../shared/types.js").OrgHierarchy,
-): { route: string[]; managers: string[] } {
-  const fromChain = chainToRoot(fromEmployee, hierarchy);
-  const providerChain = chainToRoot(providerEmployee, hierarchy);
-  const providerSet = new Set(providerChain);
-  const common = fromChain.find((name) => providerSet.has(name));
-  if (!common) {
-    return { route: [fromEmployee, providerEmployee], managers: [] };
-  }
-  const up = fromChain.slice(0, fromChain.indexOf(common) + 1);
-  const down = providerChain.slice(0, providerChain.indexOf(common)).reverse();
-  const route = [...up, ...down];
-  const managers = route.filter((name) => {
-    if (name === fromEmployee || name === providerEmployee) return false;
-    const rank = hierarchy.nodes[name]?.employee.rank;
-    return rank === "manager" || rank === "executive";
-  });
-  return { route, managers };
-}
-
-const VALID_CHANGE_TYPES = new Set<OrgChangeType>(ORG_CHANGE_TYPES);
-const MANAGER_MUTABLE_EMPLOYEE_FIELDS = new Set([
-  "engine",
-  "model",
-  "effortLevel",
-  "fallbackEngine",
-  "fallbackModel",
-] as const);
-
-type ParsedChangeInput =
-  | { ok: true; value: { changeType: OrgChangeType; employeeName: string; proposed: Record<string, unknown> } }
-  | { ok: false; error: string };
-
 async function reconcileDepartmentBoardView(department: string, context: ApiContext): Promise<void> {
   const { reconcileDepartmentOrphanedTickets } = await import("../../orphaned-ticket-reconciler.js");
   reconcileDepartmentOrphanedTickets(department, {
@@ -204,86 +157,6 @@ async function reconcileDepartmentBoardView(department: string, context: ApiCont
     emit: context.emit,
     cause: "periodic",
   });
-}
-
-/** Validate the shared {changeType, employeeName, proposed} shape used by the
- *  /api/org/validate and /api/org/change-requests routes. */
-function parseChangeInput(body: unknown): ParsedChangeInput {
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return { ok: false, error: "body must be a JSON object" };
-  }
-  const b = body as Record<string, unknown>;
-  if (typeof b.changeType !== "string" || !VALID_CHANGE_TYPES.has(b.changeType as OrgChangeType)) {
-    return { ok: false, error: `invalid changeType (valid: ${[...VALID_CHANGE_TYPES].join(", ")})` };
-  }
-  const employeeName = typeof b.employeeName === "string" ? b.employeeName.trim() : "";
-  if (!employeeName) return { ok: false, error: "employeeName must be a non-empty string" };
-  if (!b.proposed || typeof b.proposed !== "object" || Array.isArray(b.proposed)) {
-    return { ok: false, error: "proposed must be a JSON object" };
-  }
-  return {
-    ok: true,
-    value: { changeType: b.changeType as OrgChangeType, employeeName, proposed: b.proposed as Record<string, unknown> },
-  };
-}
-
-function hasChangedBoardTicket(
-  incoming: Record<string, unknown>,
-  current: import("../../board-service.js").BoardTicket | undefined,
-): boolean {
-  if (!current) return true;
-  if (incoming.baseUpdatedAt != null) return true;
-  return (
-    incoming.title !== current.title ||
-    (incoming.description ?? "") !== current.description ||
-    incoming.status !== current.status ||
-    (incoming.priority ?? "medium") !== current.priority ||
-    (incoming.complexity ?? "medium") !== current.complexity ||
-    (incoming.assignee ?? "") !== current.assignee ||
-    (incoming.resourcePath ?? "") !== (current.resourcePath ?? "") ||
-    (incoming.resourceUrl ?? "") !== (current.resourceUrl ?? "") ||
-    (incoming.manualOnly === true) !== (current.manualOnly === true) ||
-    (incoming.source ?? "") !== (current.source ?? "") ||
-    (incoming.sessionId ?? "") !== (current.sessionId ?? "") ||
-    incoming.createdAt !== current.createdAt ||
-    incoming.updatedAt !== current.updatedAt
-  );
-}
-
-function validateBoardAssigneesForDepartment(
-  department: string,
-  payload: unknown,
-  currentTickets: import("../../board-service.js").BoardTicket[],
-): string | null {
-  const tickets = Array.isArray(payload)
-    ? payload
-    : payload && typeof payload === "object" && !Array.isArray(payload) && Array.isArray((payload as { tickets?: unknown }).tickets)
-      ? (payload as { tickets: unknown[] }).tickets
-      : null;
-  if (!tickets) return null;
-
-  const org = scanOrg();
-  const currentById = new Map(currentTickets.map((ticket) => [ticket.id, ticket]));
-  for (const [index, ticket] of tickets.entries()) {
-    if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) continue;
-    const incoming = ticket as Record<string, unknown>;
-    const assignee = incoming.assignee;
-    if (typeof assignee !== "string" || !assignee.trim()) continue;
-    const id = typeof incoming.id === "string" ? incoming.id : `#${index}`;
-    // Board saves carry the whole department. A stale card bundled without a
-    // base version was not changed by the caller, so it must not prevent a
-    // separate ticket from being deleted. New or changed tickets are still
-    // checked against the current employee roster below.
-    if (!hasChangedBoardTicket(incoming, currentById.get(id))) continue;
-    const employee = org.get(assignee);
-    if (!employee) {
-      return `ticket "${id}" is assigned to "${assignee}", who is not a known employee`;
-    }
-    if (employee.department !== department) {
-      return `ticket "${id}" is assigned to "${assignee}", who belongs to department "${employee.department}", not "${department}"`;
-    }
-  }
-  return null;
 }
 
 export async function handleOrgRoutes(
@@ -399,7 +272,7 @@ export async function handleOrgRoutes(
       }, 422);
       return true;
     }
-    if (provider.employee.name === HR_EMPLOYEE_NAME) {
+    if (isHrHumanOnlyBlocked(provider.employee.name, { isDirectTopLevelHumanRequest: false })) {
       json(res, {
         error: "HR / Org Steward accepts direct top-level requests from a human operator only",
         code: "hr_human_only",
@@ -412,7 +285,7 @@ export async function handleOrgRoutes(
       return true;
     }
 
-    const { resolveOrgHierarchy, withPortalExecutive } = await import("../../org-hierarchy.js");
+    const { resolveOrgHierarchy, resolveCrossRequestRoute, withPortalExecutive } = await import("../../org-hierarchy.js");
     const hierarchy = resolveOrgHierarchy(withPortalExecutive(registry, context.getConfig().portal?.portalName));
     const routed = resolveCrossRequestRoute(requester.name, provider.employee.name, hierarchy);
     const brief = buildCrossRequestBrief({ requester, service: provider.service, prompt });
@@ -543,9 +416,7 @@ export async function handleOrgRoutes(
         json(res, { error: auth.error }, 403);
         return true;
       }
-      const disallowedFields = Object.keys(body).filter(
-        (key) => key !== "managerName" && !MANAGER_MUTABLE_EMPLOYEE_FIELDS.has(key as "engine" | "model" | "effortLevel" | "fallbackEngine" | "fallbackModel"),
-      );
+      const disallowedFields = disallowedManagerScopedFields(body);
       if (disallowedFields.length > 0) {
         json(
           res,

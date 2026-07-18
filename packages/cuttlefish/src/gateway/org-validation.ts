@@ -7,6 +7,7 @@ import {
   REVIEWER_LOSS_POLICIES,
   REVIEWER_TOOL_PROFILES,
   MAX_ROLE_FALLBACK_CHAIN,
+  ORG_CHANGE_TYPES,
 } from "../shared/types.js";
 import type {
   Employee,
@@ -15,6 +16,7 @@ import type {
   SecurityReviewTrigger,
   EmployeeExecutionConfig,
   CuttlefishConfig,
+  OrgChangeType,
 } from "../shared/types.js";
 import { logger } from "../shared/logger.js";
 import { getModelRegistry, effortLevelsForModel } from "../shared/models.js";
@@ -108,6 +110,33 @@ export interface EmployeeUpdateResult {
   ok: boolean;
   updates?: EmployeeUpdate;
   error?: string;
+}
+
+const VALID_CHANGE_TYPES = new Set<OrgChangeType>(ORG_CHANGE_TYPES);
+
+export type ParsedChangeInput =
+  | { ok: true; value: { changeType: OrgChangeType; employeeName: string; proposed: Record<string, unknown> } }
+  | { ok: false; error: string };
+
+/** Validate the shared {changeType, employeeName, proposed} shape used by the
+ *  /api/org/validate and /api/org/change-requests routes. */
+export function parseChangeInput(body: unknown): ParsedChangeInput {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { ok: false, error: "body must be a JSON object" };
+  }
+  const b = body as Record<string, unknown>;
+  if (typeof b.changeType !== "string" || !VALID_CHANGE_TYPES.has(b.changeType as OrgChangeType)) {
+    return { ok: false, error: `invalid changeType (valid: ${[...VALID_CHANGE_TYPES].join(", ")})` };
+  }
+  const employeeName = typeof b.employeeName === "string" ? b.employeeName.trim() : "";
+  if (!employeeName) return { ok: false, error: "employeeName must be a non-empty string" };
+  if (!b.proposed || typeof b.proposed !== "object" || Array.isArray(b.proposed)) {
+    return { ok: false, error: "proposed must be a JSON object" };
+  }
+  return {
+    ok: true,
+    value: { changeType: b.changeType as OrgChangeType, employeeName, proposed: b.proposed as Record<string, unknown> },
+  };
 }
 
 export interface EmployeeCreateResult {

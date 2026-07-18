@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { safeWriteFile } from "../shared/safe-write.js";
 import { KeyedMutex } from "../shared/async-lock.js";
+import { scanOrg } from "./org.js";
 
 export type BoardTicketStatus = "backlog" | "todo" | "in_progress" | "review" | "done" | "blocked";
 export type BoardTicketPriority = "low" | "medium" | "high";
@@ -290,6 +291,76 @@ function assertFreshBoardTicket(current: BoardTicket | undefined, baseUpdatedAt:
     `board conflict: ticket "${current.id}" changed since this board was loaded; refresh before ${action}`,
     [current.id],
   );
+}
+
+/** Whether an incoming board-save payload for `id` represents a real change
+ *  against the currently-stored ticket. A bundled-but-unmodified card (no
+ *  `baseUpdatedAt` and every field matching) must not be treated as a change —
+ *  see `validateBoardAssigneesForDepartment`, whose stale-card guard depends
+ *  on this returning false for untouched cards. */
+export function hasChangedBoardTicket(
+  incoming: Record<string, unknown>,
+  current: BoardTicket | undefined,
+): boolean {
+  if (!current) return true;
+  if (incoming.baseUpdatedAt != null) return true;
+  return (
+    incoming.title !== current.title ||
+    (incoming.description ?? "") !== current.description ||
+    incoming.status !== current.status ||
+    (incoming.priority ?? "medium") !== current.priority ||
+    (incoming.complexity ?? "medium") !== current.complexity ||
+    (incoming.assignee ?? "") !== current.assignee ||
+    (incoming.resourcePath ?? "") !== (current.resourcePath ?? "") ||
+    (incoming.resourceUrl ?? "") !== (current.resourceUrl ?? "") ||
+    (incoming.manualOnly === true) !== (current.manualOnly === true) ||
+    (incoming.source ?? "") !== (current.source ?? "") ||
+    (incoming.sessionId ?? "") !== (current.sessionId ?? "") ||
+    incoming.createdAt !== current.createdAt ||
+    incoming.updatedAt !== current.updatedAt
+  );
+}
+
+/** Validate that every changed/new ticket in a department board-save payload
+ *  is assigned to a known employee who belongs to that department. Unchanged
+ *  (stale-bundled) tickets are skipped so a save touching one card doesn't
+ *  fail because an unrelated card's assignee has since left the roster.
+ *  Returns an error message, or null when the payload is valid (or not a
+ *  ticket-array/`{tickets}` shape, which other validation handles). */
+export function validateBoardAssigneesForDepartment(
+  department: string,
+  payload: unknown,
+  currentTickets: BoardTicket[],
+): string | null {
+  const tickets = Array.isArray(payload)
+    ? payload
+    : payload && typeof payload === "object" && !Array.isArray(payload) && Array.isArray((payload as { tickets?: unknown }).tickets)
+      ? (payload as { tickets: unknown[] }).tickets
+      : null;
+  if (!tickets) return null;
+
+  const org = scanOrg();
+  const currentById = new Map(currentTickets.map((ticket) => [ticket.id, ticket]));
+  for (const [index, ticket] of tickets.entries()) {
+    if (!ticket || typeof ticket !== "object" || Array.isArray(ticket)) continue;
+    const incoming = ticket as Record<string, unknown>;
+    const assignee = incoming.assignee;
+    if (typeof assignee !== "string" || !assignee.trim()) continue;
+    const id = typeof incoming.id === "string" ? incoming.id : `#${index}`;
+    // Board saves carry the whole department. A stale card bundled without a
+    // base version was not changed by the caller, so it must not prevent a
+    // separate ticket from being deleted. New or changed tickets are still
+    // checked against the current employee roster below.
+    if (!hasChangedBoardTicket(incoming, currentById.get(id))) continue;
+    const employee = org.get(assignee);
+    if (!employee) {
+      return `ticket "${id}" is assigned to "${assignee}", who is not a known employee`;
+    }
+    if (employee.department !== department) {
+      return `ticket "${id}" is assigned to "${assignee}", who belongs to department "${employee.department}", not "${department}"`;
+    }
+  }
+  return null;
 }
 
 function isActiveSessionTicket(ticket: BoardTicket, activeSessionIds?: ReadonlySet<string>): boolean {

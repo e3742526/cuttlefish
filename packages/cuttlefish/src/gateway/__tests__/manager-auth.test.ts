@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Employee } from "../../shared/types.js";
-import { authorizeManagerScope, isManagerNameAuthorizedForPrincipal } from "../manager-auth.js";
+import { authorizeManagerScope, isHrHumanOnlyBlocked, isManagerNameAuthorizedForPrincipal } from "../manager-auth.js";
+import { HR_EMPLOYEE_NAME } from "../org-policy.js";
 
 function employee(overrides: Partial<Employee>): Employee {
   return {
@@ -85,5 +86,49 @@ describe("isManagerNameAuthorizedForPrincipal (Ledger-0007 Finding 4 partial mit
     expect(
       isManagerNameAuthorizedForPrincipal("manager-a", { kind: "session", sessionId: "s1" }, { getSession }),
     ).toBe(false);
+  });
+});
+
+// ARCN-CTF-002: org.ts's cross-request router and session-write.ts's session
+// creation route each independently re-implemented "is this an HR-human-only
+// violation" — a correctness risk since the two copies could silently drift.
+// Both now delegate to this single shared predicate; these cases cover the
+// two call sites' distinct request shapes plus the target-employee gate.
+describe("isHrHumanOnlyBlocked", () => {
+  it("never blocks a non-HR target, regardless of request shape", () => {
+    expect(isHrHumanOnlyBlocked("worker", { isDirectTopLevelHumanRequest: false })).toBe(false);
+    expect(isHrHumanOnlyBlocked("worker", { isDirectTopLevelHumanRequest: true })).toBe(false);
+  });
+
+  it("blocks HR when the request is not a direct top-level human request", () => {
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: false })).toBe(true);
+  });
+
+  it("allows HR only for a direct top-level human request", () => {
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: true })).toBe(false);
+  });
+
+  it("treats an absent/null employee name as never HR", () => {
+    expect(isHrHumanOnlyBlocked(null, { isDirectTopLevelHumanRequest: false })).toBe(false);
+    expect(isHrHumanOnlyBlocked(undefined, { isDirectTopLevelHumanRequest: false })).toBe(false);
+  });
+
+  it("matches org.ts's cross-request semantics: always unconditionally blocked (never a direct human request)", () => {
+    // org.ts's cross-request route always passes isDirectTopLevelHumanRequest:
+    // false, since a cross-request is by construction routed from another
+    // employee, never a human operator's direct top-level call.
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: false })).toBe(true);
+  });
+
+  it("matches session-write.ts's semantics: blocked only for a parented or session-principal request", () => {
+    const isDirectTopLevelHumanRequest = (isParentedRequest: boolean, principalKind: "admin" | "session" | undefined) =>
+      !isParentedRequest && principalKind !== "session";
+
+    // Direct human request (no parent, no session principal): allowed.
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: isDirectTopLevelHumanRequest(false, undefined) })).toBe(false);
+    // Parented (child session) request: blocked.
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: isDirectTopLevelHumanRequest(true, undefined) })).toBe(true);
+    // Session-scoped (agent) principal: blocked even with no parent.
+    expect(isHrHumanOnlyBlocked(HR_EMPLOYEE_NAME, { isDirectTopLevelHumanRequest: isDirectTopLevelHumanRequest(false, "session") })).toBe(true);
   });
 });

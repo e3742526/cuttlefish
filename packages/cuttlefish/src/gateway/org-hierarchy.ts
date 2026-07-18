@@ -233,3 +233,45 @@ export function resolveOrgHierarchy(
 
   return { root: rootName, nodes, sorted, warnings };
 }
+
+/** Walk a resolved hierarchy from `name` up to its root via `parentName`
+ *  links, returning the chain in name-to-root order (self first). Cycle-safe
+ *  via a `seen` guard, though `resolveOrgHierarchy` already detaches cycles. */
+export function chainToRoot(name: string, hierarchy: OrgHierarchy): string[] {
+  const out: string[] = [];
+  let current: string | null | undefined = name;
+  const seen = new Set<string>();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    out.push(current);
+    current = hierarchy.nodes[current]?.parentName ?? null;
+  }
+  return out;
+}
+
+/** Resolve the escalation route between two employees through their nearest
+ *  common manager: the chain from `fromEmployee` up to the common ancestor,
+ *  then back down to `providerEmployee`, plus the manager/executive names on
+ *  that route (excluding the two endpoints). */
+export function resolveCrossRequestRoute(
+  fromEmployee: string,
+  providerEmployee: string,
+  hierarchy: OrgHierarchy,
+): { route: string[]; managers: string[] } {
+  const fromChain = chainToRoot(fromEmployee, hierarchy);
+  const providerChain = chainToRoot(providerEmployee, hierarchy);
+  const providerSet = new Set(providerChain);
+  const common = fromChain.find((name) => providerSet.has(name));
+  if (!common) {
+    return { route: [fromEmployee, providerEmployee], managers: [] };
+  }
+  const up = fromChain.slice(0, fromChain.indexOf(common) + 1);
+  const down = providerChain.slice(0, providerChain.indexOf(common)).reverse();
+  const route = [...up, ...down];
+  const managers = route.filter((name) => {
+    if (name === fromEmployee || name === providerEmployee) return false;
+    const rank = hierarchy.nodes[name]?.employee.rank;
+    return rank === "manager" || rank === "executive";
+  });
+  return { route, managers };
+}

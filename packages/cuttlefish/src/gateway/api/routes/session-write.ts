@@ -52,6 +52,7 @@ import {
 } from "../session-dispatch.js";
 import { HR_EMPLOYEE_NAME, HR_SESSION_KEY } from "../../org-policy.js";
 import { findHrSessionProfileConflict, getReusableHrSession } from "../../hr-session.js";
+import { isHrHumanOnlyBlocked } from "../../manager-auth.js";
 import type { GatewayPrincipal } from "../../auth.js";
 import { acknowledgeLeaderAck } from "../../../sessions/leader-ack.js";
 import { claimManagerDelegationSynthesis, markManagerDelegationSynthesisDispatched } from "../../../sessions/manager-delegation.js";
@@ -534,7 +535,7 @@ export async function handleSessionWriteRoutes(
     // that managers, agents, or orchestration flows can delegate to; otherwise
     // singleton reuse can cross-contaminate a human HR thread and lose a child
     // callback. Human operators retain direct, top-level HR access.
-    if (employeeName === HR_EMPLOYEE_NAME && (isParentedRequest || principal?.kind === "session")) {
+    if (isHrHumanOnlyBlocked(employeeName, { isDirectTopLevelHumanRequest: !isParentedRequest && principal?.kind !== "session" })) {
       json(res, {
         error: "HR / Org Steward accepts direct top-level requests from a human operator only",
         code: "hr_human_only",
@@ -886,7 +887,7 @@ export async function handleSessionWriteRoutes(
     if (method === "POST") {
       const parsed = await readJsonBody(req, res);
       if (!parsed.ok) return true;
-      const body = parsed.body as Record<string, unknown>;
+      const body = parsed.body as any;
       let attached;
       try {
         attached = await attachResourcesToSession(session, body, context);
