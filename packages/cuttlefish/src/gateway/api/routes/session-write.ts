@@ -1,5 +1,6 @@
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
-import { validateCwd, validateNewSessionSelection, validateSessionPatch } from "../../../sessions/session-patch.js";
+import { resolveModelAlias, validateCwd, validateNewSessionSelection, validateSessionPatch } from "../../../sessions/session-patch.js";
+import { getModelRegistry } from "../../../shared/models.js";
 import {
   cancelAllPendingQueueItems,
   cancelQueueItemForSession,
@@ -132,6 +133,23 @@ function describeSessionResources(session: import("../../../shared/types.js").Se
 
 function singletonEmployeeSessionKey(employeeName: string | null | undefined): string | null {
   return employeeName === HR_EMPLOYEE_NAME ? HR_SESSION_KEY : null;
+}
+
+/**
+ * A singleton session's stored `model` can predate today's alias resolution
+ * (e.g. an old row still holds the literal "sonnet" from before the registry
+ * grew a distinct "claude-sonnet-5" entry). Canonicalize it through the same
+ * `resolveModelAlias` a fresh request goes through so the conflict check below
+ * compares like-for-like instead of flagging the same model as a "switch".
+ */
+function canonicalizeExistingHrProfile(
+  session: Pick<import("../../../shared/types.js").Session, "engine" | "model" | "effortLevel" | "cwd">,
+  config: import("../../../shared/types.js").CuttlefishConfig,
+): Pick<import("../../../shared/types.js").Session, "engine" | "model" | "effortLevel" | "cwd"> {
+  if (!session.model) return session;
+  const knownModelIds = new Set((getModelRegistry(config)[session.engine]?.models ?? []).map((m) => m.id));
+  const canonicalModel = resolveModelAlias(session.engine, session.model, knownModelIds);
+  return canonicalModel === session.model ? session : { ...session, model: canonicalModel };
 }
 
 export async function handleSessionWriteRoutes(
@@ -583,7 +601,7 @@ export async function handleSessionWriteRoutes(
         }
       : undefined;
     const hrProfileConflict = existingSingletonSession && requestedHrProfile
-      ? findHrSessionProfileConflict(existingSingletonSession, requestedHrProfile)
+      ? findHrSessionProfileConflict(canonicalizeExistingHrProfile(existingSingletonSession, config), requestedHrProfile)
       : null;
     if (hrProfileConflict && existingSingletonSession) {
       json(res, {

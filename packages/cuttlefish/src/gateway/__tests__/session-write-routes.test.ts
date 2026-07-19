@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
+import { HR_SESSION_KEY } from "../org-policy.js";
 import type { ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import fs from "node:fs";
@@ -269,6 +270,68 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
     expect(cap.body).toMatchObject({ code: "hr_singleton_profile_conflict", sessionId: existing.id, field: "engine" });
     expect(reg.getMessages(existing.id).map((message) => message.content)).toEqual(["existing HR work"]);
     expect(hoisted.dispatchEmployeeSessionRun).not.toHaveBeenCalled();
+  });
+
+  it("does not flag a legacy alias model as a conflict with its canonical registry id", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    ctx.getConfig = () => ({
+      gateway: {},
+      engines: {
+        default: "claude",
+        claude: { bin: "node", model: "opus" },
+      },
+      models: {
+        claude: {
+          default: "opus",
+          models: [
+            { id: "opus", label: "Opus 4.8" },
+            { id: "claude-sonnet-5", label: "Sonnet 5" },
+          ],
+        },
+      },
+      portal: {},
+    }) as any;
+    ctx.sessionManager.getEngine = () => ({ name: "claude" }) as any;
+
+    // Simulate a pre-existing singleton whose `model` column still holds the
+    // literal alias from before "claude-sonnet-5" was a distinct registry id.
+    const existing = reg.createSession({
+      engine: "claude",
+      source: "web",
+      sourceRef: "web:legacy-hr",
+      sessionKey: HR_SESSION_KEY,
+      employee: "hr-manager",
+      model: "sonnet",
+      prompt: "existing HR work",
+    });
+    reg.insertMessage(existing.id, "user", "existing HR work");
+
+    const sameModel = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", {
+        employee: "hr-manager",
+        model: "claude-sonnet-5",
+        prompt: "continue the thread",
+      }),
+      sameModel.res,
+      ctx,
+    );
+    expect(sameModel.status).toBe(201);
+    expect(sameModel.body.id).toBe(existing.id);
+
+    const differentModel = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", "/api/sessions", {
+        employee: "hr-manager",
+        model: "opus",
+        prompt: "switch models",
+      }),
+      differentModel.res,
+      ctx,
+    );
+    expect(differentModel.status).toBe(409);
+    expect(differentModel.body).toMatchObject({ code: "hr_singleton_profile_conflict", field: "model" });
   });
 
   it("reserves HR for direct human top-level sessions", async () => {
