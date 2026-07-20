@@ -127,7 +127,7 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | [`12-failover-and-fallback.md`](12-failover-and-fallback.md) | same-engine fallback, multi-role failover chains, reviewer loss policies, orchestration headroom | When a rung fails, does configured fallback fire visibly and stay scoped? |
 | [`13-inter-agent-communication.md`](13-inter-agent-communication.md) | manager fan-out, `/talk`, cross-department services, mid-pair review, HR exclusion | Do agents communicate, attribute, and bound depth without cross-wiring? |
 | [`14-authorization-and-approvals.md`](14-authorization-and-approvals.md) | operator-only org-change approval, checkpoint vocabulary, pairing auth modes, scoped tokens | Who can approve, pair, and act — and what must fail closed? |
-| [`15-stress-and-adversarial.md`](15-stress-and-adversarial.md) | concurrency caps, stampedes, restart-under-load, path policy, export, budgets | Does the gateway stay coherent when the operator is impatient or the environment is hostile? |
+| [`15-stress-and-adversarial.md`](15-stress-and-adversarial.md) | concurrency caps, stampedes, restart-under-load, path policy, export, budgets, hard-kill recovery, history bloat, clock jump, unicode org storm (SX-01–SX-32) | Does the gateway stay coherent when the operator is impatient or the environment is hostile? |
 
 ### Suggested pass shapes
 

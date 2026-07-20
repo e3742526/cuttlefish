@@ -224,3 +224,115 @@ duplicate clicks, and hostile scheduling — not vulnerability research.
   2. If a small volume is available, fill it until writes fail; attempt a session message and a cron write.
 - Expected: errors name the path or disk condition; no truncated YAML left as the only copy of an employee; recovering space + restart restores operations.
 - Stop if the host system is at risk; mark partial execution honestly.
+
+---
+
+## Extended stress (SX-23–SX-32)
+
+Additional load and recovery cards beyond the base stress set. Same safety
+rails: disposable home, cheap engines when possible, no exploits.
+
+### SX-23 — Hard kill of the gateway (`SIGKILL`) mid-work
+- Goal: an unclean process death recovers to the same honest world as a graceful restart — or worse only in documented ways.
+- Category: recovery / interruption
+- Preconditions: ≥2 running sessions, ≥1 pending approval, a cron job due within a few minutes; shell access to the gateway PID.
+- Steps:
+  1. Note PIDs and in-flight entity ids.
+  2. `kill -9` the gateway process (not child engines alone).
+  3. Start the gateway again (`pnpm cuttlefish start` or service path).
+  4. Inventory sessions, approvals, tickets, cron next-run times.
+- Expected: start succeeds without manual home surgery; interrupted work is marked interrupted/failed (not still "running"); pending approvals remain decidable; no duplicate session ids; second start after a clean stop still works.
+- Observe: difference vs graceful `stop`/`restart` (SX-09) — extra corruption here is High/Critical.
+
+### SX-24 — Hundred-turn conversation bloat
+- Goal: a single session with a very long history remains usable and exportable.
+- Category: boundary / persistence
+- Preconditions: cheap/local engine; ability to script ~100 short user/assistant turns (API loop preferred to avoid finger fatigue).
+- Steps:
+  1. Grow one session to ~100 turns with unique markers every 10 turns ("MARKER-n").
+  2. Open it in the dashboard; scroll to top and bottom; send one more follow-up that references MARKER-1 and MARKER-50.
+  3. Export a run bundle; restart; reopen.
+- Expected: UI does not freeze indefinitely; history is complete or intentionally windowed with a clear cue; follow-up either uses history correctly or states limits honestly; export finishes without OOM; restart preserves the session.
+- Variations: open the same fat session in two tabs while sending turn 101.
+
+### SX-25 — Settings save thrash during active runs
+- Goal: rapid settings writes do not tear config or kill in-flight engines.
+- Category: concurrency / settings
+- Preconditions: disposable home; several long-running sessions; `/settings` access.
+- Steps:
+  1. Start 3 long sessions.
+  2. In `/settings`, flip harmless values (log level, a feature toggle you will revert, a non-port field) and save ~15 times as fast as the UI allows; interleave one invalid save (bad port) that must reject.
+  3. Confirm sessions still stream or fail honestly; open `config.yaml` for torn writes; restart once.
+- Expected: valid saves are atomic; invalid saves never leave a boot-breaking config; active sessions are not all cancelled unless a setting *requires* restart and the UI said so; post-restart config matches last good save.
+
+### SX-26 — Skills install/update while agents are using skills
+- Goal: skill tree mutations under load do not wedge the skills CLI or live sessions.
+- Category: concurrency / files
+- Preconditions: gateway running; at least one installed skill; a session whose prompt can invoke a skill; network if `skills add/update` needs it — otherwise update from a local package path.
+- Steps:
+  1. Start a session that depends on an installed skill.
+  2. Concurrently run `cuttlefish skills update` (or add a second skill) from the CLI.
+  3. List skills in UI and CLI; send a follow-up in the session.
+- Expected: no corrupted skill manifest; CLI exits cleanly; session either keeps using the prior skill snapshot or reloads deliberately — not a half-extracted package; failed update is reversible with another update.
+
+### SX-27 — Archive / delete parent while children still run
+- Goal: destroying a parent session mid-delegation does not orphan children invisibly or crash the gateway.
+- Category: delete-undo / concurrency
+- Preconditions: manager fan-out in progress with ≥1 live child (see IA-01 / ORG-06 style setup).
+- Steps:
+  1. While children are running, archive the parent from the session list (and in a second trial, delete if the UI allows on non-terminal sessions).
+  2. Watch children, `/activity`, and any ticket links.
+  3. Restart; attempt to open parent from archive if archived.
+- Expected: children are cancelled, completed-and-filed, or explicitly re-parented — and the UI says which; no forever-running orphans after restart; delete/archive of parent does not delete unrelated sessions.
+
+### SX-28 — Dual-lane / worktree orchestration under dirty base
+- Goal: orchestration apply/worktree guards hold when the base repo is dirty and workers race.
+- Category: recovery / concurrency
+- Preconditions: orchestration enabled; a matrix or dual-lane style run that uses git worktrees; a disposable git repo as cwd with an intentional uncommitted edit in the base.
+- Steps:
+  1. Dirty the base worktree (harmless file edit, uncommitted).
+  2. Launch the smallest live orchestration that would apply or merge worker output.
+  3. Observe refuse/apply behavior; attempt a second overlapping run.
+- Expected: dirty-base apply is refused with a named reason (per dual-lane guards); no silent clobber of the operator's uncommitted work; overlapping runs do not corrupt worktrees; cleanup leaves no abandoned worktree pile beyond documented retention.
+
+### SX-29 — Activity and limits pages under huge history
+- Goal: operator flight-recorder surfaces stay responsive after a heavy stress pass.
+- Category: navigation / boundary
+- Preconditions: residual state from prior SX cards (dozens of sessions, failures, crons) or artificially generated activity.
+- Steps:
+  1. Open `/activity`; scroll/paginate to the oldest visible entries; filter/search if offered.
+  2. Open `/limits`; switch any day/week/month windows; hard-refresh both routes.
+  3. From `/command`, follow count links into kanban/org/cron and back.
+- Expected: pages render within a few seconds on a normal dev machine; no browser tab crash; filters do not show other users' data (single-tenant home); empty providers still show empty states; navigation loops do not leak listeners (repeated visit stays stable).
+
+### SX-30 — Board auto-dispatch vs. manual Run-now race
+- Goal: manual-only and auto-dispatch paths cannot double-start the same ticket.
+- Category: concurrency
+- Preconditions: department board with background board-worker enabled for non-manual tickets; one ticket *without* `manualOnly`; one *with* `manualOnly: true`.
+- Steps:
+  1. On the auto ticket, spam "Run now" while the board worker might also pick it up.
+  2. On the manual-only ticket, wait through a worker cycle (no auto start), then Run now once and double-click Run now.
+- Expected: at most one session per ticket execution; manual-only never auto-starts; double Run now does not create twin sessions; ticket status matches the single linked session after refresh.
+
+### SX-31 — Clock jump around cron and hold TTLs
+- Goal: time warps do not schedule storms or permanent holds.
+- Category: recovery / boundary
+- Preconditions: disposable machine or VM where adjusting system clock is acceptable; a cron job; an orchestration hold with TTL if orchestration is on. Do not run on a host sharing critical timed jobs.
+- Steps:
+  1. Set a cron for ~5 minutes ahead; create a short TTL hold if available.
+  2. Jump system clock forward 1 hour; observe cron fires and hold expiry.
+  3. Jump clock backward 1 hour; observe next-fire and any duplicate runs.
+  4. Restore correct time; restart gateway; confirm schedules re-normalize.
+- Expected: at most a bounded catch-up (not thousands of catch-up runs); holds expire or remain consistent with TTL math; after restoring time, new schedules are sensible; failures are logged rather than wedging the scheduler.
+- If clock changes are not allowed: Not executed — environment unavailable.
+
+### SX-32 — Unicode and path-hostile identity storm in the org
+- Goal: painful but legal names and paths do not break routing or storage.
+- Category: boundary / files
+- Preconditions: ability to create employees/departments/tickets with awkward strings in a disposable home.
+- Steps:
+  1. Create employees and departments using: combining characters, ZWJ emoji sequences, RTL names, names with `/\\:` , very long display names, and near-duplicate NFC/NFD spellings if the OS allows.
+  2. Start sessions as two of them; assign kanban tickets; trigger one cross-request if services can be declared.
+  3. Restart; reopen `/org` and each entity.
+- Expected: either accept-and-round-trip or reject at create with a clear message — never create two files that collapse to one on disk; sessions route to the intended employee; dashboard does not blank; YAML on disk remains parseable.
+- Avoid OS-illegal path characters if the platform rejects them; record platform-specific rejections as Pass when intentional.
