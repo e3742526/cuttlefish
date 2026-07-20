@@ -17,6 +17,13 @@
 | `docs/UPSTREAM_DIFF_BASELINE.md` | upstream diff report | current | git diff against configured upstream baseline | created 2026-06-25 | Refresh after upstream syncs or public release cuts. |
 | `docs/LOG_ARCHIVE.md` | log archive index | current | repo local-log convention | reconciled 2026-07-20 | Index local raw paths and Cuttlefish audit artifacts. |
 | `docs/feature_inventory.md` | feature/API inventory | current | documentation rules | reconciled 2026-07-20 | Keep current with public surfaces. |
+| `docs/test_scenarios/README.md` | playtest scenario library index | current | playtest / QA stewardship | extended 2026-07-20 | Keep file table and coverage checklist aligned with scenario cards. |
+| `docs/test_scenarios/01-*.md` … `10-*.md` | core surface scenario cards | current | playtest / QA stewardship | baseline library | Do not silently rewrite executed cards mid-pass; add new files for new themes. |
+| `docs/test_scenarios/11-model-selection-and-switching.md` | model selection scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise composer/session model honesty, aliases, HR singleton rules. |
+| `docs/test_scenarios/12-failover-and-fallback.md` | failover scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise same-engine fallback, role chains, loss policies, orchestration headroom. |
+| `docs/test_scenarios/13-inter-agent-communication.md` | inter-agent scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise delegation, talk, cross-dept services, mid-pair, HR exclusion. |
+| `docs/test_scenarios/14-authorization-and-approvals.md` | authz/approvals scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise operator-only resolution, pairing auth modes, scoped tokens, checkpoint vocabulary. |
+| `docs/test_scenarios/15-stress-and-adversarial.md` | stress scenario cards | current | playtest / QA stewardship | added 2026-07-20 | Concurrency caps, stampedes, restart-under-load, path/export/budget seams. |
 | `docs/script-surface-map.md` | script safety map | current | documentation rules | reconciled 2026-07-20 | Update when scripts/CLI commands change. |
 | `docs/known-diagnostics.md` | accepted diagnostics | current | audit rules | inspected 2026-06-25 | Keep scoped to accepted non-actionable diagnostics. |
 | `docs/engines-hermes.md` | engine-specific manual | current | source/tests | inspected 2026-06-25 | Update when Hermes contract changes. |

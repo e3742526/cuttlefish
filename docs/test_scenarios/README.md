@@ -39,7 +39,9 @@ What remains — and what these scenarios cover — is the **lived operator
 experience**: first-run setup, daemon lifecycle, session persistence across
 restarts, delegation chains, cron firing, engine unavailability, interrupted
 workflows, settings persistence, connector round-trips, approval gates,
-error-message clarity, and cross-screen state consistency.
+model selection and switching, configured failover, inter-agent communication,
+authorization boundaries, load/stress seams, error-message clarity, and
+cross-screen state consistency.
 
 ## Safety rails (binding for every pass)
 
@@ -121,6 +123,29 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | [`08-approvals-orchestration.md`](08-approvals-orchestration.md) | `/approvals`, human checkpoints, `/orchestration`, recovery | Do gates hold, resume, and recover as the operator expects? |
 | [`09-settings-files-navigation.md`](09-settings-files-navigation.md) | `/settings`, `/file`, uploads, `/limits`, `/activity`, `/archive`, cross-screen consistency | Do settings persist, files stay within policy, and screens agree with each other? |
 | [`10-cli-surface.md`](10-cli-surface.md) | `cuttlefish` CLI beyond lifecycle: `pair`/`unpair`, `list`, JSON output, bad args | Is the CLI robust to real terminal usage and misuse? |
+| [`11-model-selection-and-switching.md`](11-model-selection-and-switching.md) | composer/session model+effort, aliases, employee defaults, HR singleton profile rules | Does model selection stay honest across sessions, restarts, and HR constraints? |
+| [`12-failover-and-fallback.md`](12-failover-and-fallback.md) | same-engine fallback, multi-role failover chains, reviewer loss policies, orchestration headroom | When a rung fails, does configured fallback fire visibly and stay scoped? |
+| [`13-inter-agent-communication.md`](13-inter-agent-communication.md) | manager fan-out, `/talk`, cross-department services, mid-pair review, HR exclusion | Do agents communicate, attribute, and bound depth without cross-wiring? |
+| [`14-authorization-and-approvals.md`](14-authorization-and-approvals.md) | operator-only org-change approval, checkpoint vocabulary, pairing auth modes, scoped tokens | Who can approve, pair, and act — and what must fail closed? |
+| [`15-stress-and-adversarial.md`](15-stress-and-adversarial.md) | concurrency caps, stampedes, restart-under-load, path policy, export, budgets | Does the gateway stay coherent when the operator is impatient or the environment is hostile? |
+
+### Suggested pass shapes
+
+| Pass | Files | Intent |
+|---|---|---|
+| Smoke / first day | 01 → 02 → 10 | Gateway up, one chat works, CLI is sane |
+| Core product | 01 → 05, 08 → 09 | Org, tickets, cron, gates, settings |
+| Model & resilience | 11, 12 | Selection honesty and failover under real engine pain |
+| Multi-agent | 03, 13 | Delegation, talk, cross-dept, mid-pair |
+| Authz | 08, 14 | Gates plus who is allowed to resolve them |
+| Stress | 15 (after a green smoke) | Load, races, restart-under-load, environmental seams |
+| Full library | 01 → 15 numeric order | Release or major-regression playtest |
+
+Files 11–15 deliberately deepen themes that appear lightly in 01–10 (for
+example `CH-03` model switch, `CH-08` rate limits, `ORG-06` delegation,
+`AP-01` gates, `ST-07` pairing). Prefer the deeper file when the pass is
+about that theme; do not edit older cards to remove overlap — record
+results once and cross-reference.
 
 ## Required coverage checklist
 
@@ -139,3 +164,8 @@ scenario (or an explicit not-applicable/blocked note):
 - [ ] File upload / viewing, run-bundle export
 - [ ] Error recovery (engine unavailable, rate limit, crash)
 - [ ] Edge or boundary input
+- [ ] Model / engine selection and mid-session switching
+- [ ] Configured failover or fallback path
+- [ ] Inter-agent communication (delegation, talk, or cross-request)
+- [ ] Authorization boundary (operator vs scoped agent / pairing)
+- [ ] Concurrency or load stress (multi-session, cap, or stampede)
