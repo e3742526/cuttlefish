@@ -30,17 +30,39 @@ export interface SkillManifestEntry {
   installedAt: string;
 }
 
+interface StoredSkillManifest {
+  installed?: Record<string, Partial<Omit<SkillManifestEntry, "name">>>;
+}
+
 export function readManifest(): SkillManifestEntry[] {
   if (!fs.existsSync(SKILLS_JSON)) return [];
   try {
-    return JSON.parse(fs.readFileSync(SKILLS_JSON, "utf-8"));
+    const parsed: unknown = JSON.parse(fs.readFileSync(SKILLS_JSON, "utf-8"));
+    if (Array.isArray(parsed)) return parsed.filter(isSkillManifestEntry);
+    if (parsed && typeof parsed === "object" && "installed" in parsed) {
+      const installed = (parsed as StoredSkillManifest).installed;
+      if (!installed || typeof installed !== "object" || Array.isArray(installed)) return [];
+      return Object.entries(installed)
+        .filter(([, value]) => value && typeof value.source === "string" && typeof value.installedAt === "string")
+        .map(([name, value]) => ({ name, source: value.source!, installedAt: value.installedAt! }));
+    }
+    return [];
   } catch {
     return [];
   }
 }
 
 export function writeManifest(entries: SkillManifestEntry[]): void {
-  safeWriteFile(SKILLS_JSON, JSON.stringify(entries, null, 2) + "\n"); // atomic + fsync (skills registry)
+  const installed = Object.fromEntries(entries.map(({ name, source, installedAt }) => [name, { source, installedAt }]));
+  safeWriteFile(SKILLS_JSON, JSON.stringify({ installed }, null, 2) + "\n"); // atomic + fsync (skills registry)
+}
+
+function isSkillManifestEntry(value: unknown): value is SkillManifestEntry {
+  return !!value &&
+    typeof value === "object" &&
+    typeof (value as SkillManifestEntry).name === "string" &&
+    typeof (value as SkillManifestEntry).source === "string" &&
+    typeof (value as SkillManifestEntry).installedAt === "string";
 }
 
 export function upsertManifest(name: string, source: string): void {
