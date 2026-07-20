@@ -23,7 +23,8 @@ minute where allowed) so a pass completes in reasonable wall-clock time.
 - Goal: the schedule editor rejects nonsense clearly.
 - Category: invalid input / boundary
 - Preconditions: `/cron` job editor open.
-- Steps / Variations (each a save attempt, if the editor takes cron expressions or equivalents):
+- Steps:
+  Run each numbered item as an independent save attempt using the schedule representation offered by the editor.
   1. Malformed expression (`* * *`, `99 * * * *`, letters in numeric fields).
   2. Valid-but-extreme: every-minute vs. Feb-30-style impossible dates vs. a schedule far in the future.
   3. Empty prompt/task body; extremely long prompt.

@@ -24,7 +24,7 @@ behavior in a session.
 - Goal: installation failure modes are polite.
 - Category: invalid input / recovery
 - Preconditions: SK-01 skill installed.
-- Steps / Variations:
+- Steps:
   1. `skills add` the same package again — expect idempotent success or a clear "already installed", never a corrupt duplicate.
   2. `skills add nonexistent-package-xyz` — clear not-found error.
   3. `skills add` with the network down (disconnect or bogus proxy) — a network error message, not a hang or a half-installed skill.

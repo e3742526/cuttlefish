@@ -23,7 +23,8 @@ deliberately cross-cutting — they re-check state created by earlier files.
 - Goal: settings validation catches wrong-typed and out-of-range values.
 - Category: invalid input / boundary
 - Preconditions: `/settings` open; disposable home.
-- Steps / Variations (each a save attempt):
+- Steps:
+  Run each numbered item as an independent save attempt and restore the last valid settings between attempts.
   1. Port fields: letters, `0`, `-1`, `65536`, `99999`, another process's port.
   2. Numeric limits/intervals: `0`, negative, absurdly large, decimals where integers expected.
   3. Text fields: leading/trailing whitespace (does it get trimmed?), very long values, unicode.
@@ -73,7 +74,7 @@ deliberately cross-cutting — they re-check state created by earlier files.
 ### ST-07 — Remote pairing round trip
 - Goal: `cuttlefish pair` / `unpair` and the pairing-code panel work.
 - Category: happy path / settings
-- Preconditions: a second browser (or private window) to act as the remote.
+- Preconditions: gateway authentication enabled in the disposable home; a local bootstrap browser and a second browser/private profile to act as the remote.
 - Steps:
   1. `pnpm cuttlefish pair`; use the code/URL in the second browser; confirm it gains dashboard access.
   2. `pnpm cuttlefish unpair --json`; confirm the JSON output is well-formed and the second browser loses access (on next request or per design).
@@ -92,7 +93,7 @@ deliberately cross-cutting — they re-check state created by earlier files.
 - Goal: normal browser behavior doesn't break the app.
 - Category: navigation / boundary
 - Preconditions: any accumulated state.
-- Steps / Variations:
+- Steps:
   1. Back/forward through a deep navigation trail (10+ hops), including into and out of a live session.
   2. Open the dashboard in three tabs; act in one; watch propagation in the others.
   3. Narrow the window to phone width and back (layout must remain operable — visual polish is out of scope, operability is not).

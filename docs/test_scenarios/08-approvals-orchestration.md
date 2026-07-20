@@ -45,12 +45,13 @@ runtime is unavailable — verify that disabled state renders honestly too.
 ### AP-04 — Orchestration dry-run (provider-neutral, CLI + observe)
 - Goal: the documented dry-run surface lets an operator preview a matrix orchestration without side effects.
 - Category: happy path / files
-- Preconditions: orchestration enabled; the CLI dry-run surface per `docs/orchestration` docs and the feature inventory.
+- Preconditions: orchestration enabled; explicit disposable worker config and task JSON files; snapshot the orchestration DB path and managed-worktree directory before running.
 - Steps:
-  1. Run the smallest documented orchestration dry-run from the CLI.
-  2. Read its output/plan; confirm via sessions/tickets/logs that *nothing* actually executed.
-  3. Open `/orchestration` and the observe routes; confirm the dry-run is represented (or explicitly absent) per design.
-- Expected: dry-run output is a comprehensible plan; zero engine runs, zero tickets, zero side effects in the home; observe surfaces and CLI agree.
+  1. Run `cuttlefish --help` and require `workers` and `scheduler` to be advertised. If absent, record **Fail — documented CLI command not registered** and mark the remaining steps Blocked; do not invoke internal TypeScript helpers and call that a CLI pass.
+  2. Run `cuttlefish scheduler allocate <task-file> --config-dir <dir> --dry-run --json` and parse stdout as JSON.
+  3. Read its allocation; prove via before/after session counts, DB checksum/existence, and worktree listing that nothing executed or persisted.
+  4. Run `cuttlefish scheduler plan <task-file> --config-dir <dir> --json`; open `/orchestration` and confirm neither inert command fabricated live leases or queue items.
+- Expected: output is a comprehensible allocation/plan; zero engine runs, tickets, durable scheduler writes, or managed worktrees; observe surfaces remain truthful.
 - Variations: dry-run with an invalid spec/config — a named validation error, not a stack trace.
 
 ### AP-05 — A real orchestration run, observed live

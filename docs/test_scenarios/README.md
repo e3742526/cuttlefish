@@ -110,6 +110,31 @@ relaunch state, unrecoverable without technical help) · **Medium**
 settings) · **Low** (confusing label, glitch, awkward navigation) ·
 **Note** (observation or product question).
 
+## Rigor gates for every executed card
+
+The fields above describe the workflow; these gates make the result
+reproducible. Apply them to every card without duplicating them in each file:
+
+1. Record the build commit, Cuttlefish version, OS/browser, active
+   `CUTTLEFISH_HOME`, configured port, engine/model, and relevant feature flags.
+2. Give every created entity a unique run marker and record its durable id.
+   Do not use titles, model self-identification, or visual position as identity.
+3. Capture start/end wall-clock times, HTTP/CLI exit status, visible UI state,
+   and the corresponding durable/API state. A UI-only observation is not enough
+   for persistence, authorization, or exact-once claims.
+4. Bound every wait. Use two expected polling/scheduling intervals plus 30
+   seconds unless the card states another limit; a timeout is a Fail with the
+   last observed state, never an indefinite wait.
+5. Run the named negative or control branch. If a card contains independent
+   variations, report each as Pass/Fail/Blocked/Not executed; do not mark the
+   whole card Pass while silently omitting a required branch.
+6. Prove absence with a second surface: for example, no duplicate means one
+   durable row/id *and* one UI entity after refresh; no side effect means a
+   before/after filesystem or database snapshot, not merely an empty screen.
+7. Restore changed flags/configuration and stop all spawned processes. Record
+   cleanup failures and retain only the minimum redacted evidence needed for
+   the report.
+
 ## Files
 
 | File | Surface | Core question |
@@ -130,6 +155,8 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | [`14-authorization-and-approvals.md`](14-authorization-and-approvals.md) | operator-only org-change approval, checkpoint vocabulary, pairing auth modes, scoped tokens | Who can approve, pair, and act — and what must fail closed? |
 | [`15-stress-and-adversarial.md`](15-stress-and-adversarial.md) | concurrency caps, stampedes, restart-under-load, path policy, export, budgets, hard-kill recovery, history bloat, clock jump, unicode org storm (SX-01–SX-32) | Does the gateway stay coherent when the operator is impatient or the environment is hostile? |
 | [`16-autonomous-and-integrity.md`](16-autonomous-and-integrity.md) | autonomous authorization/dispatch, context selection, email claim recovery, artifact/knowledge integrity, local voice | Do the highest-risk trust boundaries fail closed, stay scoped, and remain observable? |
+| [`17-operations-and-data-lifecycle.md`](17-operations-and-data-lifecycle.md) | readiness, migration, home isolation, board retention/reconciliation, resource and transfer integrity, Kiro usage | Do operator-facing lifecycle and durable-data boundaries remain truthful through change and recovery? |
+| [`18-orchestration-control-plane.md`](18-orchestration-control-plane.md) | scheduler dry-runs, plans, live leases, queue controls, dual-lane apply, worktrees, recovery | Does the orchestration control plane stay inert when observing and exact when mutating? |
 
 ### Suggested pass shapes
 
@@ -142,9 +169,11 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | Authz | 08, 14 | Gates plus who is allowed to resolve them |
 | Stress | 15 (after a green smoke) | Load, races, restart-under-load, environmental seams |
 | Trust & recovery | 16 (after 01, 02, 14) | Autonomous scope plus durable handoff and local-model failure boundaries |
-| Full library | 01 → 16 numeric order | Release or major-regression playtest |
+| Operations & data | 17 (after 01, 04, 09, 10) | Migration, readiness, retention, transfer, and durable-resource truth |
+| Orchestration control plane | 18 (after 01, 08, 12) | Scheduler/queue/lease/dual-lane/recovery semantics |
+| Full library | 01 → 18 numeric order | Release or major-regression playtest |
 
-Files 11–16 deliberately deepen themes that appear lightly in 01–10 (for
+Files 11–18 deliberately deepen themes that appear lightly in 01–10 (for
 example `CH-03` model switch, `CH-08` rate limits, `ORG-06` delegation,
 `AP-01` gates, `ST-07` pairing). Prefer the deeper file when the pass is
 about that theme; do not edit older cards to remove overlap — record
@@ -176,3 +205,8 @@ scenario (or an explicit not-applicable/blocked note):
 - [ ] Context-history selection boundary (synthetic vs native-resume engine)
 - [ ] Durable external handoff degradation (email, artifact, or knowledge)
 - [ ] Local voice acquisition or explicit unavailable-environment result
+- [ ] Migration check/apply/failure recovery and custom-home isolation
+- [ ] Liveness/readiness/operator-status separation under dependency failure
+- [ ] Retention/reconciliation boundary (ticket, lease, telemetry, or recovery record)
+- [ ] Orchestration observation is inert; mutation is explicit and attributable
+- [ ] Queue, lease, dual-lane, or recovery-manifest control-plane transition

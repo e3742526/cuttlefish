@@ -16,7 +16,7 @@ here.)
 - Steps:
   1. Open `/`, type a small concrete prompt ("list the files in your working directory"), send.
   2. Watch the live stream; wait for completion.
-- Expected: the message appears immediately; streaming output renders progressively; the session reaches a completed state; the response is from the selected engine/model.
+- Expected: the message appears immediately; streaming output renders progressively; the turn reaches a non-running terminal state; persisted session metadata and activity identify the selected engine/model.
 - Observe: is it clear *which* employee/engine/model answered? Does the session get a sensible title/identity in the session list?
 - Variations: send a follow-up in the same session and confirm the engine has the prior context; open a second, parallel session and confirm the two don't bleed into each other.
 
@@ -24,7 +24,8 @@ here.)
 - Goal: the composer tolerates realistic messy input.
 - Category: invalid input / boundary
 - Preconditions: an open session.
-- Steps / Variations (each is a send attempt):
+- Steps:
+  Run each numbered item as an independent send attempt and record it separately.
   1. Empty message; whitespace-only message.
   2. Very long message (thousands of characters, e.g. a pasted log file).
   3. Emoji, accented text, non-Latin scripts (`日本語`, `العربية`), RTL text.

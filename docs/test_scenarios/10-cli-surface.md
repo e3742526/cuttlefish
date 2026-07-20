@@ -16,6 +16,7 @@ stdout with the JSON payload.
 ### CL-01 — Help and discoverability
 - Goal: a user can discover the CLI from the CLI.
 - Category: happy path / navigation
+- Preconditions: built source checkout; record both source-checkout and packaged binary versions when both are available.
 - Steps:
   1. `cuttlefish` with no arguments; `cuttlefish --help`; `cuttlefish help`.
   2. `--help` on each subcommand surfaced by the top-level help (start, stop, restart, status, list, pair, unpair, skills, setup, and any others listed).
@@ -25,7 +26,8 @@ stdout with the JSON payload.
 ### CL-02 — Unknown commands, typos, and bad flags
 - Goal: misuse fails politely.
 - Category: invalid input
-- Steps / Variations:
+- Preconditions: built source checkout; disposable active home.
+- Steps:
   1. `cuttlefish strat` (typo) — unknown-command error, ideally a "did you mean start?" style hint; never a stack trace.
   2. `cuttlefish start --bogus-flag`; `cuttlefish status extraneous-arg`.
   3. `cuttlefish skills add` with no package argument.
@@ -35,6 +37,7 @@ stdout with the JSON payload.
 ### CL-03 — JSON output contract
 - Goal: `--json` modes (e.g. `unpair --json`) emit machine-parseable output.
 - Category: boundary / files
+- Preconditions: built source checkout; use `pnpm --silent` for source-checkout JSON commands; capture stdout and stderr separately.
 - Steps:
   1. Run every command that documents a `--json` flag; pipe each through a JSON parser (`| node -e 'JSON.parse(require("fs").readFileSync(0))'`).
   2. Trigger an *error* under `--json` (e.g. unpair when nothing is paired) — the error should also be JSON, not prose polluting the stream.
@@ -61,7 +64,8 @@ stdout with the JSON payload.
 ### CL-06 — Environment seams
 - Goal: realistic environment problems produce named errors.
 - Category: invalid environment / error clarity
-- Steps / Variations:
+- Preconditions: disposable homes for each variation; a version manager or container for the unsupported-Node branch.
+- Steps:
   1. Run under an unsupported Node major (if easy to arrange via nvm) — expect the documented `>=24 <25` enforcement to speak up at the right moment, not a deep runtime error later.
   2. Point the Cuttlefish home at a read-only directory; run `setup` and `start` — permission errors must name the path.
   3. Run `setup` when the home already contains a *newer* schema than the binary understands (simulate by editing a version field, if one exists) — expect a refusal or migration message, not silent downgrade.

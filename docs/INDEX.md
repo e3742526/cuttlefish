@@ -23,7 +23,8 @@ artifacts unless explicitly published.
   baseline), plus per-surface scenario files under `docs/test_scenarios/`
   (`01`–`10` core surfaces; `11` model selection/switching; `12` failover;
   `13` inter-agent communication; `14` authorization/approvals; `15`
-  stress/adversarial load; `16` autonomous operation and integrity boundaries).
+  stress/adversarial load; `16` autonomous operation and integrity boundaries;
+  `17` operations/data lifecycle; `18` orchestration control-plane semantics).
 - `docs/TODO_LEDGER.md`: current active documentation/governance TODO ledger.
 - `docs/TODO_HISTORY.md`: closed defects and completed TODOs with preserved
   closure evidence.
@@ -55,6 +56,10 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-20-test-scenario-library-rigor-audit.md` and
+  `docs/logs/session/072026/2026-07-20-test-scenario-library-rigor-expansion.md`:
+  full 181-card structural/source audit, 26-card operations/control-plane
+  expansion, and the confirmed orchestration CLI registration gap.
 - `docs/audits/072026/2026-07-20-scenario-library-playtest.md` and
   `docs/audits/072026/2026-07-20-scenario-library-playtest-repair.md`: fresh
   disposable-home scenario-library playtest, its three confirmed CLI

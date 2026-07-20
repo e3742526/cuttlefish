@@ -22,7 +22,7 @@ visibility.
 - Preconditions: gateway running; at least one signed-in engine with two or more selectable models (Claude with Sonnet + Opus, or Ollama with two local tags).
 - Steps:
   1. Open `/`; start a new session; select engine A and model M1 explicitly.
-  2. Send a short identity prompt ("Reply with only the model name you believe you are running under.").
+  2. Send a short uniquely marked prompt; use persisted session metadata, activity, and engine invocation evidence as the authority. A model self-identification reply may be recorded only as secondary evidence.
   3. Switch the *same* new-session picker (or start another session) to model M2; send the same prompt.
 - Expected: each response is attributable to the selected model; the UI model chip / session header never claims M1 while the run used M2 (or the reverse).
 - Observe: does the session list or header retain the model after completion and after a hard refresh?

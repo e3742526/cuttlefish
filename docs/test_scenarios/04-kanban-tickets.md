@@ -22,13 +22,13 @@ create → edit → dispatch → watch → complete/delete → restore.
 ### KB-02 — Manual dispatch to an employee and live inspection
 - Goal: a ticket becomes real engine work, watchable live.
 - Category: happy path / navigation
-- Preconditions: KB-01 ticket; employee with a working engine. Note: dispatch is manual-only by design (listed feature) — automatic dispatch not occurring is *correct*.
+- Preconditions: KB-01 ticket; employee with a working engine; use explicit **Run now** for this card. Background dispatch is supported for eligible tickets; the per-ticket `manualOnly` flag is the opt-out.
 - Steps:
   1. Dispatch the ticket to an employee.
   2. Open the ticket's live session inspector; watch the run.
   3. Cross-check via the ticket→session API surface (`/api/org/departments/:name/tickets/:id/session`) or the session list that the linked session is the same one.
 - Expected: dispatch creates/links a session; the inspector streams the live run; ticket status reflects the run's progress and terminal state.
-- Variations: dispatch the same ticket twice rapidly (double-click seam) — expect one run, not two; dispatch to an employee whose engine is unauthenticated — expect a legible failure on the ticket, not a stuck "dispatching".
+- Variations: dispatch the same ticket twice rapidly (double-click seam) — expect one run, not two; dispatch to an employee whose engine is unauthenticated — expect a legible failure on the ticket, not a stuck "dispatching"; mark another ticket `manualOnly`, wait through a board-worker cycle, and confirm only explicit Run now can launch it.
 
 ### KB-03 — Ticket resource context
 - Goal: resources attached to a ticket actually reach the engine (ticket resource context is a listed feature).

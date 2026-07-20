@@ -45,7 +45,8 @@ delegation actually flows down the chart and results flow back up.
 - Goal: the org panel tolerates messy input.
 - Category: invalid input / boundary
 - Preconditions: `/org` open.
-- Steps / Variations (each a save attempt):
+- Steps:
+  Run each numbered item as an independent save attempt and restore the last valid employee between attempts.
   1. Empty name; whitespace-only name; duplicate name; same name different casing.
   2. Very long name and persona (thousands of characters); emoji and non-Latin names ("Zoë 🦑", "田中").
   3. Persona containing YAML-significant characters (`:`, `-`, quotes, newlines).
@@ -71,7 +72,7 @@ delegation actually flows down the chart and results flow back up.
   1. Give the task to the COO in a chat session.
   2. Watch for child sessions being spawned; open them live.
   3. Wait for the synthesis to return to the COO's session.
-- Expected: child sessions are visibly linked to the parent (attribution: who delegated what to whom); children report back; the parent's final answer reflects the children's work; the multi-role execution rules (a listed feature) are observable.
+- Expected: child sessions are visibly linked to the parent (attribution: who delegated what to whom); children report back; the parent's final answer reflects the children's work; each started child has one durable lifecycle and the parent synthesizes once.
 - Observe: can the user follow the chain from the parent session without guesswork? What happens in the parent if it must wait — honest "waiting on Riley" state or opaque silence?
 
 ### ORG-07 — Delegation with a broken link in the chain
@@ -100,7 +101,7 @@ delegation actually flows down the chart and results flow back up.
 - Category: settings / navigation
 - Preconditions: two departments with at least one employee each.
 - Steps:
-  1. Exercise the workspace-profile switch (if exposed in the UI) and confirm what changes with it.
+  1. Configure two named workspace profiles in `config.yaml`; use the new-chat composer picker to select each and confirm cwd, injected instructions, and `transportMeta.workspaceProfile` change together.
   2. Trigger a cross-department service request (department A's employee needs department B); follow it to resolution.
 - Expected: the request is visible on both sides, attributable, and completes or fails with a trace the operator can follow.
-- If either surface is not reachable from the UI in the current build, record as Not applicable with the evidence (where you looked).
+- Cross-department requests may require the documented API path; if no UI entry point exists, exercise `POST /api/org/cross-request` and record the UI discoverability gap separately rather than marking the implemented API Not applicable.

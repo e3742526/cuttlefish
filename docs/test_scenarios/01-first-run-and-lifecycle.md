@@ -22,7 +22,7 @@ All scenarios use a disposable Cuttlefish home. Where a scenario says
   4. Open `http://localhost:8888` (or confirm the auto-open landed there).
 - Expected: setup reports the detected engines; start reports success and the dashboard URL; the chat workspace at `/` loads with a sensible empty state (no raw errors, no spinner that never resolves).
 - Observe: does setup's output tell the operator what to do next? Is the signed-in engine actually listed in the dashboard's engine picker? Are engines whose binary is missing hidden (not shown broken)?
-- Variations: run `pnpm setup` a second time (idempotency — must not clobber the initialized home); run with **zero** engines installed and confirm the failure message explains the "install + sign in an engine" prerequisite rather than failing obscurely.
+- Variations: run `pnpm setup` a second time (idempotency — must not clobber the initialized home); run with **zero** engines installed and confirm setup emits its explicit warning while the dashboard shows an actionable no-engine state rather than failing obscurely.
 
 ### LC-02 — First-launch empty states across all routes
 - Goal: see what a new user sees before any data exists.

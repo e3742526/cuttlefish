@@ -69,7 +69,8 @@ cards; restore the prior value after the pass.
 - Goal: illegal chains never reach runtime.
 - Category: invalid input / boundary
 - Preconditions: `/org` employee editor with multi-role UI, or the employee create/update API.
-- Steps / Variations (each a save attempt):
+- Steps:
+  Run each numbered item as an independent save attempt and verify the prior valid profile after every refusal.
   1. Chain longer than 5 rungs.
   2. Self-referential external employee entry (points at the same employee).
   3. Unknown employee name in an external entry.
