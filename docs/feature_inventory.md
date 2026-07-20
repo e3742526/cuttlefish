@@ -155,7 +155,7 @@
 - The edit surface additionally exposes per-role sub-agent selection (`packages/web/src/components/org/role-agent-config.tsx`) for the implementer and reviewer roles: engine/model/effort overrides with inherit-from-employee defaults (e.g. routing simple review work to a cheaper model), plus an ordered failover chain of up to 5 targets per role where each target is either a backup agent (engine + model) or a defer-to-external-agent entry referencing another org employee. The detail panel summarizes the configured per-role plan.
 - `packages/web/src/components/org/employee-detail.tsx` displays an execution profile summary in the detail panel when a profile is configured.
 - Fresh-install seed personas place Parliamentarian and Senior Security Officer in `compliance`, HR / Org Steward as the `personnel` department manager, and Assistant in `general`. HR / Org Steward advises on organizational planning, agent coordination patterns, and model/budget/resource fit while remaining a review/advisory role rather than a runtime orchestrator or resource manager. New manager-hire guidance defaults managers to the COO/root reporting line unless the user explicitly says otherwise.
-- `hr-manager` retains its reusable singleton thread for ordinary continuation. A request that explicitly selects an incompatible engine, model, effort level, or working directory now returns `409 { code: "hr_singleton_profile_conflict" }` before writing the prompt into that historical thread.
+- `hr-manager` retains its reusable singleton thread for ordinary continuation. An explicit same-engine model or effort selection is persisted before its next queued turn, so the chat composer choice is honored. Requests that change its engine or working directory return `409 { code: "hr_singleton_profile_conflict" }` before writing the prompt into that historical thread; use a non-HR session for those changes.
 - HR / Org Steward is human-only: only a direct, top-level human-operator session may use `hr-manager`. Agent-session requests and parented child sessions return `403 { code: "hr_human_only" }`; HR is excluded from cross-service discovery/routing and automated board dispatch; leader-ack timeouts fall back to an executive or manual human review instead of paging HR.
 
 ### Workspace profiles
@@ -433,6 +433,12 @@
 - Existing fallback approvals continue to work through `/api/approvals/*`, but
   the underlying store now captures decision notes and resulting actions for the
   broader checkpoint model too.
+- A session-authenticated chat can submit an org-change proposal. The gateway
+  binds its approval to that originating session, so the same pending decision
+  appears in the chat review card and the global Approvals queue. Approval,
+  rejection, and apply endpoints require an authenticated operator even on the
+  default loopback deployment; chat prose and scoped agent tokens cannot
+  resolve their own changes.
 - The `/approvals` web UI (`packages/web/src/routes/approvals/page.tsx`) has been
   significantly enhanced:
   - Pending approvals and checkpoints are shown in a unified list with compact list items.

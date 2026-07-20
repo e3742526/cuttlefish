@@ -60,6 +60,14 @@ artifacts unless explicitly published.
   `docs/logs/session/072026/2026-07-20-documentation-stewardship.md`:
   source-grounded documentation reconciliation, including the active-only TODO
   ledger and the current weekly-schedule test failure.
+- `docs/audits/072026/2026-07-20-team-approval-routing-repair.md` and
+  `docs/logs/session/072026/2026-07-20-team-approval-routing-repair.md`:
+  repair record for authenticated chat-originated org-change proposals and
+  operator-only approval resolution.
+- `docs/audits/072026/2026-07-20-hr-singleton-model-switch.md` and
+  `docs/logs/session/072026/2026-07-20-hr-singleton-model-switch.md`:
+  repair record for honoring selectable same-engine model and effort changes
+  in the reusable HR chat.
 
 - `docs/audits/072026/2026-07-16-full-audit-repair-campaign.md`:
   current-source full repository audit; records twelve confirmed P1–P3

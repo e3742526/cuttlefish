@@ -26,9 +26,10 @@ export function getReusableHrSession(): Session | undefined {
 }
 
 /**
- * A normal HR prompt may continue the singleton thread, but an operator who
- * explicitly selects a different execution profile must not have that request
- * silently appended to an older, incompatible session.
+ * An HR singleton retains one engine and working directory. Model and effort
+ * may change explicitly for its next turn, matching the normal existing-session
+ * patch behavior; engine and cwd conflicts still require a separate non-HR
+ * session.
  */
 export function findHrSessionProfileConflict(
   session: Pick<Session, "engine" | "model" | "effortLevel" | "cwd">,

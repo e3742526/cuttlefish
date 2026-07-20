@@ -600,15 +600,22 @@ export async function handleSessionWriteRoutes(
           ...(body.cwd !== undefined || workspaceProfile?.cwd !== undefined ? { cwd: cwd ?? null } : {}),
         }
       : undefined;
-    const hrProfileConflict = existingSingletonSession && requestedHrProfile
-      ? findHrSessionProfileConflict(canonicalizeExistingHrProfile(existingSingletonSession, config), requestedHrProfile)
+    const hrSingletonConfigurationConflict = existingSingletonSession && requestedHrProfile
+      ? findHrSessionProfileConflict(canonicalizeExistingHrProfile(existingSingletonSession, config), {
+          ...(requestedHrProfile.engine !== undefined ? { engine: requestedHrProfile.engine } : {}),
+          ...(requestedHrProfile.cwd !== undefined ? { cwd: requestedHrProfile.cwd } : {}),
+        })
       : null;
-    if (hrProfileConflict && existingSingletonSession) {
+    // The singleton keeps one engine and working directory, but an operator's
+    // explicit model/effort selection is safe to apply to the next queued turn.
+    // Existing-session PATCH already supports that same in-place behavior; the
+    // create-and-reuse path must not reject it merely because it is HR.
+    if (hrSingletonConfigurationConflict && existingSingletonSession) {
       json(res, {
-        error: `HR singleton session cannot switch ${hrProfileConflict.field} from ${hrProfileConflict.existing ?? "default"} to ${hrProfileConflict.requested ?? "default"}; continue it without an override or start a separate non-HR session.`,
+        error: `HR singleton session cannot switch ${hrSingletonConfigurationConflict.field} from ${hrSingletonConfigurationConflict.existing ?? "default"} to ${hrSingletonConfigurationConflict.requested ?? "default"}; continue it without an override or start a separate non-HR session.`,
         code: "hr_singleton_profile_conflict",
         sessionId: existingSingletonSession.id,
-        field: hrProfileConflict.field,
+        field: hrSingletonConfigurationConflict.field,
       }, 409);
       return true;
     }
@@ -640,6 +647,13 @@ export async function handleSessionWriteRoutes(
               }
             : undefined,
         });
+    if (existingSingletonSession && requestedHrProfile && (requestedHrProfile.model !== undefined || requestedHrProfile.effortLevel !== undefined)) {
+      session = updateSession(session.id, {
+        ...(requestedHrProfile.model !== undefined ? { model: requestedHrProfile.model } : {}),
+        ...(requestedHrProfile.effortLevel !== undefined ? { effortLevel: requestedHrProfile.effortLevel } : {}),
+      }) ?? session;
+      context.emit("session:updated", { sessionId: session.id });
+    }
     if (!existingSingletonSession) {
       logger.info(`Web session created: ${session.id} (model=${selection.model || "default"})`);
       if (session.parentSessionId) {

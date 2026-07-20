@@ -272,7 +272,7 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
     expect(hoisted.dispatchEmployeeSessionRun).not.toHaveBeenCalled();
   });
 
-  it("does not flag a legacy alias model as a conflict with its canonical registry id", async () => {
+  it("allows an explicit same-engine HR model and effort update", async () => {
     const { api, reg } = await setup();
     const ctx = makeCtx(api);
     ctx.getConfig = () => ({
@@ -285,8 +285,8 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
         claude: {
           default: "opus",
           models: [
-            { id: "opus", label: "Opus 4.8" },
-            { id: "claude-sonnet-5", label: "Sonnet 5" },
+            { id: "opus", label: "Opus 4.8", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
+            { id: "claude-sonnet-5", label: "Sonnet 5", supportsEffort: true, effortLevels: ["low", "medium", "high"] },
           ],
         },
       },
@@ -325,13 +325,15 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
       makeJsonReq("POST", "/api/sessions", {
         employee: "hr-manager",
         model: "opus",
+        effortLevel: "medium",
         prompt: "switch models",
       }),
       differentModel.res,
       ctx,
     );
-    expect(differentModel.status).toBe(409);
-    expect(differentModel.body).toMatchObject({ code: "hr_singleton_profile_conflict", field: "model" });
+    expect(differentModel.status).toBe(201);
+    expect(differentModel.body.id).toBe(existing.id);
+    expect(reg.getSession(existing.id)).toMatchObject({ model: "opus", effortLevel: "medium" });
   });
 
   it("reserves HR for direct human top-level sessions", async () => {

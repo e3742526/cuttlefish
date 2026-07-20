@@ -116,6 +116,13 @@ Cuttlefish reads instance configuration from the active Cuttlefish home, normall
 Engine CLIs keep their own authentication state. Cuttlefish does not replace engine
 sign-in flows; run each engine once and authenticate before routing work to it.
 
+### Changing a chat model
+
+The chat composer applies an explicit model or effort selection to the next
+queued turn, including when continuing the reusable HR / Org Steward chat.
+That HR singleton retains its engine and working directory; start a non-HR chat
+when either of those needs to change.
+
 ### Email inboxes
 
 - Operators can configure up to 3 IMAP inboxes in `/settings`.
