@@ -35,4 +35,24 @@ describe("instances registry isolation", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("refreshes an existing canonical entry when its configured port changes", () => {
+    saveInstances([{ name: "cuttlefish", port: 8888, home: testHome, createdAt: "2026-06-24T00:00:00.000Z" }]);
+
+    ensureDefaultInstance(8898);
+
+    expect(loadInstances()).toEqual([
+      { name: "cuttlefish", port: 8898, home: testHome, createdAt: "2026-06-24T00:00:00.000Z" },
+    ]);
+  });
+
+  it("retains an existing recorded port when no active port is supplied", () => {
+    saveInstances([{ name: "cuttlefish", port: 8898, home: testHome, createdAt: "2026-06-24T00:00:00.000Z" }]);
+
+    ensureDefaultInstance();
+
+    expect(loadInstances()).toEqual([
+      { name: "cuttlefish", port: 8898, home: testHome, createdAt: "2026-06-24T00:00:00.000Z" },
+    ]);
+  });
 });

@@ -15,9 +15,13 @@ const lifecycle = vi.hoisted(() => ({
 const config = vi.hoisted(() => ({
   loadConfig: vi.fn(() => ({ gateway: { host: "127.0.0.1", port: 8888 }, engines: { default: "claude" } })),
 }));
+const instances = vi.hoisted(() => ({
+  ensureDefaultInstance: vi.fn(),
+}));
 
 vi.mock("../../gateway/lifecycle.js", () => lifecycle);
 vi.mock("../../shared/config.js", () => config);
+vi.mock("../instances.js", () => instances);
 vi.mock("../../shared/version.js", () => ({
   compareSemver: () => 0,
   getPackageVersion: () => "1.0.0",
@@ -43,6 +47,7 @@ describe("runStart", () => {
 
     expect(lifecycle.restartDetached).toHaveBeenCalledTimes(1);
     expect(lifecycle.getStatus).toHaveBeenCalledWith(8888);
+    expect(instances.ensureDefaultInstance).toHaveBeenCalledWith(8888);
     expect(lifecycle.startForeground).not.toHaveBeenCalled();
     expect(lifecycle.startDaemon).not.toHaveBeenCalled();
   });
@@ -53,6 +58,7 @@ describe("runStart", () => {
     await runStart({ daemon: true, port: 8891 });
 
     expect(lifecycle.getStatus).toHaveBeenCalledWith(8891);
+    expect(instances.ensureDefaultInstance).toHaveBeenCalledWith(8891);
     expect(lifecycle.startDaemon).toHaveBeenCalledTimes(1);
     expect(lifecycle.restartDetached).not.toHaveBeenCalled();
   });

@@ -24,6 +24,7 @@
 | `docs/test_scenarios/13-inter-agent-communication.md` | inter-agent scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise delegation, talk, cross-dept services, mid-pair, HR exclusion. |
 | `docs/test_scenarios/14-authorization-and-approvals.md` | authz/approvals scenarios | current | playtest / QA stewardship | added 2026-07-20 | Exercise operator-only resolution, pairing auth modes, scoped tokens, checkpoint vocabulary. |
 | `docs/test_scenarios/15-stress-and-adversarial.md` | stress scenario cards | current | playtest / QA stewardship | extended 2026-07-20 (SX-01–SX-32) | Concurrency caps, stampedes, restart-under-load, path/export/budget seams, hard-kill, history bloat, clock jump, unicode org storm. |
+| `docs/test_scenarios/16-autonomous-and-integrity.md` | autonomous/integrity scenario cards | current | playtest / QA stewardship | added 2026-07-20 (AI-01–AI-10) | Dual-model authorization scope, continuous dispatch bounds, context selection, durable handoffs, and local voice recovery. |
 | `docs/script-surface-map.md` | script safety map | current | documentation rules | reconciled 2026-07-20 | Update when scripts/CLI commands change. |
 | `docs/known-diagnostics.md` | accepted diagnostics | current | audit rules | inspected 2026-06-25 | Keep scoped to accepted non-actionable diagnostics. |
 | `docs/engines-hermes.md` | engine-specific manual | current | source/tests | inspected 2026-06-25 | Update when Hermes contract changes. |

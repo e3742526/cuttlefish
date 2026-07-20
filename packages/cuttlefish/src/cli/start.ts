@@ -5,6 +5,7 @@ import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { loadConfig } from "../shared/config.js";
 import { startForeground, startDaemon, getStatus, restartDetached } from "../gateway/lifecycle.js";
 import { compareSemver, getPackageVersion, getInstanceVersion } from "../shared/version.js";
+import { ensureDefaultInstance } from "./instances.js";
 
 const YELLOW = "\x1b[33m";
 const DIM = "\x1b[2m";
@@ -78,6 +79,7 @@ export async function runStart(opts: { daemon?: boolean; port?: number }): Promi
   if (opts.port) {
     config.gateway.port = opts.port;
   }
+  ensureDefaultInstance(config.gateway.port);
 
   // If a gateway is already running, `start` becomes a clean restart instead of
   // the old racy double-boot (new daemon SIGTERMs the old, then races its

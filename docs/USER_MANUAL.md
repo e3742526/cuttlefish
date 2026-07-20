@@ -67,6 +67,9 @@ cuttlefish pair
 cuttlefish unpair --json
 ```
 
+From a source checkout, run JSON-producing commands with pnpm's quiet mode so
+the script banner does not pollute stdout: `pnpm --silent cuttlefish unpair --json`.
+
 ### Instance Model
 
 ```bash

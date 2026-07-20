@@ -41,8 +41,8 @@ export function assertSafeManagedInstanceHome(instance: Instance): string {
   return resolved;
 }
 
-/** Ensure the default "cuttlefish" instance is registered. */
-export function ensureDefaultInstance(): void {
+/** Ensure the default "cuttlefish" instance is registered, optionally refreshing its active port. */
+export function ensureDefaultInstance(port?: number): void {
   const instances = loadInstances();
   const canonicalHome = homeForInstance("cuttlefish");
   const existing = instances.find((i) => i.name === "cuttlefish");
@@ -50,16 +50,18 @@ export function ensureDefaultInstance(): void {
     // The registry lives at the OS-default home for backwards compatibility,
     // while CUTTLEFISH_HOME is resolved per invocation. Refresh an old entry
     // so `list` does not keep reporting a previous/default instance after the
-    // operator selects a custom home.
-    if (existing.home !== canonicalHome) {
+    // operator selects a custom home. Only start has an authoritative active
+    // port; list must retain the port already recorded by start.
+    if (existing.home !== canonicalHome || (port !== undefined && existing.port !== port)) {
       existing.home = canonicalHome;
+      if (port !== undefined) existing.port = port;
       saveInstances(instances);
     }
     return;
   }
   instances.unshift({
     name: "cuttlefish",
-    port: 8888,
+    port: port ?? 8888,
     home: canonicalHome,
     createdAt: new Date().toISOString(),
   });

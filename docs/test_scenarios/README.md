@@ -40,8 +40,9 @@ experience**: first-run setup, daemon lifecycle, session persistence across
 restarts, delegation chains, cron firing, engine unavailability, interrupted
 workflows, settings persistence, connector round-trips, approval gates,
 model selection and switching, configured failover, inter-agent communication,
-authorization boundaries, load/stress seams, error-message clarity, and
-cross-screen state consistency.
+authorization boundaries, autonomous-authorization safety, context-history
+selection, durable ingest/export boundaries, local voice recovery, load/stress
+seams, error-message clarity, and cross-screen state consistency.
 
 ## Safety rails (binding for every pass)
 
@@ -128,6 +129,7 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | [`13-inter-agent-communication.md`](13-inter-agent-communication.md) | manager fan-out, `/talk`, cross-department services, mid-pair review, HR exclusion | Do agents communicate, attribute, and bound depth without cross-wiring? |
 | [`14-authorization-and-approvals.md`](14-authorization-and-approvals.md) | operator-only org-change approval, checkpoint vocabulary, pairing auth modes, scoped tokens | Who can approve, pair, and act — and what must fail closed? |
 | [`15-stress-and-adversarial.md`](15-stress-and-adversarial.md) | concurrency caps, stampedes, restart-under-load, path policy, export, budgets, hard-kill recovery, history bloat, clock jump, unicode org storm (SX-01–SX-32) | Does the gateway stay coherent when the operator is impatient or the environment is hostile? |
+| [`16-autonomous-and-integrity.md`](16-autonomous-and-integrity.md) | autonomous authorization/dispatch, context selection, email claim recovery, artifact/knowledge integrity, local voice | Do the highest-risk trust boundaries fail closed, stay scoped, and remain observable? |
 
 ### Suggested pass shapes
 
@@ -139,9 +141,10 @@ settings) · **Low** (confusing label, glitch, awkward navigation) ·
 | Multi-agent | 03, 13 | Delegation, talk, cross-dept, mid-pair |
 | Authz | 08, 14 | Gates plus who is allowed to resolve them |
 | Stress | 15 (after a green smoke) | Load, races, restart-under-load, environmental seams |
-| Full library | 01 → 15 numeric order | Release or major-regression playtest |
+| Trust & recovery | 16 (after 01, 02, 14) | Autonomous scope plus durable handoff and local-model failure boundaries |
+| Full library | 01 → 16 numeric order | Release or major-regression playtest |
 
-Files 11–15 deliberately deepen themes that appear lightly in 01–10 (for
+Files 11–16 deliberately deepen themes that appear lightly in 01–10 (for
 example `CH-03` model switch, `CH-08` rate limits, `ORG-06` delegation,
 `AP-01` gates, `ST-07` pairing). Prefer the deeper file when the pass is
 about that theme; do not edit older cards to remove overlap — record
@@ -169,3 +172,7 @@ scenario (or an explicit not-applicable/blocked note):
 - [ ] Inter-agent communication (delegation, talk, or cross-request)
 - [ ] Authorization boundary (operator vs scoped agent / pairing)
 - [ ] Concurrency or load stress (multi-session, cap, or stampede)
+- [ ] Autonomous authorization boundary (dual consensus, exact project, kill switch)
+- [ ] Context-history selection boundary (synthetic vs native-resume engine)
+- [ ] Durable external handoff degradation (email, artifact, or knowledge)
+- [ ] Local voice acquisition or explicit unavailable-environment result

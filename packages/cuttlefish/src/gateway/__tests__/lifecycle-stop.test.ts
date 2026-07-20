@@ -10,7 +10,7 @@ import path from "node:path";
 // PID_FILE resolves inside it.
 const { home: tmpHome } = withStaticTempCuttlefishHome("cuttlefish-lifecycle-stop-");
 
-const { stop, stopAndWait, getStatus } = await import("../lifecycle.js");
+const { stop, stopAndWait, getStatus, writeGatewayPid, clearGatewayPid } = await import("../lifecycle.js");
 const { PID_FILE } = await import("../../shared/paths.js");
 
 /** Pick a free ephemeral port (nothing will be listening on it afterwards). */
@@ -157,5 +157,16 @@ describe("stop / stopAndWait PID-file race", () => {
     expect(status.running).toBe(false);
     expect(status.pid).toBe(null);
     expect(status.error).toContain(`Port ${port} is occupied`);
+  });
+
+  it("records foreground gateway ownership without clearing another process's PID", () => {
+    writeGatewayPid(process.pid);
+    expect(fs.readFileSync(PID_FILE, "utf8").trim()).toBe(String(process.pid));
+
+    clearGatewayPid(process.pid + 1);
+    expect(fs.existsSync(PID_FILE)).toBe(true);
+
+    clearGatewayPid(process.pid);
+    expect(fs.existsSync(PID_FILE)).toBe(false);
   });
 });

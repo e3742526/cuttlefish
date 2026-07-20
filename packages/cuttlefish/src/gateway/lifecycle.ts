@@ -122,6 +122,24 @@ function acquireDaemonLock(): () => void {
   return release;
 }
 
+/** Record the live gateway process so every lifecycle mode is manageable by the CLI. */
+export function writeGatewayPid(pid = process.pid): void {
+  fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
+  safeWriteFile(PID_FILE, String(pid), { fsync: false });
+}
+
+/** Remove the PID file only when it still belongs to this gateway process. */
+export function clearGatewayPid(pid = process.pid): void {
+  try {
+    const recordedPid = Number.parseInt(fs.readFileSync(PID_FILE, "utf8").trim(), 10);
+    if (recordedPid === pid) fs.unlinkSync(PID_FILE);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      logger.warn(`Failed to clear gateway PID file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
 function nodeMajor(bin: string): number {
   try {
     const v = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 3000 }).trim();
@@ -169,6 +187,11 @@ export async function startForeground(config: CuttlefishConfig): Promise<void> {
   installProcessErrorHandlers();
   const releaseDaemonLock = acquireDaemonLock();
   const cleanup = await startGateway(config);
+  // Foreground startup used to omit gateway.pid, so status/stop treated its
+  // healthy listener as an unowned process. Both foreground and detached
+  // gateways are now represented by the same ownership record.
+  writeGatewayPid();
+  process.once("exit", () => clearGatewayPid());
 
   let shuttingDown = false;
   const shutdown = async () => {
@@ -188,6 +211,7 @@ export async function startForeground(config: CuttlefishConfig): Promise<void> {
 
     await cleanup();
     releaseDaemonLock();
+    clearGatewayPid();
     process.exit(0);
   };
 
@@ -212,8 +236,7 @@ export function startDaemon(config: CuttlefishConfig): void {
   });
 
   if (child.pid) {
-    fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
-    safeWriteFile(PID_FILE, String(child.pid), { fsync: false }); // atomic; durability unneeded for a pid file
+    writeGatewayPid(child.pid);
     logger.info(`Gateway daemon started with PID ${child.pid}`);
   }
 

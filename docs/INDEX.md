@@ -23,7 +23,7 @@ artifacts unless explicitly published.
   baseline), plus per-surface scenario files under `docs/test_scenarios/`
   (`01`–`10` core surfaces; `11` model selection/switching; `12` failover;
   `13` inter-agent communication; `14` authorization/approvals; `15`
-  stress/adversarial load).
+  stress/adversarial load; `16` autonomous operation and integrity boundaries).
 - `docs/TODO_LEDGER.md`: current active documentation/governance TODO ledger.
 - `docs/TODO_HISTORY.md`: closed defects and completed TODOs with preserved
   closure evidence.
@@ -55,10 +55,11 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
-- `docs/audits/072026/2026-07-20-scenario-library-playtest.md`: fresh
-  disposable-home scenario-library playtest; records three confirmed CLI
-  lifecycle/instance-reporting/JSON-stream findings, passing live session and
-  persistence evidence, and the unavailable-browser limit.
+- `docs/audits/072026/2026-07-20-scenario-library-playtest.md` and
+  `docs/audits/072026/2026-07-20-scenario-library-playtest-repair.md`: fresh
+  disposable-home scenario-library playtest, its three confirmed CLI
+  lifecycle/instance-reporting/JSON-stream findings, and their live-verified
+  repair closure; the unavailable-browser limit remains recorded.
 - `docs/audits/072026/2026-07-20-live-playtest-defect-repair.md` and
   `docs/logs/session/072026/2026-07-20-live-playtest-defect-repair.md`:
   repair record for the six confirmed lifecycle, skills, cron, routing, and

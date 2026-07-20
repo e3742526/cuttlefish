@@ -7,7 +7,9 @@ panics on a typo fails the same user a broken button fails.
 
 Run from a source checkout (`pnpm cuttlefish …`) and, if a packaged install
 is available on the test machine, spot-check the same commands via the
-installed binary — drift between the two is a finding.
+installed binary — drift between the two is a finding. For a `--json` command,
+use `pnpm --silent cuttlefish … --json` so pnpm's script banner does not share
+stdout with the JSON payload.
 
 ---
 

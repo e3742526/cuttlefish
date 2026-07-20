@@ -76,6 +76,10 @@ cuttlefish restart    # restart safely (detached; works even from inside a sessi
 cuttlefish status     # is the daemon running?
 ```
 
+For a command that writes machine-readable `--json` output from a source
+checkout, use `pnpm --silent cuttlefish … --json`; pnpm's normal script banner
+would otherwise share stdout with the JSON payload.
+
 Cuttlefish uses `~/.cuttlefish` by default. Set `CUTTLEFISH_HOME` to use a
 separate active home for lifecycle commands and `cuttlefish list`; concurrent
 restart requests coalesce while the detached handoff is in progress.
