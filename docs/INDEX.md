@@ -18,6 +18,9 @@ artifacts unless explicitly published.
   routing.
 - `docs/feature_inventory.md`: implemented CLI/API/UI surfaces and fidelity gaps.
 - `docs/TEST_LEDGER.md`: current validation evidence and test coverage map.
+- `docs/test_scenarios/README.md`: end-to-end playtest scenario library for
+  exploratory user-facing test passes (derived from the `audit-playtest-app`
+  baseline), plus per-surface scenario files under `docs/test_scenarios/`.
 - `docs/TODO_LEDGER.md`: current active documentation/governance TODO ledger.
 - `docs/DECISION_LOG.md`: accepted and deferred documentation/governance
   decisions.
