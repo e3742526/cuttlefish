@@ -74,7 +74,9 @@ cuttlefish list
 ```
 
 Cuttlefish is single-instance on a local machine: the supported runtime home is
-`~/.cuttlefish` and the default dashboard port is `8888`. The inherited
+`~/.cuttlefish` by default (or the same `CUTTLEFISH_HOME` used by every
+lifecycle command) and the default dashboard port is `8888`. Repeated restart
+requests coalesce while a detached restart is already in progress. The inherited
 `create`, `remove`, and `nuke` surfaces are disabled or limited so automation
 cannot silently create additional Cuttlefish instances.
 

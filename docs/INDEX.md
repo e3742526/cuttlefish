@@ -50,6 +50,11 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-20-live-playtest-defect-repair.md` and
+  `docs/logs/session/072026/2026-07-20-live-playtest-defect-repair.md`:
+  repair record for the six confirmed lifecycle, skills, cron, routing, and
+  CLI error-handling findings from the supplied live playtest report.
+
 - `docs/audits/072026/2026-07-16-full-audit-repair-campaign.md`:
   current-source full repository audit; records twelve confirmed P1–P3
   findings, their repair dispositions, final regression evidence, and explicit
