@@ -48,7 +48,7 @@ You've already installed the best agent CLIs. Cuttlefish turns that pile of term
 
 ```bash
 # 1. Install from source (the npm package and Homebrew formula are pending first publication)
-git clone https://github.com/e3742526/cuttlefish.git
+git clone https://github.com/cephalopod-ai/cuttlefish.git
 cd cuttlefish
 pnpm install
 pnpm setup        # builds all packages and initializes ~/.cuttlefish (probes your engines, writes config)
@@ -63,7 +63,7 @@ pnpm cuttlefish start
 
 Then open **[http://localhost:8888](http://localhost:8888)**, send your first message, and watch your COO delegate.
 
-> **Packaged installs.** `npm install -g cuttlefish-cli` and the Homebrew tap will be the one-line install paths once the package is published; until then, install from source as above. Each [GitHub Release](https://github.com/e3742526/cuttlefish/releases) also ships prebuilt `cuttlefish-cli-<version>-linux-x64.tar.gz` and `cuttlefish-cli-<version>-darwin-arm64.tar.gz` tarballs for a download-and-run install without `git clone`.
+> **Packaged installs.** `npm install -g cuttlefish-cli` and the Homebrew tap will be the one-line install paths once the package is published; until then, install from source as above. Each [GitHub Release](https://github.com/cephalopod-ai/cuttlefish/releases) also ships prebuilt `cuttlefish-cli-<version>-linux-x64.tar.gz` and `cuttlefish-cli-<version>-darwin-arm64.tar.gz` tarballs for a download-and-run install without `git clone`.
 
 > **`--version` ≠ signed in.** Cuttlefish drives the official engine CLIs, so authenticate each one *before* `cuttlefish start` (run `claude` → `/login`, run `codex` to sign in, etc.). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 
@@ -75,6 +75,10 @@ cuttlefish stop       # stop it
 cuttlefish restart    # restart safely (detached; works even from inside a session)
 cuttlefish status     # is the daemon running?
 ```
+
+Cuttlefish uses `~/.cuttlefish` by default. Set `CUTTLEFISH_HOME` to use a
+separate active home for lifecycle commands and `cuttlefish list`; concurrent
+restart requests coalesce while the detached handoff is in progress.
 
 ---
 
@@ -256,7 +260,9 @@ connectors:
   `webhook`, and `knowledge.readProvider.type` can stay `none` or use a generic
   `webhook` lookup provider.
 
-Everything is human-readable files you own - `cat` it, edit it, commit it.
+Everything is human-readable files you own - `cat` it, edit it, commit it. Set
+`CUTTLEFISH_HOME` before invoking the CLI to use an isolated runtime home;
+lifecycle commands and `cuttlefish list` use that same active home.
 
 ---
 
@@ -270,14 +276,14 @@ Cuttlefish is in active development. Shipped recently: the orchestration Command
 - **Platform** - npm/Homebrew package publication, installable plugins, REST API auth, multi-user roles, Docker image.
 - **Skills** - community marketplace, versioning, scaffolding templates.
 
-Want to suggest something? [Open an issue](https://github.com/e3742526/cuttlefish/issues).
+Want to suggest something? [Open an issue](https://github.com/cephalopod-ai/cuttlefish/issues).
 
 ---
 
 ## Development
 
 ```bash
-git clone https://github.com/e3742526/cuttlefish.git
+git clone https://github.com/cephalopod-ai/cuttlefish.git
 cd cuttlefish
 pnpm install
 pnpm setup   # one-time: builds all packages and creates ~/.cuttlefish

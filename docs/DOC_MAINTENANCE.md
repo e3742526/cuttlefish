@@ -18,8 +18,9 @@
 ## TODO Records
 
 - Do not preserve inherited upstream-era TODO ledgers as active Cuttlefish records.
-- Track new Cuttlefish TODOs only when they have current owners, evidence, and
-  exit criteria.
+- Track new Cuttlefish TODOs only when they have current ownership, evidence, and
+  exit criteria. Keep the active table open-only; move verified closures to
+  `docs/TODO_HISTORY.md` with their IDs and evidence.
 
 ## Test Ledger
 

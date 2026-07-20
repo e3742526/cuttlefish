@@ -22,6 +22,8 @@ artifacts unless explicitly published.
   exploratory user-facing test passes (derived from the `audit-playtest-app`
   baseline), plus per-surface scenario files under `docs/test_scenarios/`.
 - `docs/TODO_LEDGER.md`: current active documentation/governance TODO ledger.
+- `docs/TODO_HISTORY.md`: closed defects and completed TODOs with preserved
+  closure evidence.
 - `docs/DECISION_LOG.md`: accepted and deferred documentation/governance
   decisions.
 - `docs/DOC_MAINTENANCE.md`: documentation update contract for future changes.
@@ -54,6 +56,10 @@ artifacts unless explicitly published.
   `docs/logs/session/072026/2026-07-20-live-playtest-defect-repair.md`:
   repair record for the six confirmed lifecycle, skills, cron, routing, and
   CLI error-handling findings from the supplied live playtest report.
+- `docs/audits/072026/2026-07-20-documentation-stewardship.md` and
+  `docs/logs/session/072026/2026-07-20-documentation-stewardship.md`:
+  source-grounded documentation reconciliation, including the active-only TODO
+  ledger and the current weekly-schedule test failure.
 
 - `docs/audits/072026/2026-07-16-full-audit-repair-campaign.md`:
   current-source full repository audit; records twelve confirmed P1–P3
@@ -97,6 +103,21 @@ artifacts unless explicitly published.
   deferred and recorded in their corresponding Giles feature-ledger entries.
 
 ## Historical Design And Planning Archives
+
+## Historical Audit Baselines
+
+- `docs/cloud-audit/AUDIT-BASELINE-2026-06-30.md`
+- `docs/cloud-audit/AUDIT-SWEEP-2026-07-01.md`
+- `docs/cloud-audit/FORK-READINESS-2026-06-30.md`
+- `docs/cloud-audit/FULL-AUDIT-PLAYTEST-2026-07-10.md`
+- `docs/cloud-audit/PLAYTEST-THEME-2026-07-01.md`
+- `docs/cloud-audit/REPAIR-CAMPAIGN-2026-07-10.md`
+- `docs/cloud-audit/SECURITY-FINDINGS-2026-06-30.md`
+- `docs/cloud-audit/SECURITY-FINDINGS-audit-security-2026-07-02.md`
+- `docs/cloud-audit/SYSTEM-EVALUATION-2026-07-04.md`
+
+These are historical audit inputs. They retain their original observations and do
+not override the canonical operator documentation or the active TODO ledger.
 
 - `docs/plans/`: early Cuttlefish design, implementation, auth UX,
   security-hardening, and chat-redesign planning archives.

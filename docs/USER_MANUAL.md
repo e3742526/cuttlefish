@@ -73,12 +73,12 @@ cuttlefish unpair --json
 cuttlefish list
 ```
 
-Cuttlefish is single-instance on a local machine: the supported runtime home is
-`~/.cuttlefish` by default (or the same `CUTTLEFISH_HOME` used by every
-lifecycle command) and the default dashboard port is `8888`. Repeated restart
-requests coalesce while a detached restart is already in progress. The inherited
-`create`, `remove`, and `nuke` surfaces are disabled or limited so automation
-cannot silently create additional Cuttlefish instances.
+Cuttlefish supports one canonical instance name per active home. The supported
+runtime home is `~/.cuttlefish` by default (or the same `CUTTLEFISH_HOME` used
+by every lifecycle command) and the default dashboard port is `8888`. Repeated
+restart requests coalesce while a detached restart is already in progress. The
+inherited `create`, `remove`, and `nuke` surfaces are disabled or limited so
+automation cannot silently create additional named instances.
 
 ### Manage Skills
 
@@ -98,16 +98,21 @@ Routes are defined in `packages/web/src/main.tsx`:
 - `/kanban`: department boards and ticket dispatch
 - `/orchestration`: orchestration operations
 - `/cron`: scheduled jobs
-- `/logs`: runtime log inspection
+- `/activity`: runtime log inspection; `/logs` redirects here
 - `/limits`: usage/rate-limit visibility
 - `/org`: organization and employee configuration
 - `/settings`: gateway/engine/connector/email settings
 - `/skills`: local skill browsing and management
 - `/file`: file viewer
 
+Unknown client paths redirect to `/` so stale deep links recover to the primary
+chat workspace instead of leaving an empty dashboard shell.
+
 ## Configuration
 
-Cuttlefish reads instance configuration from the active Cuttlefish home, normally `~/.cuttlefish`.
+Cuttlefish reads instance configuration from the active Cuttlefish home, normally
+`~/.cuttlefish` or the path set by `CUTTLEFISH_HOME`. Lifecycle commands and
+`cuttlefish list` use that same active home.
 Engine CLIs keep their own authentication state. Cuttlefish does not replace engine
 sign-in flows; run each engine once and authenticate before routing work to it.
 

@@ -309,7 +309,7 @@ without a subcommand.
 | Subcommand | Notes |
 | --- | --- |
 | `cuttlefish status` | Shows daemon status; no mutations |
-| `cuttlefish list` | Lists the canonical Cuttlefish instance; no mutations except backfilling the default registry entry |
+| `cuttlefish list` | Lists the canonical Cuttlefish instance for the active `CUTTLEFISH_HOME`; no mutations except refreshing/backfilling the legacy registry entry |
 | `cuttlefish limits` | Shows engine rate limits; no mutations |
 | `cuttlefish workers list` | Inert worker config inspection |
 | `cuttlefish leases list` | Observe orchestration leases |
@@ -326,7 +326,7 @@ without a subcommand.
 | --- | --- |
 | `cuttlefish start` | Starts daemon process |
 | `cuttlefish stop` | Sends SIGTERM to daemon |
-| `cuttlefish restart` | Stops and starts daemon |
+| `cuttlefish restart` | Requests a detached stop/start handoff; concurrent requests coalesce behind the restart lock |
 | `cuttlefish startup enable\|disable` | Manages systemd user service |
 
 ### Data-mutating (registry, config, or skill state)

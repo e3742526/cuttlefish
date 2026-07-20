@@ -1,18 +1,18 @@
 # Cuttlefish
 
-> A lightweight AI gateway daemon that orchestrates professional AI coding CLIs — **Claude Code, Codex, Grok, Antigravity, Pi, Hermes, and Kiro** — behind one unified process. Cuttlefish is a bus, not a brain.
+> A lightweight AI gateway daemon that orchestrates professional AI coding CLIs — **Claude Code, Codex, Grok, Antigravity, Pi, Hermes, Kiro, Ollama, Kilo, and Aider** — behind one unified process. Cuttlefish is a bus, not a brain.
 
 [![npm version](https://img.shields.io/npm/v/cuttlefish-cli.svg)](https://www.npmjs.com/package/cuttlefish-cli)
-[![license: MIT](https://img.shields.io/npm/l/cuttlefish-cli.svg)](https://github.com/e3742526/cuttlefish)
-[![node](https://img.shields.io/node/v/cuttlefish-cli.svg)](https://github.com/e3742526/cuttlefish)
+[![license: MIT](https://img.shields.io/npm/l/cuttlefish-cli.svg)](https://github.com/cephalopod-ai/cuttlefish)
+[![node](https://img.shields.io/node/v/cuttlefish-cli.svg)](https://github.com/cephalopod-ai/cuttlefish)
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/e3742526/cuttlefish/main/assets/cuttlefish-showcase.gif" alt="Cuttlefish web dashboard" width="800" />
+  <img src="https://raw.githubusercontent.com/cephalopod-ai/cuttlefish/main/assets/cuttlefish-showcase.gif" alt="Cuttlefish web dashboard" width="800" />
 </p>
 
 ## What is Cuttlefish?
 
-Cuttlefish is an open-source AI gateway that wraps battle-tested AI coding CLIs — **Claude Code, Codex, Grok, Antigravity, Pi, Hermes, and Kiro** — behind a single daemon. It routes tasks to the right engine, runs a hierarchical org of AI "employees", schedules background work with cron, talks to your tools through connectors, and ships a full web dashboard and voice mode — all on top of the official CLIs you already trust.
+Cuttlefish is an open-source AI gateway that wraps battle-tested AI coding CLIs — **Claude Code, Codex, Grok, Antigravity, Pi, Hermes, Kiro, Ollama, Kilo, and Aider** — behind a single daemon. It routes tasks to the right engine, runs a hierarchical org of AI "employees", schedules background work with cron, talks to your tools through connectors, and ships a full web dashboard and voice mode — all on top of the official CLIs you already trust.
 
 **Cuttlefish is a bus, not a brain.** Most AI agent frameworks reinvent the wheel — custom tool-calling loops, brittle context management, hand-rolled retries — and bill you per token on top. Cuttlefish instead delegates to the professional CLIs and adds only what they're missing: routing, an org system, scheduling, connectors, and a UI.
 
@@ -27,22 +27,24 @@ Install at least one engine CLI first:
 - **Claude Code** — `npm install -g @anthropic-ai/claude-code`
 - **Codex** (optional) — `npm install -g @openai/codex`
 
-Then:
+Install from source (the npm package and Homebrew formula are not published yet):
 
 ```bash
-npm install -g cuttlefish-cli
-cuttlefish setup     # interactive first-run setup (name your portal, pick your engine)
-cuttlefish start     # start the gateway daemon + web dashboard
-```
-
-Or via Homebrew:
-
-```bash
-brew install cuttlefish
-cuttlefish setup && cuttlefish start
+git clone https://github.com/cephalopod-ai/cuttlefish.git
+cd cuttlefish
+pnpm install
+pnpm setup                 # build and initialize the Cuttlefish home
+pnpm cuttlefish start      # start the gateway daemon + web dashboard
 ```
 
 > Sign in to your engines once before `cuttlefish start` — run `claude` and use `/login` (and `codex` if installed).
+
+## Runtime home and lifecycle
+
+Cuttlefish uses `~/.cuttlefish` by default. Set `CUTTLEFISH_HOME` to use a
+separate active home; lifecycle commands and `cuttlefish list` use that same
+home. `cuttlefish restart` is detached so it can survive a gateway-session
+shutdown, and overlapping restart requests coalesce.
 
 ## ✨ Features
 
@@ -61,14 +63,14 @@ cuttlefish setup && cuttlefish start
 Full documentation, architecture notes, diagrams, and validation ledgers live in
 the repository:
 
-**→ https://github.com/e3742526/cuttlefish/blob/main/docs/INDEX.md**
+**→ https://github.com/cephalopod-ai/cuttlefish/blob/main/docs/INDEX.md**
 
 Cuttlefish is forked from [`repo-makeover/jinn`](https://github.com/repo-makeover/jinn), which is itself a substantial rework/fork of the original [`hristo2612/jinn`](https://github.com/hristo2612/jinn). The original project and direct fork remain the MIT-licensed lineage for this package.
 
 For the source-grounded fork delta, see:
 
-**→ https://github.com/e3742526/cuttlefish/blob/main/docs/UPSTREAM_DIFF_BASELINE.md**
+**→ https://github.com/cephalopod-ai/cuttlefish/blob/main/docs/UPSTREAM_DIFF_BASELINE.md**
 
 ## License
 
-[MIT](https://github.com/e3742526/cuttlefish)
+[MIT](https://github.com/cephalopod-ai/cuttlefish)

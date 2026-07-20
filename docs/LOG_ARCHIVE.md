@@ -15,7 +15,9 @@ trees unless a maintainer explicitly promotes a curated summary.
 Current local-only source paths:
 
 - Session details: `docs/logs/session/062026/`
+- Session details: `docs/logs/session/072026/`
 - Audit details: `docs/audits/` and `docs/audits/062026/`
+- Audit details: `docs/audits/072026/`
 - Giles generated compliance logs: `governance/logs/`
 - Runtime logs: `logs/`
 
@@ -26,3 +28,6 @@ Current local-only source paths:
 - If a raw log becomes important for public context, publish a curated summary or
   explicitly move that one log into a tracked docs location with maintainer
   approval.
+- The 2026-07-20 live-playtest repair and documentation-stewardship records are
+  indexed from `docs/INDEX.md`; their local detail remains intentionally
+  untracked.

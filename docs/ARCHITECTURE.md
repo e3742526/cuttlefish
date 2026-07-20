@@ -25,7 +25,10 @@ owning model reasoning.
 
 ## Data / Persistence Map
 
-- Instance home: `~/.cuttlefish`; local Cuttlefish is intentionally single-instance.
+- Instance home: `~/.cuttlefish` by default or the active `CUTTLEFISH_HOME`; local
+  Cuttlefish has one canonical instance name per active home. Lifecycle and
+  instance inspection resolve the same active home, and detached restart requests
+  coalesce behind a restart lock.
 - Config/org/skills/templates: initialized and migrated from package templates.
 - Sessions/messages/files/artifacts/queue/archive/approval state: SQLite-backed registry modules.
 - Optional external knowledge export state: SQLite-backed `external_outbox`
@@ -102,7 +105,9 @@ owning model reasoning.
 - Add orchestration controls through `orchestration-routes.ts`, web API helpers, and contract tests.
 - Add artifact workflows through `api/routes/artifacts.ts` while keeping file
   persistence semantics in `sessions/registry/files.ts`.
-- Add skills through the `cuttlefish skills` CLI and instance `skills.json`.
+- Add skills through the `cuttlefish skills` CLI and the active-home
+  `skills.json` manifest. The CLI accepts the seeded object-shaped manifest and
+  the legacy flat-array form.
 - Keep downstream program vocabulary, policy examples, and release semantics out
   of tracked generic source, templates, and operator docs; program-specific
   specialization belongs in external policy packs or historical/local planning

@@ -44,7 +44,8 @@
   - `/settings` for gateway, engine, connector, and feature configuration.
   - `/skills` for local skill browsing/management.
   - `/file` for file viewing.
-- There is no `/redesign` route registered in `main.tsx`.
+- A catch-all client route redirects unknown paths, including stale `/redesign`
+  links, to `/` rather than leaving an empty dashboard shell.
 
 ### Talk hook structure
 
@@ -242,6 +243,13 @@
   the same `"Interrupted:"` prefix convention. Operator-visible session state now
   correctly distinguishes unexpected crashes from normal completion.
 
+### Scheduled engine-exit status
+- `packages/cuttlefish/src/cron/runner.ts`
+- `packages/cuttlefish/src/gateway/run-web-session.ts`
+- A cron session whose engine exits with an interrupted raw result is recorded as an
+  error. Quiet preemption cleanup cannot erase that engine failure from the
+  operator-visible cron outcome.
+
 ### Settings orchestration controls
 - `packages/web/src/routes/settings/page.tsx`
 - `packages/web/src/routes/settings/settings-config-sections.tsx`
@@ -257,6 +265,20 @@
   and auto-ingest toggles.
 
 ## CLI
+
+### Lifecycle and skills resilience
+- `packages/cuttlefish/src/cli/instances.ts`
+- `packages/cuttlefish/src/cli/skills.ts`
+- `packages/cuttlefish/src/cli/start.ts`
+- `packages/cuttlefish/src/gateway/lifecycle.ts`
+- Lifecycle commands and `cuttlefish list` resolve the active
+  `CUTTLEFISH_HOME`, including a custom home, rather than displaying a stale
+  default-home registry entry.
+- Detached restart helpers are serialized by a restart lock, so repeated
+  `cuttlefish restart` requests coalesce. Configuration-load failures from
+  `cuttlefish start` are emitted as concise CLI errors.
+- The skills CLI reads the seeded object-shaped `skills.json` manifest and
+  remains compatible with legacy flat-array manifests.
 
 ### Provider-neutral matrix orchestration dry-runs and observe surfaces
 - `packages/cuttlefish/src/orchestration/*`
