@@ -143,6 +143,21 @@ describe("messages partial (mid-turn streaming) blocks", () => {
     expect(messagesModule.getQuarantinedMessages().some((m) => m.id === quarantined[0].id)).toBe(true);
   });
 
+  it("tracks the latest durable assistant or notification per session", () => {
+    newSession("attention-1");
+    const db = reg.initDb();
+    db.prepare("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)")
+      .run("attention-user", "attention-1", "user", "newer human text", 400);
+    db.prepare("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)")
+      .run("attention-assistant", "attention-1", "assistant", "agent reply", 100);
+    db.prepare("INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)")
+      .run("attention-notification", "attention-1", "notification", "agent notification", 200);
+    db.prepare("INSERT INTO messages (id, session_id, role, content, timestamp, partial) VALUES (?, ?, ?, ?, ?, 2)")
+      .run("attention-quarantined", "attention-1", "assistant", "crashed partial", 500);
+
+    expect(reg.listLatestAgentMessageTimestamps().get("attention-1")).toBe(200);
+  });
+
   it("persists structured block messages and applies patch/remove by block id", () => {
     newSession("block-1");
     reg.applyBlockEnvelope("block-1", {

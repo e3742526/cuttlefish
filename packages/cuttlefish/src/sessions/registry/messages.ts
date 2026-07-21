@@ -96,9 +96,9 @@ export function listLatestAgentMessageTimestamps(): Map<string, number> {
     SELECT session_id, MAX(timestamp) AS latest_timestamp
     FROM messages
     WHERE role IN ('assistant', 'notification')
-      AND (partial IS NULL OR partial != ?)
+      AND partial IS NULL
     GROUP BY session_id
-  `).all(PARTIAL_QUARANTINED) as Array<{ session_id: string; latest_timestamp: number }>;
+  `).all() as Array<{ session_id: string; latest_timestamp: number }>;
   return new Map(rows.map((row) => [row.session_id, row.latest_timestamp]));
 }
 

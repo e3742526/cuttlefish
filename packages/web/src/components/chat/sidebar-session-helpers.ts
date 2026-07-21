@@ -91,6 +91,23 @@ export function sortSessionsByActivity(sessions: Session[]): Session[] {
   return [...sessions].sort((a, b) => getSessionActivity(b).localeCompare(getSessionActivity(a)))
 }
 
+/** Apply per-session read watermarks to the legacy read-id set. A newer
+ * assistant/notification timestamp makes the session unread again. */
+export function resolveReadSessions(
+  sessions: Session[],
+  readSessions: Set<string>,
+  readWatermarks: Record<string, number>,
+): Set<string> {
+  const next = new Set(readSessions)
+  for (const session of sessions) {
+    if (!session.lastAgentMessageAt) continue
+    const latest = Date.parse(session.lastAgentMessageAt)
+    if (Number.isFinite(latest) && latest > (readWatermarks[session.id] ?? 0)) next.delete(session.id)
+    else next.add(session.id)
+  }
+  return next
+}
+
 /** Idle-but-busy: the session's turn ended but subagents/background tasks are
  *  still making API calls. Running/error status always wins over this. */
 export function hasBackgroundActivity(session: Pick<Session, "status" | "backgroundActivity">): boolean {
@@ -134,6 +151,10 @@ export function getStatusDot(
   if (session.jobState === "needs_attention" || session.status === "waiting") {
     return { color: "var(--system-orange)", label: "needs your attention", pulse: true }
   }
+  const unread = forceUnread || !readSet.has(session.id)
+  if (unread && session.lastAgentMessageAt) {
+    return { color: "var(--system-blue)", label: "new agent message", pulse: true }
+  }
   if (session.jobState === "working" || session.status === "running") {
     return { color: "var(--system-blue)", label: "work in progress", pulse: true }
   }
@@ -149,14 +170,18 @@ export function getStatusDot(
   }
   // Unread uses a NEUTRAL dot (not --accent): accent is user-set and may be red,
   // which would read like an error. Calm grey stays visible without alarming.
-  if (forceUnread || !readSet.has(session.id)) return { color: "var(--text-secondary)", label: "unread", pulse: false }
+  if (unread) return { color: "var(--text-secondary)", label: "unread", pulse: false }
   return null
 }
 
 /** Persistent text for delegated-job lifecycle states. Unlike the dot, this
  * remains understandable without relying on color or hover affordances. */
-export function getJobStateLabel(session: Pick<Session, "status" | "jobState">): string | null {
+export function getJobStateLabel(
+  session: Pick<Session, "status" | "jobState">,
+  hasNewAgentMessage = false,
+): string | null {
   if (session.jobState === "needs_attention" || session.status === "waiting") return "Needs your attention"
+  if (hasNewAgentMessage) return "New agent message"
   if (session.jobState === "working") return "Work in progress"
   if (session.jobState === "finished") return "Job finished"
   if (session.jobState === "failed") return "Job failed"

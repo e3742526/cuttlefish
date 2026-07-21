@@ -626,6 +626,27 @@
   internal `idle` lifecycle. The chat sidebar renders explicit lifecycle text
   and accessible status dots, including persistent "Needs your attention" and
   "Job finished" states.
+- Session API responses also expose `lastAgentMessageAt`, derived from the
+  latest durable assistant reply or notification. The chat sidebar compares
+  that timestamp with a browser-local per-session read watermark, so a later
+  agent message makes an already-read chat visibly unread again. It renders an
+  accessible pulsing `New agent message` indicator ahead of ordinary working or
+  finished lifecycle text; opening the chat acknowledges the latest message.
+  Live `session:notification` events refresh the session list so this does not
+  depend on a later completion event or page reload.
+- The chat sidebar's **All** view groups durable sessions under one expandable
+  row per agent. Expanding the row reveals the distinct chats; it does not merge
+  transcripts, parent relationships, or session-scoped authorization. Search,
+  Focused, and Rooms retain their purpose-specific session presentation.
+- Department Rooms currently provide a derived, read-only merged timeline over
+  existing sessions. Writable shared-room conversations, multi-recipient
+  `@mentions`, and indexed `#topics` are a proposed contract only: the current
+  session schema has no durable room membership/message-recipient model, so
+  ordinary chat text must not be treated as an authorization-bearing mention.
+- Informational agent-to-human communication does not require a Kanban ticket.
+  Approvals/checkpoints remain the durable surface when the agent is blocked on
+  a human action or decision; Kanban remains optional work tracking rather than
+  a prerequisite for operator visibility.
 - Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run or enforced delegation.
 - Manual live behavior can be sampled with `node packages/cuttlefish/scripts/delegation-live-harness.mjs --employee <manager-slug>` against a running gateway. The harness is not part of CI because it depends on live model behavior and local credentials.
 

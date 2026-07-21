@@ -11,13 +11,19 @@ The current source implements prompt-bound COO/Program Manager authority,
 direct-supervisor acknowledgement, direct-child result reads, COO message-only
 recovery, model allowlisting, and atomic approval resolution. It does **not**
 yet expose a general durable arbitration record or a source-grounded ordering
-for multiple supervisors in one shared conversation. Therefore:
+for multiple supervisors in one shared conversation. The All sidebar does group
+distinct chats into one expandable agent row, but Rooms remain derived read-only
+timelines rather than writable shared conversations. Therefore:
 
 - SA-01, SA-07–SA-12, and SA-18 include regressions for implemented controls.
-- Today, a durable checkpoint produces `needs_attention`, while an ordinary
-  agent notification is primarily a transcript message plus generic unread
-  state. SA-21–SA-25 specify the stronger, board-independent indicator contract
-  requested by the operator; missing semantic indicators are failures.
+- A durable checkpoint produces `needs_attention`; a later durable assistant
+  reply or notification produces a timestamp-aware `New agent message`
+  indicator. SA-21 is a regression for that board-independent signal.
+  SA-22–SA-25 specify stronger semantic urgency and multi-client convergence;
+  missing distinctions are failures rather than implicit product choices.
+- SA-26–SA-28 are regressions for the implemented agent-grouped sidebar. SA-29
+  and SA-30 specify the not-yet-implemented shared-room mention/topic contract;
+  plain transcript text is not currently an authorization-bearing `@mention`.
 - The remaining cards are acceptance tests for this operator-specified target
   policy. Treat absent arbitration, silent last-write-wins behavior, or two
   executed outcomes as **Fail**, not as an undocumented product choice.
@@ -312,3 +318,58 @@ collision. Never place a session token in the evidence report.
   3. Reconnect both clients, hard-refresh, and restart the daemon.
 - Expected: read state, replied state, and resolved state converge without double acknowledgements; a focused/open chat does not auto-clear a message the user has not actually seen under the documented rule; no resolved item remains falsely urgent.
 - Variations: offline tab reconnect, websocket event loss, browser-notification denial, and grouped-room versus flat-session view.
+
+### SA-26 — All view shows one expandable row per agent
+- Goal: repeated child tasks do not create a wall of identical top-level agent rows.
+- Category: navigation / regression
+- Preconditions: one agent has at least four durable sessions spanning two parents and two days; another agent has one session; All view selected.
+- Steps:
+  1. Refresh the session list and count top-level rows for each agent.
+  2. Select the repeated agent row, collapse it, and expand it again.
+  3. Refresh and restart the gateway, then repeat the count.
+- Expected: All shows exactly one top-level row per agent with the correct chat count; expanding reveals every loaded underlying session in activity order; collapse/expand state is stable under its documented persistence rule.
+- Observe: direct Cuttlefish chats and pinned agents obey the same single-row rule; scheduled jobs remain in their separate section.
+
+### SA-27 — Grouping never merges session or supervisor authority
+- Goal: visual consolidation cannot broaden transcript access or confuse the active task.
+- Category: authorization / navigation
+- Preconditions: two sessions under the same worker agent but different parent supervisors, unique codewords, and distinct session-scoped tokens.
+- Steps:
+  1. Expand the worker row and open each child session in turn.
+  2. Read and send with each child token; attempt to read the sibling with the other token.
+  3. Collapse the row, select the latest child, and inspect the displayed title, parent, transcript, and outgoing target.
+- Expected: both chats remain separately selectable and attributable; no transcript is concatenated; sibling-token access still fails; collapsed-row selection opens only the latest concrete session and sends only there.
+- Observe: unread, working, and needs-attention state aggregate visibly without changing which session owns the state.
+
+### SA-28 — Realtime refresh cannot duplicate an agent group
+- Goal: websocket invalidation, pagination, and optimistic updates do not reintroduce repeated top-level rows.
+- Category: concurrency / persistence
+- Preconditions: All view open; one agent with one loaded session; controllable session-create and notification events.
+- Steps:
+  1. Create three more sessions for that agent while concurrently emitting duplicate invalidation events.
+  2. Load more history, rename one child, pin the agent, and hard-refresh during the updates.
+  3. Compare durable session ids, the top-level agent-row count, chat badge, expansion list, and keyboard navigation order.
+- Expected: one top-level agent row remains; every unique session appears once when expanded; the count converges to server totals; pinning moves the group without cloning it; keyboard order contains no duplicate session id.
+- Variations: delete one child, partial bulk-delete failure, and a late completion notification for an older child.
+
+### SA-29 — Shared-room `@mentions` fan out only to durable members
+- Goal: a future writable room can notify one or many intended participants without spawning chats or leaking to outsiders.
+- Category: authorization / target contract
+- Preconditions: writable room fixture with human H, supervisor S, workers W1/W2, outsider X, and server-owned membership records; notifications observable.
+- Steps:
+  1. Send messages containing `@W1`, `@W1 @W2`, `@all`, an unknown handle, a display-name collision, and escaped/code-form mentions.
+  2. Have X forge `@S` text through a session outside the room and attempt to fetch room history.
+  3. Remove W2 from membership, mention W2 again, refresh, and replay the original message id.
+- Expected: one durable room message is created per send, not one new chat per recipient; only resolved active members receive deduplicated notifications; unknown/ambiguous mentions fail visibly; plain forged text grants no access or authority; replay is idempotent; removal follows the documented history/notification policy.
+- Observe: recipient resolution uses server-owned slugs/ids, never model-authored identity claims, and mention priority cannot outrank human/supervisor authority.
+
+### SA-30 — `#topics` organize room work without becoming authority
+- Goal: topics make a shared timeline navigable while remaining metadata rather than a privilege or routing bypass.
+- Category: navigation / authorization / target contract
+- Preconditions: writable room fixture; two authorized members; topic index/search UI; messages with `#incident-a`, `#incident-b`, mixed case, punctuation, Unicode, and code blocks.
+- Steps:
+  1. Post and filter messages by one and multiple topics; edit or delete a tagged message if supported.
+  2. Combine `@mentions` with topics and verify recipient notifications link back to the same room message and active topic filter.
+  3. Attempt to use a reserved-looking topic such as `#approval`, `#coo`, or `#urgent` to gain priority or decision authority.
+- Expected: normalized topics remain durably searchable across refresh/restart; false positives in URLs/code are handled by the documented parser; edits/deletes update the index coherently; hashtags never grant access, priority, approval, or delegated human authority.
+- Observe: notification badges coalesce by durable message id even when a message carries several mentions and topics.

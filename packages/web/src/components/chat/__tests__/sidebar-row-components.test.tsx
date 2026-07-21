@@ -109,4 +109,41 @@ describe("sidebar row components", () => {
     expect(rowButton).toBeTruthy()
     expect(rowButton?.contains(actionsButton)).toBe(false)
   })
+
+  it("renders an accessible new-agent-message indicator for an unread completed session", () => {
+    const session: Session = {
+      id: "s-agent-message",
+      title: "Delegated work",
+      source: "web",
+      sourceRef: "web:s-agent-message",
+      status: "idle",
+      jobState: "finished",
+      lastAgentMessageAt: "2026-07-20T20:00:00.000Z",
+      createdAt: "2026-07-20T19:00:00.000Z",
+      lastActivity: "2026-07-20T20:00:00.000Z",
+    }
+
+    render(
+      <SessionRow
+        session={session}
+        selectedId={null}
+        readSessions={new Set()}
+        pinnedSessions={new Set()}
+        renamingSessionId={null}
+        renameCancelledRef={{ current: false }}
+        fixTitle={(title) => title ?? "Untitled"}
+        onSelect={vi.fn()}
+        onEmployeeSessionsAvailable={vi.fn()}
+        togglePin={vi.fn()}
+        handleDuplicate={vi.fn()}
+        setArchiveTarget={vi.fn()}
+        setDeleteTarget={vi.fn()}
+        setRenamingSessionId={vi.fn()}
+        updateSessionTitle={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText("new agent message")).toBeTruthy()
+    expect(screen.getByText(/New agent message · Delegated work/)).toBeTruthy()
+  })
 })

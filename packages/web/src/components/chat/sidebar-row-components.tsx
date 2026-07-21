@@ -103,7 +103,10 @@ export const EmployeeRow = React.memo(function EmployeeRow({
   const hasUnread = empSessions.some(
     (session) => !readSessions.has(session.id) && session.status !== "running" && session.status !== "error",
   )
-  const empDot = getStatusDot(latestSession, readSessions, hasUnread)
+  const unreadAgentSession = empSessions.find(
+    (session) => Boolean(session.lastAgentMessageAt) && !readSessions.has(session.id),
+  )
+  const empDot = getStatusDot(unreadAgentSession ?? latestSession, readSessions, hasUnread)
 
   const sessionRowProps: SidebarSharedRowProps = {
     selectedId,
@@ -166,6 +169,10 @@ export const EmployeeRow = React.memo(function EmployeeRow({
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 overflow-hidden text-[11px] text-[var(--text-tertiary)]">
+                  {unreadAgentSession ? (
+                    <span className="shrink-0 font-medium text-[var(--system-blue)]">New agent message</span>
+                  ) : null}
+                  {unreadAgentSession && department ? <span aria-hidden="true">·</span> : null}
                   {department ? <span className="truncate">{department}</span> : null}
                   {sessionCount > 1 ? (
                     <span className="shrink-0 rounded bg-[var(--fill-tertiary)] px-1.5 py-0.5 text-[10px]">

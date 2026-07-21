@@ -96,6 +96,14 @@ describe("serializeSession", () => {
     expect(result.queueDepth).toBe(0);
     expect(result.transportState).toBe("running");
   });
+
+  it("exposes the latest agent communication timestamp for unread tracking", () => {
+    const timestamp = Date.parse("2026-07-20T20:15:00.000Z");
+    const result = serializeSession(makeSession(), makeContext(), "idle", timestamp);
+
+    expect(result.lastAgentMessageAt).toBe("2026-07-20T20:15:00.000Z");
+    expect(serializeSession(makeSession(), makeContext()).lastAgentMessageAt).toBeNull();
+  });
 });
 
 describe("isSessionLiveRunning", () => {

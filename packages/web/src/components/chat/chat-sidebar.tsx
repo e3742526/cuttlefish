@@ -35,6 +35,7 @@ import type { SidebarDeleteTarget, SidebarSharedRowProps } from "./sidebar-row-c
 import { useSidebarViewPreferences } from "./use-sidebar-view-preferences"
 import {
   getPinnedSessions,
+  getReadSessionWatermarks,
   getReadSessions,
   loadCollapsedState,
   loadExpandedState,
@@ -56,6 +57,7 @@ import {
   formatOlderLineLabel,
   VIRTUALIZE_THRESHOLD,
 } from "./sidebar-view-model"
+import { resolveReadSessions } from "./sidebar-session-helpers"
 
 export type { SidebarOrder } from "./sidebar-types"
 export {
@@ -125,6 +127,7 @@ export function ChatSidebar({
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const renameCancelledRef = useRef(false)
   const [readSessions, setReadSessions] = useState<Set<string>>(new Set())
+  const [readWatermarks, setReadWatermarks] = useState<Record<string, number>>({})
   const [pinnedSessions, setPinnedSessions] = useState<Set<string>>(new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
@@ -165,22 +168,36 @@ export function ChatSidebar({
   }, [sessions])
 
   useEffect(() => {
-    setReadSessions(getReadSessions())
+    const read = getReadSessions()
+    setReadSessions(read)
+    setReadWatermarks(getReadSessionWatermarks(read))
     setPinnedSessions(getPinnedSessions())
     setCollapsed(loadCollapsedState())
     setExpanded(loadExpandedState())
   }, [])
 
+  const selectedLastAgentMessageAt = useMemo(
+    () => sessions.find((session) => session.id === selectedId)?.lastAgentMessageAt ?? null,
+    [sessions, selectedId],
+  )
+
   useEffect(() => {
     if (selectedId) {
-      markSessionRead(selectedId)
+      const latestAgentMessageAt = selectedLastAgentMessageAt ? Date.parse(selectedLastAgentMessageAt) : Number.NaN
+      const readAt = Number.isFinite(latestAgentMessageAt) ? latestAgentMessageAt : Date.now()
+      markSessionRead(selectedId, readAt)
       setReadSessions((prev) => {
         const next = new Set(prev)
         next.add(selectedId)
         return next
       })
+      setReadWatermarks((prev) => ({ ...prev, [selectedId]: Math.max(prev[selectedId] ?? 0, readAt) }))
     }
-  }, [selectedId])
+  }, [selectedId, selectedLastAgentMessageAt])
+
+  const effectiveReadSessions = useMemo(() => {
+    return resolveReadSessions(sessions, readSessions, readWatermarks)
+  }, [readSessions, readWatermarks, sessions])
 
   useEffect(() => {
     if (searchOpen) searchInputRef.current?.focus()
@@ -237,10 +254,20 @@ export function ChatSidebar({
   }, [])
 
   const handleMarkAllRead = useCallback((employeeSessions: Session[]) => {
-    markAllReadForEmployee(employeeSessions)
+    const readAt = Date.now()
+    markAllReadForEmployee(employeeSessions, readAt)
     setReadSessions((prev) => {
       const next = new Set(prev)
       for (const session of employeeSessions) next.add(session.id)
+      return next
+    })
+    setReadWatermarks((prev) => {
+      const next = { ...prev }
+      for (const session of employeeSessions) {
+        const latestAgentMessageAt = session.lastAgentMessageAt ? Date.parse(session.lastAgentMessageAt) : Number.NaN
+        const sessionReadAt = Number.isFinite(latestAgentMessageAt) ? latestAgentMessageAt : readAt
+        next[session.id] = Math.max(next[session.id] ?? 0, sessionReadAt)
+      }
       return next
     })
   }, [])
@@ -422,7 +449,7 @@ export function ChatSidebar({
 
   const sharedRowProps = useMemo<SidebarSharedRowProps>(() => ({
     selectedId,
-    readSessions,
+    readSessions: effectiveReadSessions,
     pinnedSessions,
     renamingSessionId,
     renameCancelledRef,
@@ -437,7 +464,7 @@ export function ChatSidebar({
     updateSessionTitle,
   }), [
     selectedId,
-    readSessions,
+    effectiveReadSessions,
     pinnedSessions,
     renamingSessionId,
     fixTitle,
@@ -470,6 +497,8 @@ export function ChatSidebar({
     olderFocusedRows,
     olderPinned,
     olderUnpinned,
+    pinnedFlat,
+    unpinnedFlat,
     portalSlug,
     portalName,
     employeeData,
@@ -490,6 +519,8 @@ export function ChatSidebar({
     olderFocusedRows,
     olderPinned,
     olderUnpinned,
+    pinnedFlat,
+    unpinnedFlat,
     portalSlug,
     portalName,
     employeeData,

@@ -229,6 +229,8 @@ describe("sidebar view model", () => {
       olderFocusedRows: collections.olderFocusedRows,
       olderPinned: collections.olderPinned,
       olderUnpinned: collections.olderUnpinned,
+      pinnedFlat: collections.pinnedFlat,
+      unpinnedFlat: collections.unpinnedFlat,
       portalSlug: "cuttlefish",
       portalName: "Cuttlefish",
       employeeData,
@@ -246,5 +248,82 @@ describe("sidebar view model", () => {
   it("formats the older summary line with and without employee counts", () => {
     expect(formatOlderLineLabel({ chats: 1, employees: 0 })).toBe("Older · 1 chat")
     expect(formatOlderLineLabel({ chats: 4, employees: 2 })).toBe("Older · 4 chats across 2 employees")
+  })
+
+  it("renders one expandable agent row in All view instead of repeating recent child sessions", () => {
+    const collections = buildCollections({
+      sessions: [
+        makeSession("alice-child-1", { employee: "alice", parentSessionId: "manager-1", lastActivity: "2026-06-22T11:00:00.000Z" }),
+        makeSession("alice-child-2", { employee: "alice", parentSessionId: "manager-2", lastActivity: "2026-06-22T10:00:00.000Z" }),
+        makeSession("bob-child", { employee: "bob", parentSessionId: "manager-1", lastActivity: "2026-06-21T10:00:00.000Z" }),
+      ],
+      counts: { alice: 2, bob: 1 },
+      viewMode: "all",
+      now: new Date("2026-06-22T12:00:00.000Z"),
+    })
+
+    const items = buildVirtualItems({
+      searching: collections.searching,
+      searchRows: collections.searchRows,
+      viewMode: "all",
+      rooms: [],
+      expandedRooms: new Set(),
+      cronSessions: collections.cronSessions,
+      cronCollapsed: false,
+      sortedCron: collections.sortedCron,
+      cronTotal: collections.cronTotal,
+      todayRows: collections.todayRows,
+      yesterdayRows: collections.yesterdayRows,
+      olderSummary: collections.olderSummary,
+      olderExpanded: false,
+      olderFocusedRows: collections.olderFocusedRows,
+      olderPinned: collections.olderPinned,
+      olderUnpinned: collections.olderUnpinned,
+      pinnedFlat: collections.pinnedFlat,
+      unpinnedFlat: collections.unpinnedFlat,
+      portalSlug: "cuttlefish",
+      portalName: "Cuttlefish",
+      employeeData,
+    })
+
+    expect(items.map((item) => item.kind)).toEqual(["section", "employee", "employee"])
+    expect(items[0]).toEqual({ kind: "section", id: "agents", label: "Agents", count: 2 })
+    expect(items.slice(1).map((item) => item.kind === "employee" ? item.item.employeeName : null)).toEqual(["alice", "bob"])
+
+    const collapsed = buildSidebarOrder({
+      searching: false,
+      searchRows: [],
+      viewMode: "all",
+      rooms: [],
+      sortedCron: [],
+      pinnedFlat: collections.pinnedFlat,
+      unpinnedFlat: collections.unpinnedFlat,
+      todayRows: collections.todayRows,
+      yesterdayRows: collections.yesterdayRows,
+      olderExpanded: false,
+      olderFocusedRows: [],
+      olderPinned: [],
+      olderUnpinned: [],
+      expanded: {},
+    })
+    expect(collapsed.sessionIds).toEqual(["alice-child-1", "bob-child"])
+
+    const expanded = buildSidebarOrder({
+      searching: false,
+      searchRows: [],
+      viewMode: "all",
+      rooms: [],
+      sortedCron: [],
+      pinnedFlat: collections.pinnedFlat,
+      unpinnedFlat: collections.unpinnedFlat,
+      todayRows: collections.todayRows,
+      yesterdayRows: collections.yesterdayRows,
+      olderExpanded: false,
+      olderFocusedRows: [],
+      olderPinned: [],
+      olderUnpinned: [],
+      expanded: { alice: true },
+    })
+    expect(expanded.sessionIds).toEqual(["alice-child-1", "alice-child-2", "bob-child"])
   })
 })

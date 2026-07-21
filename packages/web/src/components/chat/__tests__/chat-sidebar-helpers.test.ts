@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getJobStateLabel, getStatusDot, hasBackgroundActivity, isDirectSession, isRecentError, resolveRowIdentity } from '../chat-sidebar'
+import { resolveReadSessions } from '../sidebar-session-helpers'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -80,6 +81,31 @@ describe('chat sidebar job lifecycle', () => {
     const item = session('finished')
     expect(getStatusDot(item, new Set([item.id]))).toMatchObject({ label: 'job finished', pulse: false })
     expect(getJobStateLabel(item)).toBe('Job finished')
+  })
+
+  it('shows a newer agent message ahead of terminal or working lifecycle state', () => {
+    const item = {
+      ...session('finished'),
+      lastAgentMessageAt: '2026-07-20T12:05:00Z',
+    }
+    expect(getStatusDot(item, new Set())).toMatchObject({ label: 'new agent message', pulse: true })
+    expect(getJobStateLabel(item, true)).toBe('New agent message')
+  })
+
+  it('makes a previously read session unread when a later agent message arrives', () => {
+    const item = {
+      ...session('finished'),
+      lastAgentMessageAt: '2026-07-20T12:05:00Z',
+    }
+    const before = resolveReadSessions([item], new Set([item.id]), {
+      [item.id]: Date.parse('2026-07-20T12:00:00Z'),
+    })
+    expect(before.has(item.id)).toBe(false)
+
+    const after = resolveReadSessions([item], new Set([item.id]), {
+      [item.id]: Date.parse('2026-07-20T12:05:00Z'),
+    })
+    expect(after.has(item.id)).toBe(true)
   })
 
   it('treats legacy waiting status as attention even before jobState arrives', () => {

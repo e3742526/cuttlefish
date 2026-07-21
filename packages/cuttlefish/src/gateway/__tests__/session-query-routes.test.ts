@@ -145,6 +145,8 @@ describe("session query routes", () => {
 
     const direct = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:default", prompt: "default" });
     reg.updateSession(direct.id, { title: "Default Session" });
+    reg.insertMessage(direct.id, "notification", "A delegated agent reported back.");
+    const notificationTimestamp = reg.getMessages(direct.id).at(-1)?.timestamp;
     reg.createSession({
       engine: "claude",
       source: "web",
@@ -160,7 +162,11 @@ describe("session query routes", () => {
     expect(cap.body).toEqual(
       expect.objectContaining({
         sessions: expect.arrayContaining([
-          expect.objectContaining({ id: direct.id, title: "Default Session" }),
+          expect.objectContaining({
+            id: direct.id,
+            title: "Default Session",
+            lastAgentMessageAt: new Date(notificationTimestamp!).toISOString(),
+          }),
         ]),
         counts: expect.any(Object),
         perGroup: 50,

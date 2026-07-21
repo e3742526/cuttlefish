@@ -185,7 +185,7 @@ export const SessionRow = React.memo(function SessionRow({
 }: SessionRowProps) {
   const sessionIsActive = session.id === selectedId
   const sessionDot = getStatusDot(session, readSessions)
-  const jobStateLabel = getJobStateLabel(session)
+  const jobStateLabel = getJobStateLabel(session, Boolean(session.lastAgentMessageAt && !readSessions.has(session.id)))
   const sessionTitle = fixTitle(session.title ?? undefined, session.employee ?? undefined)
   const displayTitle = cleanPreview(sessionTitle) || sessionTitle
   const sessionTime = formatTime(getSessionActivity(session))
@@ -331,7 +331,7 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
 }: FlatSessionRowProps) {
   const isActive = session.id === selectedId
   const dot = getStatusDot(session, readSessions)
-  const jobStateLabel = getJobStateLabel(session)
+  const jobStateLabel = getJobStateLabel(session, Boolean(session.lastAgentMessageAt && !readSessions.has(session.id)))
   const rawTitle = fixTitle(session.title ?? undefined, session.employee ?? undefined)
   const displayTitle = cleanPreview(rawTitle) || "Untitled"
   const time = formatTime(getSessionActivity(session))
@@ -444,6 +444,7 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
                         jobStateLabel === "Needs your attention" && "text-[var(--system-orange)]",
                         jobStateLabel === "Job finished" && "text-[var(--system-green)]",
                         jobStateLabel === "Job failed" && "text-[var(--system-red)]",
+                        jobStateLabel === "New agent message" && "text-[var(--system-blue)]",
                       )}
                     >
                       {jobStateLabel}

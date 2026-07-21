@@ -9,6 +9,7 @@ import type { Session } from "./sidebar-types"
 const COLLAPSE_STORAGE_KEY = "cuttlefish-sidebar-collapsed"
 const EXPANDED_STORAGE_KEY = "cuttlefish-sidebar-expanded"
 const PINNED_STORAGE_KEY = "cuttlefish-pinned-sessions"
+const READ_WATERMARKS_STORAGE_KEY = "cuttlefish-session-read-watermarks"
 // Which department rooms are EXPANDED (default: none — rooms collapse to a single
 // header so agents/sessions stop dominating the list; the room IS the nav unit,
 // its sessions are revealed on demand).
@@ -40,20 +41,71 @@ export function getReadSessions(): Set<string> {
   }
 }
 
-export function markSessionRead(id: string) {
+export type SessionReadWatermarks = Record<string, number>
+
+/** Timestamp-aware read state. Legacy read ids are migrated at the current
+ * time so existing sessions stay quiet until a genuinely newer agent message. */
+export function getReadSessionWatermarks(
+  legacyReadSessions = getReadSessions(),
+  now = Date.now(),
+): SessionReadWatermarks {
+  let watermarks: SessionReadWatermarks = {}
+  try {
+    const raw = localStorage.getItem(READ_WATERMARKS_STORAGE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      watermarks = Object.fromEntries(
+        Object.entries(parsed).filter((entry): entry is [string, number] =>
+          typeof entry[1] === "number" && Number.isFinite(entry[1]),
+        ),
+      )
+    }
+  } catch {}
+
+  let migrated = false
+  for (const id of legacyReadSessions) {
+    if (watermarks[id] === undefined) {
+      watermarks[id] = now
+      migrated = true
+    }
+  }
+  if (migrated) saveReadSessionWatermarks(watermarks)
+  return watermarks
+}
+
+function saveReadSessionWatermarks(watermarks: SessionReadWatermarks): void {
+  try {
+    const newest = Object.entries(watermarks)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 500)
+    localStorage.setItem(READ_WATERMARKS_STORAGE_KEY, JSON.stringify(Object.fromEntries(newest)))
+  } catch {}
+}
+
+export function markSessionRead(id: string, readAt = Date.now()) {
   const read = getReadSessions()
+  const watermarks = getReadSessionWatermarks(read, readAt)
   read.add(id)
   const arr = Array.from(read)
   if (arr.length > 500) arr.splice(0, arr.length - 500)
   localStorage.setItem("cuttlefish-read-sessions", JSON.stringify(arr))
+  watermarks[id] = Math.max(watermarks[id] ?? 0, readAt)
+  saveReadSessionWatermarks(watermarks)
 }
 
-export function markAllReadForEmployee(sessions: Session[]) {
+export function markAllReadForEmployee(sessions: Session[], readAt = Date.now()) {
   const read = getReadSessions()
+  const watermarks = getReadSessionWatermarks(read, readAt)
   for (const s of sessions) read.add(s.id)
   const arr = Array.from(read)
   if (arr.length > 500) arr.splice(0, arr.length - 500)
   localStorage.setItem("cuttlefish-read-sessions", JSON.stringify(arr))
+  for (const session of sessions) {
+    const latestAgentMessageAt = session.lastAgentMessageAt ? Date.parse(session.lastAgentMessageAt) : Number.NaN
+    const sessionReadAt = Number.isFinite(latestAgentMessageAt) ? latestAgentMessageAt : readAt
+    watermarks[session.id] = Math.max(watermarks[session.id] ?? 0, sessionReadAt)
+  }
+  saveReadSessionWatermarks(watermarks)
 }
 
 export function getPinnedSessions(): Set<string> {

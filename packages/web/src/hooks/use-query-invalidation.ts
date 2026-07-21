@@ -54,6 +54,7 @@ export function useQueryInvalidation() {
           return
         case 'session:completed':
         case 'session:error':
+        case 'session:notification':
           pendingRef.current.add('sessions')
           pendingRef.current.add('work')
           if (p?.sessionId) {

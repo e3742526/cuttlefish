@@ -218,6 +218,11 @@ When delegating a task with multiple independent phases or sub-tasks to an emplo
 ### Communication
 
 - Higher ranks can post tasks to lower ranks' boards.
+- Use an ordinary assistant reply or session notification for FYI, progress,
+  completion, and closure messages to the human; the chat sidebar gives newer
+  agent messages an unread indicator. Use an approval/checkpoint when work is
+  actually blocked on a human action or decision. A Kanban ticket is useful for
+  durable work tracking but is not required merely to make communication visible.
 - As an executive, you can see and modify every board in the organization.
 - `board.json` may be either a plain array of active tickets or an object
   `{ tickets, deletedTickets, retentionDays }`. Active tickets use the status

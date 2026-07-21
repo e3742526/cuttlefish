@@ -363,6 +363,24 @@ export function buildSidebarOrder({
     return { sessionIds, employeeNames, employeeSessionMap }
   }
 
+  if (viewMode === "all") {
+    for (const item of [...pinnedFlat, ...unpinnedFlat]) {
+      const ids = item.sessions!.map((session) => session.id)
+      if (expanded[item.employeeName!]) ids.forEach(push)
+      else if (ids.length > 0) push(ids[0])
+    }
+    for (const session of sortedCron) push(session.id)
+
+    const employeeNames = [...pinnedFlat, ...unpinnedFlat].map((item) => item.employeeName!)
+    const employeeSessionMap = Object.fromEntries(
+      [...pinnedFlat, ...unpinnedFlat].map((item) => [
+        item.employeeName!,
+        item.sessions!.map((session) => session.id),
+      ]),
+    )
+    return { sessionIds, employeeNames, employeeSessionMap }
+  }
+
   for (const row of todayRows) push(row.session.id)
   for (const row of yesterdayRows) push(row.session.id)
   if (olderExpanded) {
@@ -405,6 +423,8 @@ export function buildVirtualItems({
   olderFocusedRows,
   olderPinned,
   olderUnpinned,
+  pinnedFlat,
+  unpinnedFlat,
   portalSlug,
   portalName,
   employeeData,
@@ -425,6 +445,8 @@ export function buildVirtualItems({
   olderFocusedRows: FlatRow[]
   olderPinned: FlatItem[]
   olderUnpinned: FlatItem[]
+  pinnedFlat: FlatItem[]
+  unpinnedFlat: FlatItem[]
   portalSlug: string
   portalName: string
   employeeData: Map<string, Employee>
@@ -445,6 +467,22 @@ export function buildVirtualItems({
           list.push({ kind: "flat", row: { session, avatarName, avatar, emoji, displayName } })
         }
       }
+    }
+    if (cronSessions.length > 0) {
+      list.push({ kind: "cron-header" })
+      if (!cronCollapsed) {
+        for (const session of sortedCron) list.push({ kind: "cron-session", session })
+        if (cronSessions.length < cronTotal) list.push({ kind: "cron-more" })
+      }
+    }
+    return list
+  }
+
+  if (viewMode === "all") {
+    const agentItems = [...pinnedFlat, ...unpinnedFlat]
+    if (agentItems.length > 0) {
+      list.push({ kind: "section", id: "agents", label: "Agents", count: agentItems.length })
+      for (const item of agentItems) list.push({ kind: "employee", item })
     }
     if (cronSessions.length > 0) {
       list.push({ kind: "cron-header" })
