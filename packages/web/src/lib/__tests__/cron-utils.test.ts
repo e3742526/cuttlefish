@@ -20,10 +20,9 @@ describe("cron-utils timezone handling (TMP-CUT-004)", () => {
   it("converts a job's schedule from its configured timezone to browser-local, regardless of mocked browser zone", () => {
     // January: America/New_York is EST (UTC-5), no DST ambiguity.
     const referenceDate = new Date("2026-01-15T12:00:00Z");
-    mockBrowserTimezone("UTC");
 
     const slot = { hour: 9, minute: 0, days: [1] }; // 9:00 AM Monday, job-local
-    const result = convertSlotToLocalTime(slot, "America/New_York", referenceDate);
+    const result = convertSlotToLocalTime(slot, "America/New_York", referenceDate, "UTC");
 
     // 9:00 AM EST == 2:00 PM UTC, same day, no day shift.
     expect(result).toEqual({ hour: 14, minute: 0, days: [1] });
@@ -31,10 +30,9 @@ describe("cron-utils timezone handling (TMP-CUT-004)", () => {
 
   it("shifts the day when the timezone conversion crosses midnight", () => {
     const referenceDate = new Date("2026-01-15T12:00:00Z"); // EST, UTC-5
-    mockBrowserTimezone("UTC");
 
     const slot = { hour: 23, minute: 30, days: [1] }; // 11:30 PM Monday, job-local
-    const result = convertSlotToLocalTime(slot, "America/New_York", referenceDate);
+    const result = convertSlotToLocalTime(slot, "America/New_York", referenceDate, "UTC");
 
     // 11:30 PM EST == 4:30 AM UTC the next day -> Monday(1) shifts to Tuesday(2).
     expect(result).toEqual({ hour: 4, minute: 30, days: [2] });

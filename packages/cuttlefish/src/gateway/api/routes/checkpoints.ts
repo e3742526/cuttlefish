@@ -1,6 +1,6 @@
 import type { IncomingMessage as HttpRequest, ServerResponse } from "node:http";
 import type { ApprovalDecision } from "../../../shared/types.js";
-import { applyCheckpointDecision, createCheckpoint, getCheckpoint, listCheckpoints, parseCheckpointPayload } from "../../checkpoints.js";
+import { applyCheckpointDecision, CheckpointDecisionConflictError, createCheckpoint, getCheckpoint, listCheckpoints, parseCheckpointPayload } from "../../checkpoints.js";
 import type { ApiContext } from "../context.js";
 import { readJsonBody } from "../../http-helpers.js";
 import { matchRoute } from "../match-route.js";
@@ -125,8 +125,19 @@ export async function handleCheckpointRoutes(
       json(res, {
         checkpoint: resolved.checkpoint,
         ...(resolved.session ? { session: serializeSession(resolved.session, context) } : {}),
+        ...(resolved.idempotent ? { idempotent: true } : {}),
       });
     } catch (err) {
+      if (err instanceof CheckpointDecisionConflictError) {
+        json(res, {
+          error: err.message,
+          code: "checkpoint_decision_conflict",
+          requestedDecision: err.requestedDecision,
+          currentDecision: err.checkpoint.state,
+          checkpoint: err.checkpoint,
+        }, 409);
+        return true;
+      }
       if (err instanceof Error) {
         if (err.message.includes("resumePrompt is required") || err.message.includes("not available")) {
           json(res, { error: err.message }, 422);

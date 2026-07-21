@@ -120,11 +120,11 @@ function getTimezoneOffsetMinutes(date: Date, timeZone: string): number {
 export function convertSlotToLocalTime(
   slot: { hour: number; minute: number; days: number[] },
   jobTimezone: string | undefined,
-  referenceDate: Date = new Date()
+  referenceDate: Date = new Date(),
+  localZone: string = getBrowserTimezone(),
 ): { hour: number; minute: number; days: number[] } {
   if (!jobTimezone) return slot
 
-  const localZone = getBrowserTimezone()
   if (localZone === jobTimezone) return slot
 
   try {

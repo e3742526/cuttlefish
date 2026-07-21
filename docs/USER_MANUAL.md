@@ -92,6 +92,11 @@ cuttlefish skills list
 cuttlefish skills update
 ```
 
+`skills add` detects skills already installed in the selected Cuttlefish
+instance and reports that state without rerunning the global installer. If an
+installer exits nonzero but the requested skill is discovered and recorded,
+the command reports the successful final state and retains the installer detail.
+
 ### Use The Dashboard
 
 Routes are defined in `packages/web/src/main.tsx`:

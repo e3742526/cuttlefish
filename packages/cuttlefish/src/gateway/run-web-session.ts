@@ -1,6 +1,6 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
-import type { Engine, CuttlefishConfig, Session, StreamDelta } from "../shared/types.js";
+import type { Engine, EngineResult, CuttlefishConfig, Session, StreamDelta } from "../shared/types.js";
 import { isInterruptibleEngine } from "../shared/types.js";
 import { rungKey } from "../shared/model-escalation.js";
 import { resolveModelFallback } from "../shared/model-fallback.js";
@@ -10,7 +10,7 @@ import { createApproval } from "./approvals.js";
 import { isAutonomousVerdictSession } from "./autonomous-mode.js";
 import { buildContext } from "../sessions/context.js";
 import { buildContextPacket, contextManagerMode, logContextPacketMetadata } from "../sessions/context-manager/index.js";
-import { createSession, listChildSessions, getSession, updateSession, patchSessionTransportMeta, insertMessage, insertPartialMessage, updatePartialMessage, deletePartialMessages, finalizePartialMessages, getMessages } from "../sessions/registry.js";
+import { accumulateSessionCost, createSession, listChildSessions, getSession, updateSession, patchSessionTransportMeta, insertMessage, insertPartialMessage, updatePartialMessage, deletePartialMessages, finalizePartialMessages, getMessages } from "../sessions/registry.js";
 import { logger } from "../shared/logger.js";
 import { CUTTLEFISH_HOME } from "../shared/paths.js";
 import { resolveEffort } from "../shared/effort.js";
@@ -67,6 +67,19 @@ export function isEngineDiedNoOutput(options: {
     !options.hasPartialOutput &&
     /process exited/i.test(exitReason) &&
     (!options.result.trim() || rawResultIsInterrupt);
+}
+
+/**
+ * The web runner has three successful completion paths: its normal engine
+ * result plus rate-limit fallback and retry callbacks. Keep their accounting
+ * rule in one place so command-center usage cannot drift by completion path.
+ */
+export function recordSuccessfulWebSessionTurn(
+  sessionId: string,
+  result: Pick<EngineResult, "cost" | "numTurns" | "error">,
+): void {
+  if (result.error) return;
+  accumulateSessionCost(sessionId, result.cost ?? 0, result.numTurns ?? 1);
 }
 
 /**
@@ -755,6 +768,7 @@ export async function runWebSession(
               lastError: fallbackResult.error ?? null,
             });
             if (completedFallback) {
+              recordSuccessfulWebSessionTurn(completedFallback.id, fallbackResult);
               notifyParentSession(completedFallback, { result: fallbackResult.result, error: fallbackResult.error ?? null, cost: fallbackResult.cost, durationMs: fallbackResult.durationMs }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
               if (fallbackResult.result) {
                 void deliverConnectorReply(completedFallback, fallbackResult.result, context.connectors, { emit: context.emit }).catch((err) => {
@@ -820,6 +834,7 @@ export async function runWebSession(
             });
 
             if (completedAfterRetry) {
+              recordSuccessfulWebSessionTurn(completedAfterRetry.id, retryResult);
               notifyRateLimitResumed(completedAfterRetry, { sink: context.notificationSink });
               notifyConnectorNotification(
                 `✅ ${rateLimitSummary(sourceEngine)} cleared. Session ${currentSession.id}${currentSession.employee ? ` (${currentSession.employee})` : ""} resumed.`,
@@ -905,6 +920,7 @@ export async function runWebSession(
     clearSupersededTurnMeta(currentSession.id);
     const reportedError = quietPreempted ? null : (result.error ?? null);
     if (completedSession && !quietPreempted) {
+      recordSuccessfulWebSessionTurn(completedSession.id, result);
       notifyParentSession(completedSession, { result: result.result, error: reportedError, cost: result.cost, durationMs: result.durationMs }, { alwaysNotify: parentNotifyAlwaysNotify, sink: context.notificationSink });
     }
 

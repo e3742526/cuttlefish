@@ -13,6 +13,14 @@ function parsePortArg(value: string): number {
   return port;
 }
 
+function parsePositiveIntegerArg(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("value must be a positive integer");
+  }
+  return parsed;
+}
+
 program
   .name("cuttlefish")
   .description("Lightweight AI gateway daemon")
@@ -151,6 +159,309 @@ program
     const { runMigrate } = await import("../src/cli/migrate.js");
     await runMigrate(opts);
   });
+
+// Orchestration subcommands. Read-only inspection and dry-run commands require
+// an explicit config path; live commands remain opt-in through their named
+// action rather than becoming side effects of CLI startup.
+{
+  const workersCmd = program
+    .command("workers")
+    .description("Inspect configured orchestration workers");
+
+  workersCmd
+    .command("list")
+    .description("List workers from an explicit orchestration config directory")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { configDir: string; json?: boolean }) => {
+      const { runWorkersList } = await import("../src/cli/orchestration.js");
+      await runWorkersList(opts);
+    });
+}
+
+{
+  const schedulerCmd = program
+    .command("scheduler")
+    .description("Plan, simulate, and inspect orchestration scheduling");
+
+  schedulerCmd
+    .command("allocate <taskFile>")
+    .description("Validate an allocation as an inert dry-run")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .requiredOption("--dry-run", "Required safety guard; does not start a live worker")
+    .option("--json", "Print raw JSON")
+    .action(async (taskFile: string, opts: { configDir: string; dryRun?: boolean; json?: boolean }) => {
+      const { runSchedulerAllocate } = await import("../src/cli/orchestration.js");
+      await runSchedulerAllocate(taskFile, opts);
+    });
+
+  schedulerCmd
+    .command("simulate <scenarioFile>")
+    .description("Run an in-memory scheduler scenario")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .option("--json", "Print raw JSON")
+    .action(async (scenarioFile: string, opts: { configDir: string; json?: boolean }) => {
+      const { runSchedulerSimulate } = await import("../src/cli/orchestration.js");
+      await runSchedulerSimulate(scenarioFile, opts);
+    });
+
+  schedulerCmd
+    .command("plan <taskFile>")
+    .description("Create an observe-only allocation plan")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .option("--db-path <path>", "Optional scheduler database to observe")
+    .option("--json", "Print raw JSON")
+    .action(async (taskFile: string, opts: { configDir: string; dbPath?: string; json?: boolean }) => {
+      const { runSchedulerPlan } = await import("../src/cli/orchestration.js");
+      await runSchedulerPlan(taskFile, opts);
+    });
+
+  schedulerCmd
+    .command("stats")
+    .description("Summarize append-only orchestration telemetry")
+    .option("--path <file>", "Telemetry JSONL path")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { path?: string; json?: boolean }) => {
+      const { runSchedulerStats } = await import("../src/cli/orchestration.js");
+      await runSchedulerStats(opts);
+    });
+}
+
+{
+  const leasesCmd = program
+    .command("leases")
+    .description("Inspect durable orchestration leases");
+
+  leasesCmd
+    .command("list")
+    .description("List durable leases without creating scheduler state")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .option("--db-path <path>", "Scheduler database path")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { configDir: string; dbPath?: string; json?: boolean }) => {
+      const { runLeasesList } = await import("../src/cli/orchestration.js");
+      await runLeasesList(opts);
+    });
+}
+
+{
+  const queueCmd = program
+    .command("queue")
+    .description("Inspect and control orchestration queue items");
+
+  queueCmd
+    .command("list")
+    .description("List blocked queue items without creating scheduler state")
+    .requiredOption("--config-dir <dir>", "Directory containing orchestration YAML files")
+    .option("--db-path <path>", "Scheduler database path")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { configDir: string; dbPath?: string; json?: boolean }) => {
+      const { runQueueList } = await import("../src/cli/orchestration.js");
+      await runQueueList(opts);
+    });
+
+  queueCmd
+    .command("pause-task")
+    .description("Pause one queued task through the running gateway")
+    .requiredOption("--task-id <id>", "Task ID")
+    .requiredOption("--coordinator-id <id>", "Coordinator ID")
+    .option("--reason <text>", "Operator-visible pause reason")
+    .option("--manager-name <name>", "Manager authorizing the pause")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { taskId: string; coordinatorId: string; reason?: string; managerName?: string; json?: boolean }) => {
+      const { runQueuePauseTask } = await import("../src/cli/orchestration.js");
+      await runQueuePauseTask(opts);
+    });
+
+  queueCmd
+    .command("resume-task")
+    .description("Resume one queued task through the running gateway")
+    .requiredOption("--task-id <id>", "Task ID")
+    .requiredOption("--coordinator-id <id>", "Coordinator ID")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { taskId: string; coordinatorId: string; json?: boolean }) => {
+      const { runQueueResumeTask } = await import("../src/cli/orchestration.js");
+      await runQueueResumeTask(opts);
+    });
+}
+
+program
+  .command("run")
+  .description("Submit an opt-in live orchestration task to the running gateway")
+  .requiredOption("--mode <mode>", "Run mode")
+  .requiredOption("--task <file>", "Task YAML file")
+  .option("--json", "Print raw JSON")
+  .action(async (opts: { mode: string; task: string; json?: boolean }) => {
+    const { runOrchestrationRun } = await import("../src/cli/orchestration.js");
+    await runOrchestrationRun(opts);
+  });
+
+{
+  const dualLaneCmd = program
+    .command("dual-lane")
+    .description("Select or apply a completed dual-lane orchestration result");
+
+  for (const action of ["select", "apply"] as const) {
+    dualLaneCmd
+      .command(action)
+      .description(`${action === "select" ? "Select" : "Apply"} a dual-lane winner`)
+      .requiredOption("--task-id <id>", "Task ID")
+      .requiredOption("--coordinator-id <id>", "Coordinator ID")
+      .requiredOption("--winner <lane>", "Winning lane")
+      .option("--json", "Print raw JSON")
+      .action(async (opts: { taskId: string; coordinatorId: string; winner: string; json?: boolean }) => {
+        const { runDualLaneApply, runDualLaneSelect } = await import("../src/cli/orchestration.js");
+        if (action === "select") await runDualLaneSelect(opts);
+        else await runDualLaneApply(opts);
+      });
+  }
+}
+
+{
+  const holdsCmd = program
+    .command("holds")
+    .description("Manage TTL-bounded orchestration worker holds");
+
+  holdsCmd
+    .command("list")
+    .description("List active and historical holds")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const { runHoldsList } = await import("../src/cli/orchestration.js");
+      await runHoldsList(opts);
+    });
+
+  holdsCmd
+    .command("create")
+    .description("Create a manager-authorized worker hold")
+    .requiredOption("--manager-name <name>", "Manager authorizing the hold")
+    .option("--role <role...>", "Role(s) to hold")
+    .option("--worker-id <id...>", "Worker ID(s) to hold")
+    .option("--task-id <id>", "Optional task ID")
+    .option("--coordinator-id <id>", "Optional coordinator ID")
+    .option("--reason <text>", "Operator-visible reason")
+    .option("--ttl-ms <ms>", "Hold TTL in milliseconds", parsePositiveIntegerArg)
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { managerName: string; role?: string[]; workerId?: string[]; taskId?: string; coordinatorId?: string; reason?: string; ttlMs?: number; json?: boolean }) => {
+      const { runHoldsCreate } = await import("../src/cli/orchestration.js");
+      await runHoldsCreate(opts);
+    });
+
+  holdsCmd
+    .command("extend")
+    .description("Extend an existing manager-authorized hold")
+    .requiredOption("--hold-id <id>", "Hold ID")
+    .requiredOption("--manager-name <name>", "Manager authorizing the extension")
+    .requiredOption("--ttl-ms <ms>", "New TTL in milliseconds", parsePositiveIntegerArg)
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { holdId: string; managerName: string; ttlMs: number; json?: boolean }) => {
+      const { runHoldsExtend } = await import("../src/cli/orchestration.js");
+      await runHoldsExtend(opts);
+    });
+
+  holdsCmd
+    .command("cancel")
+    .description("Cancel an existing manager-authorized hold")
+    .requiredOption("--hold-id <id>", "Hold ID")
+    .requiredOption("--manager-name <name>", "Manager authorizing the cancellation")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { holdId: string; managerName: string; json?: boolean }) => {
+      const { runHoldsCancel } = await import("../src/cli/orchestration.js");
+      await runHoldsCancel(opts);
+    });
+}
+
+{
+  const artifactsCmd = program
+    .command("artifacts")
+    .description("Inspect dual-lane orchestration artifacts");
+
+  artifactsCmd
+    .command("view")
+    .description("View a raw diff, prompt, or output artifact")
+    .requiredOption("--task-id <id>", "Task ID")
+    .requiredOption("--coordinator-id <id>", "Coordinator ID")
+    .requiredOption("--kind <kind>", "Artifact kind: diff, prompt, or output")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { taskId: string; coordinatorId: string; kind: "diff" | "prompt" | "output"; json?: boolean }) => {
+      const { runArtifactsView } = await import("../src/cli/orchestration.js");
+      await runArtifactsView(opts);
+    });
+}
+
+{
+  const continuationsCmd = program
+    .command("continuations")
+    .description("Inspect and retry durable orchestration continuations");
+
+  continuationsCmd
+    .command("list")
+    .description("List continuations through the running gateway")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const { runContinuationsList } = await import("../src/cli/orchestration.js");
+      await runContinuationsList(opts);
+    });
+
+  continuationsCmd
+    .command("retry")
+    .description("Retry a failed continuation through the running gateway")
+    .requiredOption("--task-id <id>", "Task ID")
+    .requiredOption("--coordinator-id <id>", "Coordinator ID")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { taskId: string; coordinatorId: string; json?: boolean }) => {
+      const { runContinuationRetry } = await import("../src/cli/orchestration.js");
+      await runContinuationRetry(opts);
+    });
+}
+
+{
+  const recoveryCmd = program
+    .command("recovery")
+    .description("Inspect and requeue recovered orchestration continuations");
+
+  recoveryCmd
+    .command("notices")
+    .description("List corrupt-database recovery notices")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { json?: boolean }) => {
+      const { runRecoveryNotices } = await import("../src/cli/orchestration.js");
+      await runRecoveryNotices(opts);
+    });
+
+  recoveryCmd
+    .command("requeue")
+    .description("Requeue one recovered continuation in a paused state")
+    .requiredOption("--manifest <path>", "Recovery manifest path")
+    .requiredOption("--task-id <id>", "Task ID")
+    .requiredOption("--coordinator-id <id>", "Coordinator ID")
+    .requiredOption("--manager-name <name>", "Manager authorizing the requeue")
+    .option("--json", "Print raw JSON")
+    .action(async (opts: { manifest: string; taskId: string; coordinatorId: string; managerName: string; json?: boolean }) => {
+      const { runRecoveryRequeue } = await import("../src/cli/orchestration.js");
+      await runRecoveryRequeue(opts);
+    });
+}
+
+{
+  const worktreeCmd = program
+    .command("worktree")
+    .description("Create, inspect, and remove managed task worktrees");
+
+  for (const action of ["create", "diff", "cleanup"] as const) {
+    worktreeCmd
+      .command(`${action} <taskFile>`)
+      .description(`${action === "create" ? "Create" : action === "diff" ? "Show the diff for" : "Remove"} a managed task worktree`)
+      .option("--lane <name>", "Worktree lane", "implementation")
+      .option("--json", "Print raw JSON")
+      .action(async (taskFile: string, opts: { lane?: string; json?: boolean }) => {
+        const { runWorktreeCleanup, runWorktreeCreate, runWorktreeDiff } = await import("../src/cli/orchestration.js");
+        if (action === "create") await runWorktreeCreate(taskFile, opts);
+        else if (action === "diff") await runWorktreeDiff(taskFile, opts);
+        else await runWorktreeCleanup(taskFile, opts);
+      });
+  }
+}
 
 // Skills subcommands (cuttlefish skills find|add|remove|list|update|restore)
 {
