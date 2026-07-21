@@ -2,21 +2,22 @@
 
 | Path | Type | Status | Owner/Authority | Last Evidence | Action |
 |---|---|---|---|---|---|
-| `README.md` | public overview | canonical | maintainers | reconciled 2026-07-20 | Keep current; link durable docs and diagrams. |
+| `README.md` | public overview | canonical | maintainers | reconciled 2026-07-20 (added missing Kiro engine table row) | Keep current; link durable docs and diagrams. |
+| `CHANGELOG.md` | release/version history | canonical | maintainers | reconciled 2026-07-20 (cut `[Unreleased]` into `[0.1.0] - 2026-07-20`, the first real public release; annotated the historical `[0.1.0] - 2026-03-09` entry to avoid collision) | Was missing from this inventory; keep every release cut recorded here going forward, including the operator's own package-version bump for this release. |
 | `docs/INDEX.md` | docs index | canonical | `AGENTS.md` docs rules | reconciled 2026-07-20 | Keep aligned with tracked docs and local-record index entries. |
-| `docs/USER_MANUAL.md` | user manual | current | doc stewardship | reconciled 2026-07-20 | Maintain with CLI/UI changes. |
+| `docs/USER_MANUAL.md` | user manual | current | doc stewardship | reconciled 2026-07-20 (added missing `/command`, `/approvals`, `/archive` routes) | Maintain with CLI/UI changes. |
 | `docs/SPECIFICATION.md` | specification | current | doc stewardship | reconciled 2026-07-20 | Keep requirements source-grounded. |
 | `docs/ARCHITECTURE.md` | architecture | current | doc stewardship | reconciled 2026-07-20 | Update with gateway/runtime changes. |
 | `docs/IMPLEMENTATION_DIAGRAMS.md` | diagrams | current | doc stewardship + Mermaid policy | created 2026-06-25 | Keep diagrams simple and evidenced. |
-| `docs/TEST_LEDGER.md` | test evidence | current | CI + local validation | reconciled 2026-07-20 | Update after material test-suite changes. |
-| `docs/TODO_LEDGER.md` | active TODO ledger | current | doc stewardship | reconciled 2026-07-20 | Keep only active Cuttlefish items with source and exit criteria. |
+| `docs/TEST_LEDGER.md` | test evidence | current | CI + local validation | reconciled 2026-07-20 (added sidebar attention-legibility row) | Update after material test-suite changes. |
+| `docs/TODO_LEDGER.md` | active TODO ledger | current | doc stewardship | reconciled 2026-07-20 (added SB-CUT-001 needs-decision item) | Keep only active Cuttlefish items with source and exit criteria. |
 | `docs/TODO_HISTORY.md` | closure history | current | doc stewardship | created 2026-07-20 | Preserve completed Cuttlefish defects/TODOs and their closure evidence. |
-| `docs/DECISION_LOG.md` | decisions | current | maintainers | created 2026-06-25 | Add accepted/superseded decisions as they land. |
+| `docs/DECISION_LOG.md` | decisions | current | maintainers | reconciled 2026-07-20 (added DEC-20260720-002 v0.1.0 versioning reset) | Add accepted/superseded decisions as they land. |
 | `docs/DOC_MAINTENANCE.md` | docs maintenance contract | current | `AGENTS.md` docs rules | created 2026-06-25 | Follow before releases. |
 | `docs/STRUCTURE_COMPLIANCE.md` | structure report | current | repo contract + Giles | reconciled 2026-07-20 | Re-run after retention-policy changes or a Giles refresh. |
 | `docs/UPSTREAM_DIFF_BASELINE.md` | upstream diff report | current | git diff against configured upstream baseline | created 2026-06-25 | Refresh after upstream syncs or public release cuts. |
 | `docs/LOG_ARCHIVE.md` | log archive index | current | repo local-log convention | reconciled 2026-07-20 | Index local raw paths and Cuttlefish audit artifacts. |
-| `docs/feature_inventory.md` | feature/API inventory | current | documentation rules | reconciled 2026-07-20 | Keep current with public surfaces. |
+| `docs/feature_inventory.md` | feature/API inventory | current | documentation rules | reconciled 2026-07-20 (added sidebar attention-legibility bullets under Smart manager delegation discipline) | Keep current with public surfaces. |
 | `docs/test_scenarios/README.md` | playtest scenario library index | current | playtest / QA stewardship | extended 2026-07-20 | Keep file table and coverage checklist aligned with scenario cards. |
 | `docs/test_scenarios/PLAYTEST_EXECUTION.md` | playtest execution contract | current | playtest / QA stewardship | added 2026-07-20 | Use before every scenario pass; keep evidence statuses, isolation, cleanup, and reporting rules aligned with the cards and repo contract. |
 | `docs/test_scenarios/01-*.md` … `10-*.md` | core surface scenario cards | current | playtest / QA stewardship | baseline library | Do not silently rewrite executed cards mid-pass; add new files for new themes. |
@@ -40,4 +41,4 @@
 | `docs/audits/` | raw audit details | local-only | `AGENTS.md` audit retention | present on disk, ignored | Do not publish raw details unless explicitly selected. |
 | `docs/logs/` | raw session logs | local-only | `AGENTS.md` session retention | present on disk, ignored | Do not publish raw details unless explicitly selected. |
 | `.github/CONTRIBUTING.md` | contributor guide | current after patch | maintainers | updated 2026-06-25 | Keep Vite/gateway workflow accurate. |
-| `packages/cuttlefish/README.md` | npm package README | current | package maintainers | inspected 2026-06-25 | Keep synchronized with root README where useful. |
+| `packages/cuttlefish/README.md` | npm package README | current | package maintainers | reconciled 2026-07-20 (Features bullet was missing Ollama/Kilo/Aider present in its own tagline) | Keep synchronized with root README where useful. |

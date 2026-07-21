@@ -117,6 +117,7 @@ Cuttlefish detects whichever agent CLIs are on your `PATH` and makes them interc
 | **antigravity** | Antigravity CLI (`agy`) | see Antigravity docs | CLI (xterm) | - |
 | **pi** | Pi coding agent CLI | see Pi CLI docs | Chat | - |
 | **hermes** | NousResearch Hermes - open-source, model-agnostic agent | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash` | Chat (ACP streaming) · CLI (xterm view) | - |
+| **kiro** | Kiro headless CLI, with a local, estimated credit-usage gauge | see Kiro CLI docs | Chat (headless, no live terminal view) | configurable (`--effort`) |
 | **ollama** | Local Ollama CLI driving a pulled local model | install from [ollama.com](https://ollama.com/download), then `ollama pull <model>` | Chat | - |
 | **kilo** | Kilo Code CLI in autonomous terminal mode | `npm install -g @kilocode/cli` and run `kilo` once to `/connect` | Chat | - |
 | **aider** | [Aider](https://aider.chat) AI pair-programmer | `python -m pip install aider-install && aider-install` (or `pipx install aider-chat`), then set a provider API key | Chat · CLI (xterm) | - |

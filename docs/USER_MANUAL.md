@@ -98,7 +98,10 @@ Routes are defined in `packages/web/src/main.tsx`:
 
 - `/`: primary chat workspace
 - `/talk`: multi-agent talk sessions
+- `/command`: Orchestration Command Center overview dashboard
 - `/kanban`: department boards and ticket dispatch
+- `/approvals`: human approval/checkpoint queue
+- `/archive`: archived sessions
 - `/orchestration`: orchestration operations
 - `/cron`: scheduled jobs
 - `/activity`: runtime log inspection; `/logs` redirects here

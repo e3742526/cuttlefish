@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-20
+
+> The first real public release. `cuttlefish-cli` has never actually been
+> published (the npm registry has no `cuttlefish-cli` package to date), so
+> everything below through `0.23.4` was unpublished internal iteration under
+> an internal version counter. This cut consolidates that backlog — including
+> the chat sidebar attention-legibility repair below — under the version
+> number that will actually ship first.
+
+> Repaired three compounding bugs that made it hard to tell whether an agent
+> needs the operator versus is merely running or finished, reported directly
+> against the live chat sidebar. See
+> `.giles/feature-ledger/giles-ledger-0077-sidebar-attention-legibility-20260720.md`.
+
+### Bug Fixes
+- **Nested chat-sidebar rows (an expanded agent's individual chats) now
+  color-code their lifecycle text the same way top-level rows already did.**
+  A separate `SessionRow` component rendered "Needs your attention" / "Job
+  failed" / "Job finished" / "New agent message" in plain grey with no color,
+  unlike `FlatSessionRow`'s orange/red/green/blue treatment. Both now share
+  one `JOB_STATE_LABEL_COLOR_CLASS` lookup.
+- **A collapsed agent row's status dot no longer hides an older session that
+  still needs the operator.** It previously reflected only the most-recently-
+  active or first-unread session in the group; a new `getMostUrgentDot` scans
+  every session in the group and shows the single most urgent state.
+- **Department Rooms (the default sidebar view) now distinguish "actively
+  running" from "blocked on the operator."** `runningCount` previously lumped
+  both together into one generic badge; a new `needsAttentionCount` is
+  tracked and shown separately.
+- Added a persistent "N need you" badge in the sidebar header, visible
+  regardless of view mode or scroll position, that jumps to the first session
+  needing attention.
+
+### Tests
+- `chat-sidebar-helpers.test.ts`, `sidebar-row-components.test.tsx`,
+  `sidebar-list-surface.test.tsx`, `sidebar-view-model.test.ts`,
+  `grouping.test.ts`: coverage for the shared color-class lookup, the
+  most-urgent-dot aggregation (including a case that reproduces the old bug —
+  an older needs-attention session hidden behind a newer finished one), and
+  the room-level `needsAttentionCount`/`runningCount` split.
+
 > Defect repairs surfaced by an `audit-playtest-app` exploratory playtest of the
 > theme system introduced in the `signal-*`/`reef-*` theme commits. See
 > `docs/cloud-audit/PLAYTEST-THEME-2026-07-01.md`.
@@ -501,6 +542,12 @@
 - Claude engine now runs with `--dangerously-skip-permissions` - prevents sessions from hanging on tool approval prompts in headless mode
 
 ## [0.1.0] - 2026-03-09
+
+> **Historical note (2026-07-20):** despite the heading below, this was never
+> actually published — internal versioning continued past this point through
+> `0.23.4` without a real npm/GitHub release. The `[0.1.0] - 2026-07-20` entry
+> above this one is the actual first public release; treat this entry as
+> pre-launch/internal history, not a duplicate or a mistake.
 
 First release of the Cuttlefish AI gateway platform.
 

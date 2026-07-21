@@ -7,6 +7,8 @@ artifacts unless explicitly published.
 ## Current Operator Docs
 
 - `README.md`: public overview and install/use workflow.
+- `CHANGELOG.md`: release/version history; `[0.1.0] - 2026-07-20` is the first
+  real public release cut.
 - `docs/USER_MANUAL.md`
 - `docs/QDRANT_SETUP.md`: maintained user manual for setup, workflows,
   persistence, recovery, and troubleshooting.

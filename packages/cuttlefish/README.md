@@ -48,7 +48,7 @@ shutdown, and overlapping restart requests coalesce.
 
 ## ✨ Features
 
-- **Multi-engine** — Claude Code, Codex, Grok, Antigravity, Pi, Hermes, and Kiro behind one API; switch engine and model per task or per employee.
+- **Multi-engine** — Claude Code, Codex, Grok, Antigravity, Pi, Hermes, Kiro, Ollama, Kilo, and Aider behind one API; switch engine and model per task or per employee.
 - **AI org system** — hierarchical "employees" with personas, ranks, and departments. Delegate work down the tree; results flow back up through a COO.
 - **Cron & background jobs** — schedule recurring agent work and long-running tasks; review the output before it reaches you.
 - **Connectors** — Slack and more, so your agents can message, report, and act.
