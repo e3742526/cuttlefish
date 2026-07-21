@@ -3,7 +3,6 @@ import { AlertTriangle, Check, FileText, PauseCircle, ShieldQuestion, X } from '
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useApprovals, useApproveApproval, useRejectApproval } from '@/hooks/use-approvals'
-import { useApproveOrgChange, useRejectOrgChange } from '@/hooks/use-org-changes'
 import { useCheckpoints, useDecideCheckpoint } from '@/hooks/use-checkpoints'
 import type { Approval, ApprovalDecision, Checkpoint } from '@/lib/api'
 
@@ -67,8 +66,8 @@ function FallbackApprovalCard({ approval }: { approval: Approval }) {
 }
 
 function OrgChangeApprovalCard({ approval }: { approval: Approval }) {
-  const approve = useApproveOrgChange()
-  const reject = useRejectOrgChange()
+  const approve = useApproveApproval()
+  const reject = useRejectApproval()
   const busy = approve.isPending || reject.isPending
   const { changeRequestId, changeType, employeeName, riskLevel } = orgChangeSummary(approval.payload)
 
@@ -92,10 +91,10 @@ function OrgChangeApprovalCard({ approval }: { approval: Approval }) {
         </div>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button size="sm" disabled={busy} onClick={() => approve.mutate(changeRequestId)}>
+        <Button size="sm" disabled={busy} onClick={() => approve.mutate(approval.id)}>
           <Check className="size-3.5" /> Approve &amp; apply
         </Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={() => reject.mutate(changeRequestId)}>
+        <Button size="sm" variant="outline" disabled={busy} onClick={() => reject.mutate(approval.id)}>
           <X className="size-3.5" /> Reject
         </Button>
       </div>

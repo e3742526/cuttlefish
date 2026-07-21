@@ -465,12 +465,13 @@
   broader checkpoint model too.
 - A session-authenticated chat can submit an org-change proposal. The gateway
   binds its approval to that originating session, so the same pending decision
-  appears in the chat review card and the global Approvals queue. Approval,
-  rejection, and apply endpoints require an authenticated operator even on the
-  default loopback deployment. Ordinary chat prose and scoped agent tokens
-  cannot resolve their own changes. An explicitly authorized COO/Program
-  Manager may resolve the linked approval record, but direct org approve,
-  reject, and apply routes remain operator-only.
+  appears in the chat review card and the global Approvals queue. Both surfaces
+  resolve the linked approval record through `/api/approvals/:id/approve` and
+  `/api/approvals/:id/reject`; approval, rejection, and apply endpoints require
+  an authenticated operator even on the default loopback deployment. Ordinary
+  chat prose and scoped agent tokens cannot resolve their own changes. An
+  explicitly authorized COO/Program Manager may resolve the linked approval
+  record, but direct org approve, reject, and apply routes remain operator-only.
 - Human-delegated authority is fail-closed and turn-scoped. The directive must
   begin a direct human message (`/delegate-authority <scopes>` or the supported
   explicit “authorize/delegate/grant/give you … on my behalf” form), is bound to
