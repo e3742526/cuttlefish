@@ -9,6 +9,9 @@ artifacts unless explicitly published.
 - `README.md`: public overview and install/use workflow.
 - `CHANGELOG.md`: release/version history, including the failed `v0.1.0`
   pre-release and its non-installable status.
+- `docs/INSTALL.md`: operator install matrix (Windows / macOS / Linux; npm,
+  Homebrew, GitHub platform archives, source) including `scripts/install.ps1`
+  and `scripts/package-windows.ps1`.
 - `docs/RELEASING.md`: release contract for the npm package, GitHub platform
   archives, and Homebrew formula; documents the historical failed `v0.1.0`
   pre-release accurately.

@@ -23,10 +23,17 @@ try {
     cwd: packageDir,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // npm.cmd is a batch wrapper; without shell, execFileSync fails on Windows.
+    shell: process.platform === "win32",
   });
 } catch (error) {
-  const detail = error instanceof Error && "stderr" in error ? String(error.stderr) : String(error);
-  throw new Error(`npm pack --dry-run failed: ${detail}`);
+  const stderr = error instanceof Error && "stderr" in error ? error.stderr : undefined;
+  const stdout = error instanceof Error && "stdout" in error ? error.stdout : undefined;
+  const detail = [stderr, stdout, error instanceof Error ? error.message : String(error)]
+    .map((part) => (part == null ? "" : String(part).trim()))
+    .filter(Boolean)
+    .join("\n");
+  throw new Error(`npm pack --dry-run failed: ${detail || "(no output)"}`);
 }
 
 let pack;

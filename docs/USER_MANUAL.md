@@ -26,18 +26,20 @@ Antigravity, Pi, Hermes, and Kiro through a shared org/delegation model.
 
 ## Installation And Setup
 
+Canonical install instructions (Windows, macOS, Linux; npm, archives, source):
+**[INSTALL.md](INSTALL.md)**.
+
 1. Install Node.js 24.x. This repo pins Node 24.13.0 via `.nvmrc` and root tooling enforces `>=24 <25`.
 2. Install and sign in to at least one engine CLI.
-3. Install Cuttlefish from npm after a published release:
+3. Install Cuttlefish:
 
-```bash
-npm install -g cuttlefish-cli
-```
+   - **npm** (after a published release): `npm install -g cuttlefish-cli`
+   - **Windows** (source or release zip): `.\scripts\install.ps1 -FromSource -Force` or
+     `.\scripts\install.ps1 -FromRelease -Force` from a clone / downloaded script
+   - **Source** (all platforms, supported before npm publication): see the root
+     README / `INSTALL.md`
 
-   If `cuttlefish-cli` is not yet available on npm, use the source-install
-   path from the repository README instead.
-
-4. Initialize the local Cuttlefish home:
+4. Initialize the local Cuttlefish home (skipped automatically by `install.ps1` unless `-SkipSetup`):
 
 ```bash
 cuttlefish setup

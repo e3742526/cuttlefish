@@ -32,7 +32,16 @@ The release workflows deliberately run in this order:
    contract), and publishes with npm provenance.
 2. **Release Artifacts** runs only after that workflow succeeds. It builds the
    platform-specific production dependency trees and uploads the archives to
-   the existing GitHub Release.
+   the existing GitHub Release:
+
+   | Asset | Runner | Format |
+   |-------|--------|--------|
+   | `cuttlefish-cli-<ver>-linux-x64.tar.gz` | `ubuntu-latest` | tar.gz |
+   | `cuttlefish-cli-<ver>-darwin-arm64.tar.gz` | `macos-latest` | tar.gz |
+   | `cuttlefish-cli-<ver>-win32-x64.zip` | `windows-2022` | zip (+ `cuttlefish.cmd` launcher) |
+
+   Local dry-run on Windows (no GitHub upload): `.\scripts\package-windows.ps1`.
+   End-user Windows install: `.\scripts\install.ps1` (see [INSTALL.md](INSTALL.md)).
 3. **Bump Homebrew Formula** runs only after successful npm publication. It
    retrieves the published tarball with an HTTP failure check, calculates its
    SHA-256, and commits the formula update.

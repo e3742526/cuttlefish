@@ -22,12 +22,15 @@ Because Cuttlefish drives the **official Claude Code CLI** under the hood, it wo
 
 ## 🚀 Install
 
+**Node.js 24** (`>=24 <25`) is required. Full matrix (npm, Homebrew, GitHub
+archives, Windows): **[docs/INSTALL.md](https://github.com/cephalopod-ai/cuttlefish/blob/main/docs/INSTALL.md)**.
+
 Install at least one engine CLI first:
 
 - **Claude Code** — `npm install -g @anthropic-ai/claude-code`
 - **Codex** (optional) — `npm install -g @openai/codex`
 
-When installing from npm, use:
+### npm (after a published release)
 
 ```bash
 npm install -g cuttlefish-cli
@@ -35,8 +38,22 @@ cuttlefish setup
 cuttlefish start
 ```
 
-If you are using the repository before its first npm publication, install from
-source instead:
+### Windows
+
+```powershell
+# From a source checkout (supported today before npm publication):
+git clone https://github.com/cephalopod-ai/cuttlefish.git
+cd cuttlefish
+.\scripts\install.ps1 -FromSource -Force
+
+# After a GitHub Release with a win32-x64 asset:
+.\scripts\install.ps1 -FromRelease -Force
+```
+
+Build a local releasable zip: `.\scripts\package-windows.ps1` →
+`dist-release\cuttlefish-cli-<version>-win32-x64.zip`.
+
+### Source (all platforms)
 
 ```bash
 git clone https://github.com/cephalopod-ai/cuttlefish.git

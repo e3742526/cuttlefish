@@ -44,10 +44,14 @@ You've already installed the best agent CLIs. Cuttlefish turns that pile of term
 
 ## Quickstart
 
-> **Prerequisites:** Node.js **24** (the repo pins **24.13.0** via `.nvmrc` and root tooling enforces `>=24 <25`), **pnpm 10+**, and at least one agent CLI installed **and signed in** - Cuttlefish orchestrates them and can't run a session without one.
+> **Prerequisites:** Node.js **24** (the repo pins **24.13.0** via `.nvmrc` and root tooling enforces `>=24 <25`), and at least one agent CLI installed **and signed in**. Source installs also need **pnpm 10+**. Cuttlefish orchestrates engines and can't run a session without one.
+
+Full install matrix (npm, Homebrew, GitHub archives, Windows): **[`docs/INSTALL.md`](docs/INSTALL.md)**.
+
+### Source (works today on every platform)
 
 ```bash
-# 1. Install from source (the supported path until the first npm publication)
+# 1. Install from source
 git clone https://github.com/cephalopod-ai/cuttlefish.git
 cd cuttlefish
 pnpm install
@@ -61,9 +65,50 @@ claude            # run once, use /login, then quit
 pnpm cuttlefish start
 ```
 
+### Windows (PowerShell)
+
+```powershell
+# Node 24 on PATH first (winget install OpenJS.NodeJS.LTS, or portable zip from nodejs.org)
+git clone https://github.com/cephalopod-ai/cuttlefish.git
+cd cuttlefish
+.\scripts\install.ps1 -FromSource -Force   # build, install to %LOCALAPPDATA%\Programs\cuttlefish, PATH shim, setup
+# open a new terminal, then:
+cuttlefish start
+```
+
+To build a **releasable win32-x64 zip** locally (same layout CI attaches to GitHub Releases):
+
+```powershell
+.\scripts\package-windows.ps1
+# -> dist-release\cuttlefish-cli-<version>-win32-x64.zip
+```
+
+### Packaged installs (after a successful public release)
+
+```bash
+npm install -g cuttlefish-cli
+cuttlefish setup
+cuttlefish start
+```
+
+Each [GitHub Release](https://github.com/cephalopod-ai/cuttlefish/releases) that completes the release pipeline also ships prebuilt platform archives (native modules included for that OS/arch):
+
+| Asset | Platform |
+|-------|----------|
+| `cuttlefish-cli-<version>-linux-x64.tar.gz` | Linux x64 |
+| `cuttlefish-cli-<version>-darwin-arm64.tar.gz` | macOS Apple Silicon |
+| `cuttlefish-cli-<version>-win32-x64.zip` | Windows x64 |
+
+Windows zip install:
+
+```powershell
+.\scripts\install.ps1 -FromRelease -Force
+# or: .\scripts\install.ps1 -ArchivePath .\cuttlefish-cli-<version>-win32-x64.zip -Force
+```
+
 Then open **[http://localhost:8888](http://localhost:8888)**, send your first message, and watch your COO delegate.
 
-> **Package availability.** `cuttlefish-cli` is not yet available from npm, so source installation above is the supported path today. A release with a matching `v<version>` tag publishes the npm package first; only after that succeeds are platform archives and the Homebrew formula updated. See [`docs/RELEASING.md`](docs/RELEASING.md) for the maintainer release contract.
+> **Package availability.** `cuttlefish-cli` is not yet available from npm, so **source** (and the Windows `install.ps1` / `package-windows.ps1` path above) is the supported install today. A release with a matching `v<version>` tag publishes the npm package first; only after that succeeds are platform archives and the Homebrew formula updated. See [`docs/RELEASING.md`](docs/RELEASING.md) and [`docs/INSTALL.md`](docs/INSTALL.md).
 
 > **`--version` ≠ signed in.** Cuttlefish drives the official engine CLIs, so authenticate each one *before* `cuttlefish start` (run `claude` → `/login`, run `codex` to sign in, etc.). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 

@@ -5,6 +5,7 @@
 | `README.md` | public overview | canonical | maintainers | reconciled 2026-07-20 (added missing Kiro engine table row) | Keep current; link durable docs and diagrams. |
 | `CHANGELOG.md` | release/version history | canonical | maintainers | reconciled 2026-07-21: marks `v0.1.0` as a failed pre-release because its tag did not match the package version and nothing was published | Keep every release cut recorded here and distinguish a published package release from a failed pre-release. |
 | `docs/RELEASING.md` | release contract | canonical | maintainers | added 2026-07-21 | Use before publishing npm, GitHub archives, or the Homebrew formula. |
+| `docs/INSTALL.md` | operator install guide | canonical | operators | added 2026-07-21 | Windows/macOS/Linux install matrix; `install.ps1` / platform archives / source. |
 | `docs/INDEX.md` | docs index | canonical | `AGENTS.md` docs rules | reconciled 2026-07-20 | Keep aligned with tracked docs and local-record index entries. |
 | `docs/USER_MANUAL.md` | user manual | current | doc stewardship | reconciled 2026-07-20 (added missing `/command`, `/approvals`, `/archive` routes) | Maintain with CLI/UI changes. |
 | `docs/SPECIFICATION.md` | specification | current | doc stewardship | reconciled 2026-07-20 | Keep requirements source-grounded. |

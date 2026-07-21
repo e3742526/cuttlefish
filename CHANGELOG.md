@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Packaging
+- **Windows releasable install path.** `scripts/install.ps1` installs from source,
+  a local archive, or a GitHub Release `win32-x64` zip into
+  `%LOCALAPPDATA%\Programs\cuttlefish` with a PATH shim. `scripts/package-windows.ps1`
+  and the Windows leg of `release-artifacts.yml` produce a portable
+  `cuttlefish-cli-<ver>-win32-x64.zip` (classic npm `node_modules`, not pnpm
+  junctions) plus a `cuttlefish.cmd` launcher. Operator docs:
+  [`docs/INSTALL.md`](docs/INSTALL.md).
+- **`better-sqlite3` raised to `^12.6.2`** so Node 24 Windows prebuilds
+  (`NODE_MODULE_VERSION` 137) resolve without Visual Studio Build Tools when
+  prebuilds download successfully.
+
 ## [0.1.0] - 2026-07-20
 
 > Historical pre-release attempt. `cuttlefish-cli` was not published: the

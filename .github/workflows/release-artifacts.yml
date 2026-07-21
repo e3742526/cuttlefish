@@ -20,10 +20,13 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x64
+            archive_ext: tar.gz
           - os: macos-latest
             platform: darwin-arm64
+            archive_ext: tar.gz
           - os: windows-2022
             platform: win32-x64
+            archive_ext: zip
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -54,15 +57,80 @@ jobs:
         run: |
           VERSION="$(node -p "require('./packages/cuttlefish/package.json').version")"
           test "v${VERSION}" = "${RELEASE_TAG}"
-      - name: Assemble production-only package
+
+      # --- Unix: pnpm deploy is fine in-place; junctions are not relocated ---
+      - name: Assemble production-only package (Unix)
+        if: matrix.platform != 'win32-x64'
         run: pnpm --filter=cuttlefish-cli deploy --prod --legacy release/cuttlefish-cli
+
+      # --- Windows: classic npm node_modules so the zip is relocatable ---
+      - name: Assemble portable production package (Windows)
+        if: matrix.platform == 'win32-x64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $pkgSrc = "packages/cuttlefish"
+          $contractsSrc = "packages/contracts"
+          $staging = "release/cuttlefish-cli"
+          New-Item -ItemType Directory -Path $staging -Force | Out-Null
+          foreach ($item in @("LICENSE", "README.md", "dist", "template", "assets")) {
+            Copy-Item -Path (Join-Path $pkgSrc $item) -Destination (Join-Path $staging $item) -Recurse -Force
+          }
+          $vendorContracts = Join-Path $staging "vendor/contracts"
+          New-Item -ItemType Directory -Path $vendorContracts -Force | Out-Null
+          Copy-Item (Join-Path $contractsSrc "package.json") $vendorContracts
+          Copy-Item (Join-Path $contractsSrc "dist") (Join-Path $vendorContracts "dist") -Recurse -Force
+          $stagingPkg = Join-Path $staging "package.json"
+          $srcPkg = Join-Path $pkgSrc "package.json"
+          node --input-type=module -e @"
+import fs from 'node:fs';
+const pkg = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
+pkg.dependencies['@cuttlefish/contracts'] = 'file:./vendor/contracts';
+delete pkg.bundledDependencies;
+fs.writeFileSync(process.argv[2], JSON.stringify(pkg, null, 2) + '\n', 'utf8');
+"@ $srcPkg $stagingPkg
+          Push-Location $staging
+          $env:npm_config_ignore_scripts = "false"
+          npm install --omit=dev --no-fund --no-audit
+          if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+          $contractsLink = "node_modules/@cuttlefish/contracts"
+          if (Test-Path $contractsLink) {
+            $item = Get-Item $contractsLink -Force
+            if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+              cmd /c "rmdir `"$contractsLink`""
+              Copy-Item -Path "vendor/contracts" -Destination $contractsLink -Recurse -Force
+            }
+          }
+          node dist/bin/cuttlefish.js --version
+          node -e "import('chokidar').then(()=>console.log('chokidar-ok'))"
+          node -e "const D=require('better-sqlite3'); console.log('sqlite-ok', new D(':memory:').prepare('select 1 as n').get())"
+          Pop-Location
+          @'
+          @ECHO OFF
+          SETLOCAL
+          WHERE node >NUL 2>&1
+          IF ERRORLEVEL 1 (
+            ECHO cuttlefish: node is not on PATH. Install Node.js 24 first.
+            EXIT /B 1
+          )
+          node "%~dp0cuttlefish-cli\dist\bin\cuttlefish.js" %*
+          '@ | Set-Content -Path release/cuttlefish.cmd -Encoding ascii
+
       - name: Create archive
         id: package
         run: |
           VERSION="$(node -p "require('./packages/cuttlefish/package.json').version")"
-          ARCHIVE="cuttlefish-cli-${VERSION}-${{ matrix.platform }}.tar.gz"
-          tar -czf "$ARCHIVE" -C release cuttlefish-cli
+          PLATFORM="${{ matrix.platform }}"
+          EXT="${{ matrix.archive_ext }}"
+          ARCHIVE="cuttlefish-cli-${VERSION}-${PLATFORM}.${EXT}"
+          if [ "$EXT" = "zip" ]; then
+            (cd release && tar -a -cf "../$ARCHIVE" .)
+          else
+            tar -czf "$ARCHIVE" -C release .
+          fi
+          test -f "$ARCHIVE"
           echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          ls -lh "$ARCHIVE"
       - name: Upload release asset
         if: github.event_name == 'workflow_run'
         env:
