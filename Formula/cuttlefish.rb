@@ -1,8 +1,8 @@
 class Cuttlefish < Formula
   desc "Lightweight AI gateway daemon orchestrating Claude Code and Codex"
   homepage "https://github.com/e3742526/cuttlefish"
-  url "https://registry.npmjs.org/cuttlefish-cli/-/cuttlefish-cli-0.23.3.tgz"
-  sha256 "57eac4d0c1d2116585660653253ef76433635bc3192a040bae13e15f11bbef21"
+  url "https://registry.npmjs.org/cuttlefish-cli/-/cuttlefish-cli-0.1.0.tgz"
+  sha256 "c8d3eae160a892e32837db3dcae515e843e5383fef52b8141940c8bcf8b6d59f"
   license "MIT"
 
   livecheck do
