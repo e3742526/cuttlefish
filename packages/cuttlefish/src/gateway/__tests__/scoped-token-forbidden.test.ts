@@ -21,10 +21,10 @@ describe("scopedTokenForbidden — operator control plane", () => {
     expect(scopedTokenForbidden("DELETE", "/api/skills/playtest")).toBe(true);
   });
 
-  it("blocks human-oversight collections because handlers do not bind records to the token session", () => {
+  it("allows an own-session checkpoint proposal but blocks human-oversight reads and decisions", () => {
     expect(scopedTokenForbidden("POST", "/api/approvals/abc/approve")).toBe(true);
     expect(scopedTokenForbidden("POST", "/api/checkpoints/xyz/decision")).toBe(true);
-    expect(scopedTokenForbidden("POST", "/api/checkpoints")).toBe(true);
+    expect(scopedTokenForbidden("POST", "/api/checkpoints")).toBe(false);
     expect(scopedTokenForbidden("GET", "/api/approvals")).toBe(true);
     expect(scopedTokenForbidden("GET", "/api/checkpoints/xyz")).toBe(true);
   });

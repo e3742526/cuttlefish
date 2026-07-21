@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   formatTime,
+  getJobStateLabel,
   getSessionActivity,
   getStatusDot,
 } from "./sidebar-session-helpers"
@@ -184,6 +185,7 @@ export const SessionRow = React.memo(function SessionRow({
 }: SessionRowProps) {
   const sessionIsActive = session.id === selectedId
   const sessionDot = getStatusDot(session, readSessions)
+  const jobStateLabel = getJobStateLabel(session)
   const sessionTitle = fixTitle(session.title ?? undefined, session.employee ?? undefined)
   const displayTitle = cleanPreview(sessionTitle) || sessionTitle
   const sessionTime = formatTime(getSessionActivity(session))
@@ -282,7 +284,7 @@ export const SessionRow = React.memo(function SessionRow({
                 sessionIsActive ? "font-semibold text-foreground" : "text-[var(--text-secondary)]",
               )}
             >
-              {cleanPreview(sessionTitle) || "Untitled"}
+              {jobStateLabel ? `${jobStateLabel} · ` : ""}{cleanPreview(sessionTitle) || "Untitled"}
             </span>
           )}
           {isPinned ? (
@@ -329,6 +331,7 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
 }: FlatSessionRowProps) {
   const isActive = session.id === selectedId
   const dot = getStatusDot(session, readSessions)
+  const jobStateLabel = getJobStateLabel(session)
   const rawTitle = fixTitle(session.title ?? undefined, session.employee ?? undefined)
   const displayTitle = cleanPreview(rawTitle) || "Untitled"
   const time = formatTime(getSessionActivity(session))
@@ -432,7 +435,24 @@ export const FlatSessionRow = React.memo(function FlatSessionRow({
                 }}
               />
             ) : (
-              <div className="truncate text-[11px] text-[var(--text-tertiary)]">{displayTitle}</div>
+              <div className="flex min-w-0 items-center gap-1 truncate text-[11px] text-[var(--text-tertiary)]">
+                {jobStateLabel ? (
+                  <>
+                    <span
+                      className={cn(
+                        "shrink-0 font-medium",
+                        jobStateLabel === "Needs your attention" && "text-[var(--system-orange)]",
+                        jobStateLabel === "Job finished" && "text-[var(--system-green)]",
+                        jobStateLabel === "Job failed" && "text-[var(--system-red)]",
+                      )}
+                    >
+                      {jobStateLabel}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                  </>
+                ) : null}
+                <span className="truncate">{displayTitle}</span>
+              </div>
             )}
           </div>
         </button>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { hasBackgroundActivity, isDirectSession, isRecentError, resolveRowIdentity } from '../chat-sidebar'
+import { getJobStateLabel, getStatusDot, hasBackgroundActivity, isDirectSession, isRecentError, resolveRowIdentity } from '../chat-sidebar'
 
 afterEach(() => {
   vi.useRealTimers()
@@ -55,6 +55,37 @@ describe('chat sidebar background activity', () => {
         },
       }),
     ).toBe(true)
+  })
+})
+
+describe('chat sidebar job lifecycle', () => {
+  const session = (jobState: 'idle' | 'working' | 'needs_attention' | 'finished' | 'failed', status = 'idle') => ({
+    id: 'job-1',
+    status,
+    jobState,
+    source: 'web',
+    sourceRef: 'web:job-1',
+    engine: 'claude',
+    createdAt: '2026-07-20T12:00:00Z',
+    lastActivity: '2026-07-20T12:00:00Z',
+  }) as Parameters<typeof getStatusDot>[0]
+
+  it('gives operator attention precedence over unread state', () => {
+    const item = session('needs_attention')
+    expect(getStatusDot(item, new Set())).toMatchObject({ label: 'needs your attention', pulse: true })
+    expect(getJobStateLabel(item)).toBe('Needs your attention')
+  })
+
+  it('keeps finished delegated work visibly terminal', () => {
+    const item = session('finished')
+    expect(getStatusDot(item, new Set([item.id]))).toMatchObject({ label: 'job finished', pulse: false })
+    expect(getJobStateLabel(item)).toBe('Job finished')
+  })
+
+  it('treats legacy waiting status as attention even before jobState arrives', () => {
+    const item = session('idle', 'waiting')
+    expect(getStatusDot(item, new Set([item.id]))?.label).toBe('needs your attention')
+    expect(getJobStateLabel(item)).toBe('Needs your attention')
   })
 })
 

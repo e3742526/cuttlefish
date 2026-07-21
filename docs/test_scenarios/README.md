@@ -157,6 +157,7 @@ reproducible. Apply them to every card without duplicating them in each file:
 | [`16-autonomous-and-integrity.md`](16-autonomous-and-integrity.md) | autonomous authorization/dispatch, context selection, email claim recovery, artifact/knowledge integrity, local voice | Do the highest-risk trust boundaries fail closed, stay scoped, and remain observable? |
 | [`17-operations-and-data-lifecycle.md`](17-operations-and-data-lifecycle.md) | readiness, migration, home isolation, board retention/reconciliation, resource and transfer integrity, Kiro usage | Do operator-facing lifecycle and durable-data boundaries remain truthful through change and recovery? |
 | [`18-orchestration-control-plane.md`](18-orchestration-control-plane.md) | scheduler dry-runs, plans, live leases, queue controls, dual-lane apply, worktrees, recovery | Does the orchestration control plane stay inert when observing and exact when mutating? |
+| [`19-manager-handoff-attention-lifecycle.md`](19-manager-handoff-attention-lifecycle.md) | delegated handoff, supervisor acknowledgement, operator attention, aggregate job state | Can managers recover complete worker evidence, contact the right supervisor twice, surface real decisions, and show when nested work is finished? |
 
 ### Suggested pass shapes
 
@@ -171,9 +172,10 @@ reproducible. Apply them to every card without duplicating them in each file:
 | Trust & recovery | 16 (after 01, 02, 14) | Autonomous scope plus durable handoff and local-model failure boundaries |
 | Operations & data | 17 (after 01, 04, 09, 10) | Migration, readiness, retention, transfer, and durable-resource truth |
 | Orchestration control plane | 18 (after 01, 08, 12) | Scheduler/queue/lease/dual-lane/recovery semantics |
-| Full library | 01 → 18 numeric order | Release or major-regression playtest |
+| Manager handoff regression | 19 (after 02, 08, 13, 14) | Child-result visibility, acknowledgement timing, attention, delegated authority, and job completion |
+| Full library | 01 → 19 numeric order | Release or major-regression playtest |
 
-Files 11–18 deliberately deepen themes that appear lightly in 01–10 (for
+Files 11–19 deliberately deepen themes that appear lightly in 01–10 (for
 example `CH-03` model switch, `CH-08` rate limits, `ORG-06` delegation,
 `AP-01` gates, `ST-07` pairing). Prefer the deeper file when the pass is
 about that theme; do not edit older cards to remove overlap — record
@@ -210,3 +212,5 @@ scenario (or an explicit not-applicable/blocked note):
 - [ ] Retention/reconciliation boundary (ticket, lease, telemetry, or recovery record)
 - [ ] Orchestration observation is inert; mutation is explicit and attributable
 - [ ] Queue, lease, dual-lane, or recovery-manifest control-plane transition
+- [ ] Manager handoff lifecycle (full direct-child evidence, two supervisor contacts, bounded escalation)
+- [ ] Operator-attention and delegated-job terminal state visible in both API and UI

@@ -43,6 +43,7 @@ export { resolveStallLeaderName, resolveTurnStallWatchdogConfig, shouldNotifyLea
 import { isExecutionDepthBlocked } from "./employee-execution.js";
 import { createScopedSessionToken } from "./auth.js";
 import { prepareWebSessionRun } from "./web-session-preflight.js";
+import { isHumanDelegateRole, isHumanDelegationModelAllowed, operatorDelegationPromptHash, readOperatorDelegationScopesForTurn } from "../sessions/operator-delegation.js";
 
 export function resolveFallbackContinuationSession(
   updated: Session | undefined,
@@ -170,8 +171,15 @@ export async function runWebSession(
   if (enforcedDelegation) return;
 
   try {
+    const operatorDelegationScopes = isHumanDelegateRole(currentSession.employee, currentSession.source)
+      && isHumanDelegationModelAllowed(currentSession.engine, currentSession.model)
+      ? readOperatorDelegationScopesForTurn(currentSession, prompt)
+      : [];
     const scopedSessionToken = context.apiToken
-      ? createScopedSessionToken(currentSession.id, context.apiToken)
+      ? createScopedSessionToken(currentSession.id, context.apiToken, {
+          delegatedScopes: operatorDelegationScopes,
+          operatorDelegationId: operatorDelegationPromptHash(prompt),
+        })
       : undefined;
 
     const systemPrompt = buildContext({
@@ -184,6 +192,7 @@ export async function runWebSession(
       config,
       sessionId: currentSession.id,
       sessionToken: scopedSessionToken,
+      operatorDelegationScopes,
       hierarchy: orgHierarchy,
       voicePersona: currentSession.source === "talk" ? getOrchestratorPersona() : undefined,
       talkThreads:

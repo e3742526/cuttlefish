@@ -131,13 +131,34 @@ export function getStatusDot(
   readSet: Set<string>,
   forceUnread = false,
 ): StatusDotState | null {
-  if (session.status === "running") return { color: "var(--system-blue)", label: "running", pulse: true }
+  if (session.jobState === "needs_attention" || session.status === "waiting") {
+    return { color: "var(--system-orange)", label: "needs your attention", pulse: true }
+  }
+  if (session.jobState === "working" || session.status === "running") {
+    return { color: "var(--system-blue)", label: "work in progress", pulse: true }
+  }
+  if (session.jobState === "failed") {
+    return { color: "var(--system-red)", label: "job failed", pulse: false }
+  }
   if (isRecentError(session.status, getSessionActivity(session), Date.now())) {
     return { color: "var(--system-red)", label: "error", pulse: false }
   }
   if (hasBackgroundActivity(session)) return { color: "var(--system-orange)", label: "background work running", pulse: true }
+  if (session.jobState === "finished") {
+    return { color: "var(--system-green)", label: "job finished", pulse: false }
+  }
   // Unread uses a NEUTRAL dot (not --accent): accent is user-set and may be red,
   // which would read like an error. Calm grey stays visible without alarming.
   if (forceUnread || !readSet.has(session.id)) return { color: "var(--text-secondary)", label: "unread", pulse: false }
+  return null
+}
+
+/** Persistent text for delegated-job lifecycle states. Unlike the dot, this
+ * remains understandable without relying on color or hover affordances. */
+export function getJobStateLabel(session: Pick<Session, "status" | "jobState">): string | null {
+  if (session.jobState === "needs_attention" || session.status === "waiting") return "Needs your attention"
+  if (session.jobState === "working") return "Work in progress"
+  if (session.jobState === "finished") return "Job finished"
+  if (session.jobState === "failed") return "Job failed"
   return null
 }

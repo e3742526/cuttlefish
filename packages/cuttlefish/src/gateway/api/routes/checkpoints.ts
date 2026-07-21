@@ -7,6 +7,8 @@ import { matchRoute } from "../match-route.js";
 import { badRequest, json, notFound } from "../responses.js";
 import { serializeSession } from "../serialize-session.js";
 import { resolveUserHeader } from "../../connector-reply.js";
+import { principalBodySessionForbidden, type GatewayPrincipal } from "../../scoped-token.js";
+import { delegatedApprovalActor, isAuthorizedHumanDelegatePrincipal } from "../../manager-auth.js";
 
 function parseDecision(value: unknown): ApprovalDecision | null {
   return value === "approved" || value === "rejected" || value === "deferred" || value === "revised"
@@ -37,7 +39,13 @@ export async function handleCheckpointRoutes(
       return true;
     }
     const body = parsed.body as Record<string, unknown>;
-    const sessionId = typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : "";
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    const requestedSessionId = typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : "";
+    if (principalBodySessionForbidden(principal, requestedSessionId)) {
+      json(res, { error: "A session-scoped token can create a checkpoint only for its own session" }, 403);
+      return true;
+    }
+    const sessionId = principal?.kind === "session" ? principal.sessionId : requestedSessionId;
     if (!sessionId) {
       badRequest(res, "sessionId is required");
       return true;
@@ -93,7 +101,15 @@ export async function handleCheckpointRoutes(
       badRequest(res, "decision must be approved, rejected, deferred, or revised");
       return true;
     }
-    const actor = resolveUserHeader(req.headers, context.getConfig().gateway.userHeader) ?? null;
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    const requiredScopes = decision === "approved" ? ["approve", "decide"] as const : ["decide"] as const;
+    if (principal?.kind === "session" && !isAuthorizedHumanDelegatePrincipal(principal, [...requiredScopes])) {
+      json(res, { error: "This session does not have explicit delegated authority for that decision" }, 403);
+      return true;
+    }
+    const actor = principal?.kind === "session"
+      ? delegatedApprovalActor(principal)
+      : resolveUserHeader(req.headers, context.getConfig().gateway.userHeader) ?? null;
     try {
       const resolved = await applyCheckpointDecision(
         checkpoint.id,

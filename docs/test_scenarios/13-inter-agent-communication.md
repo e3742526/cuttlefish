@@ -6,6 +6,9 @@ service requests, mid-pair implementer↔reviewer loops, and the rules that
 stop scoped agent tokens from rewriting the bus. File `03` covers org
 CRUD and a core delegation happy path (`ORG-06`–`ORG-09`); this file
 stresses the *communication* seams those cards only touch.
+File `19` covers the deeper handoff lifecycle: direct-child result recovery,
+two-contact supervisor acknowledgement, background drain, synthesis generations,
+operator attention, and aggregate job completion.
 
 Feature anchors: manager child-session delegation and `manager_delegation`
 telemetry; `/talk` rehydration, dock dismiss tombstones, shared Talk

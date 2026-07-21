@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import { safeEqual } from "./auth-crypto.js";
+import type { OperatorDelegationScope } from "../sessions/operator-delegation.js";
 
 // ── Scoped session tokens ─────────────────────────────────────────────────────
 // Each session gets its own HMAC-signed token embedded in its system prompt.
@@ -14,18 +15,37 @@ import { safeEqual } from "./auth-crypto.js";
  * - `session` — an agent acting on behalf of one session, holding a scoped token.
  *               Restricted by scopedTokenForbidden.
  */
-export type GatewayPrincipal = { kind: "admin" } | { kind: "session"; sessionId: string };
+export type GatewayPrincipal = { kind: "admin" } | {
+  kind: "session";
+  sessionId: string;
+  delegatedScopes?: OperatorDelegationScope[];
+  /** Hash of the exact direct-human prompt that minted delegatedScopes. */
+  operatorDelegationId?: string;
+};
 
 const SCOPED_SESSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days (session lifetime)
+const DELEGATED_SESSION_TOKEN_TTL_MS = 2 * 60 * 60 * 1000;
 
-export function createScopedSessionToken(sessionId: string, secret: string, now = Date.now()): string {
-  const expiresAt = now + SCOPED_SESSION_TOKEN_TTL_MS;
-  const payload = `session:${sessionId}:${expiresAt}`;
+export function createScopedSessionToken(
+  sessionId: string,
+  secret: string,
+  nowOrOptions: number | { now?: number; delegatedScopes?: OperatorDelegationScope[]; operatorDelegationId?: string } = Date.now(),
+): string {
+  const now = typeof nowOrOptions === "number" ? nowOrOptions : (nowOrOptions.now ?? Date.now());
+  const delegatedScopes = typeof nowOrOptions === "number" ? [] : [...new Set(nowOrOptions.delegatedScopes ?? [])].sort();
+  const operatorDelegationId = typeof nowOrOptions === "number" ? undefined : nowOrOptions.operatorDelegationId;
+  if (delegatedScopes.length > 0 && !/^[a-f0-9]{64}$/.test(operatorDelegationId ?? "")) {
+    throw new Error("Delegated session tokens require the exact operator delegation prompt hash");
+  }
+  const expiresAt = now + (delegatedScopes.length > 0 ? DELEGATED_SESSION_TOKEN_TTL_MS : SCOPED_SESSION_TOKEN_TTL_MS);
+  const payload = delegatedScopes.length > 0
+    ? `session:${sessionId}:${expiresAt}:${delegatedScopes.join(",")}:${operatorDelegationId}`
+    : `session:${sessionId}:${expiresAt}`;
   const sig = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
   return `${payload}.${sig}`;
 }
 
-export function verifyScopedSessionToken(token: string, secret: string, now = Date.now()): string | null {
+export function verifyScopedSessionPrincipal(token: string, secret: string, now = Date.now()): Extract<GatewayPrincipal, { kind: "session" }> | null {
   try {
     if (!secret || !token.startsWith("session:")) return null;
     const lastDot = token.lastIndexOf(".");
@@ -33,15 +53,31 @@ export function verifyScopedSessionToken(token: string, secret: string, now = Da
     const payload = token.slice(0, lastDot);
     const sig = token.slice(lastDot + 1);
     const parts = payload.split(":");
-    if (parts.length !== 3 || parts[0] !== "session") return null;
+    if ((parts.length !== 3 && parts.length !== 5) || parts[0] !== "session") return null;
     const sessionId = parts[1];
     const expiresAt = Number(parts[2]);
     if (!sessionId || !Number.isFinite(expiresAt) || now > expiresAt) return null;
     const expected = crypto.createHmac("sha256", secret).update(payload).digest("base64url");
-    return safeEqual(sig, expected) ? sessionId : null;
+    if (!safeEqual(sig, expected)) return null;
+    const delegatedScopes = parts.length === 5
+      ? parts[3].split(",").filter((scope): scope is OperatorDelegationScope =>
+          scope === "approve" || scope === "decide" || scope === "plan" || scope === "act")
+      : [];
+    const operatorDelegationId = parts.length === 5 && /^[a-f0-9]{64}$/.test(parts[4]) ? parts[4] : undefined;
+    if (parts.length === 5 && (!operatorDelegationId || delegatedScopes.length === 0)) return null;
+    return {
+      kind: "session",
+      sessionId,
+      ...(delegatedScopes.length > 0 ? { delegatedScopes: [...new Set(delegatedScopes)] } : {}),
+      ...(operatorDelegationId ? { operatorDelegationId } : {}),
+    };
   } catch {
     return null;
   }
+}
+
+export function verifyScopedSessionToken(token: string, secret: string, now = Date.now()): string | null {
+  return verifyScopedSessionPrincipal(token, secret, now)?.sessionId ?? null;
 }
 
 /**
@@ -81,6 +117,10 @@ export function scopedTokenForbidden(method: string | undefined, rawPathname: st
   if (pathname === "/api/org/change-requests" && m === "POST") return false;
   // Org roster is readable; mutations (create/rename/rank/cliFlags/delete) are not.
   if ((pathname === "/api/org" || pathname.startsWith("/api/org/")) && m !== "GET") return true;
+  // A scoped chat may create a durable checkpoint for itself. The transport
+  // gate requires authenticated identity and the route binds the record to the
+  // token's session. Reading or resolving checkpoints remains operator-only.
+  if (pathname === "/api/checkpoints" && m === "POST") return false;
   // Human-oversight, scheduling, and orchestration reads are global collections;
   // unlike a per-session resource, these handlers have no owner binding. Deny
   // both reads and writes until an endpoint can prove it is scoped to this token.

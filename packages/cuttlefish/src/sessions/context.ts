@@ -6,6 +6,7 @@ import { gatewayBaseUrl } from "../gateway/gateway-info.js";
 import { INBOUND_MESSAGE_SAFETY_CONTEXT, isUntrustedSource } from "../sessions/untrusted-input.js";
 import { buildManagerDelegationDiscipline, resolveSupervisedNodes } from "./manager-delegation.js";
 import { describeGrokModelForOperator } from "../shared/grok-models.js";
+import type { OperatorDelegationScope } from "./operator-delegation.js";
 
 /**
  * Token budget strategy:
@@ -103,6 +104,8 @@ export function buildContext(opts: {
    * the agent can authenticate gateway API calls without holding the admin token.
    */
   sessionToken?: string;
+  /** Explicit, signed, turn-scoped authority granted by a direct human message. */
+  operatorDelegationScopes?: OperatorDelegationScope[];
 }): string {
   const maxChars = opts.config?.context?.maxChars ?? DEFAULT_MAX_CONTEXT_CHARS;
   const sections: Section[] = [];
@@ -192,6 +195,15 @@ export function buildContext(opts: {
     summary: "", // always included, no trimming
   });
 
+  if (opts.operatorDelegationScopes && opts.operatorDelegationScopes.length > 0) {
+    sections.push({
+      tier: Tier.ESSENTIAL,
+      marker: "## Human-delegated authority",
+      content: buildOperatorDelegationContext(opts.operatorDelegationScopes, gatewayUrl),
+      summary: "",
+    });
+  }
+
   // ── ESSENTIAL: Configuration awareness ──────────────────────
   if (opts.config) {
     sections.push({
@@ -224,7 +236,7 @@ export function buildContext(opts: {
 
   const employeeNode = opts.employee ? opts.hierarchy?.nodes[opts.employee.name] : undefined;
   const supervisedNodes = opts.employee ? resolveSupervisedNodes(opts.employee.name, opts.hierarchy, employeeNode) : [];
-  if (opts.employee && !noToolEmployee && supervisedNodes.length > 0) {
+  if (opts.employee && !noToolEmployee && (supervisedNodes.length > 0 || opts.employee.rank === "manager" || opts.employee.rank === "executive")) {
     const managerDelegation = buildManagerDelegationDiscipline(gatewayUrl, opts.employee, supervisedNodes);
     if (managerDelegation) {
       sections.push({
@@ -322,7 +334,7 @@ export function buildContext(opts: {
     sections.push({
       tier: Tier.STANDARD,
       marker: `## ${portalName} Gateway API`,
-      content: buildApiReference(gatewayUrl, portalName, opts.employee, supervisesCount, opts.sessionToken),
+      content: buildApiReference(gatewayUrl, portalName, opts.employee, supervisesCount, opts.sessionToken, opts.operatorDelegationScopes),
       summary: buildApiReferenceSummary(gatewayUrl, portalName, opts.employee, supervisesCount),
     });
   }
@@ -479,6 +491,20 @@ function buildSessionContext(opts: {
   ctx += `- User: ${opts.user}\n`;
   ctx += `- Working directory: ${opts.cwd || CUTTLEFISH_HOME}`;
   return ctx;
+}
+
+function buildOperatorDelegationContext(scopes: OperatorDelegationScope[], gatewayUrl: string): string {
+  const scopeText = scopes.join(", ");
+  const lines = [
+    `## Human-delegated authority`,
+    `The direct human operator explicitly delegated these scopes for this turn only: **${scopeText}**. Act within the task and constraints in that same message; do not generalize this grant to another turn, session, employee, or objective.`,
+    `This grant is valid only because this session is Cuttlefish (COO) or Program Manager on an allowed high-capability model. A model change outside GPT-5.5, GPT-5.6-sol, Opus 4.8, or Fable invalidates it.`,
+  ];
+  if (scopes.includes("approve") || scopes.includes("decide")) {
+    lines.push(`You may inspect and resolve approvals/checkpoints through \`${gatewayUrl}/api/approvals\` and \`${gatewayUrl}/api/checkpoints\` using the injected session token. The gateway records you as an operator delegate.`);
+  }
+  lines.push(`For destructive, financial, legal, credential, publication, or external-communication actions, stay within the operator's exact wording and surface ambiguity instead of expanding scope.`);
+  return lines.join("\n");
 }
 
 function buildConfigContext(config: CuttlefishConfig, gatewayUrl: string, sessionToken?: string): string {
@@ -792,6 +818,7 @@ function canUseChildSessionProtocol(employee?: Employee, directReportCount = 0):
 
 function buildApiReferenceSummary(gatewayUrl: string, portalName: string, employee?: Employee, directReportCount = 0): string {
   const header = `## ${portalName} Gateway API (${gatewayUrl})`;
+  const checkpointLine = `- If work cannot continue without an operator decision, create a durable checkpoint with \`POST ${gatewayUrl}/api/checkpoints\`; if the operator already delegated that decision, decide and continue instead.`;
   if (!canUseChildSessionProtocol(employee, directReportCount)) {
     return [
       header,
@@ -806,6 +833,7 @@ function buildApiReferenceSummary(gatewayUrl: string, portalName: string, employ
       `- Spawn a child session: \`POST ${gatewayUrl}/api/sessions\` with \`{prompt, employee?, parentSessionId}\``,
       `- Follow up on a child session: \`POST ${gatewayUrl}/api/sessions/:id/message\` with \`{message}\``,
       `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
+      checkpointLine,
       `- Do not delegate or route work to \`hr-manager\`; HR accepts direct top-level human-operator requests only.`,
     ].join("\n");
   }
@@ -814,20 +842,34 @@ function buildApiReferenceSummary(gatewayUrl: string, portalName: string, employ
     `- Delegate to another employee: \`POST ${gatewayUrl}/api/sessions\` with \`{prompt, employee, parentSessionId}\``,
     `- Follow up on a child session: \`POST ${gatewayUrl}/api/sessions/:id/message\` with \`{message}\``,
     `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
+    checkpointLine,
     `- Do not delegate or route work to \`hr-manager\`; HR accepts direct top-level human-operator requests only.`,
   ].join("\n");
 }
 
-function buildApiReference(gatewayUrl: string, portalName: string, employee?: Employee, directReportCount = 0, sessionToken?: string): string {
+function buildApiReference(
+  gatewayUrl: string,
+  portalName: string,
+  employee?: Employee,
+  directReportCount = 0,
+  sessionToken?: string,
+  operatorDelegationScopes?: OperatorDelegationScope[],
+): string {
   const header = `## ${portalName} Gateway API (base URL: ${gatewayUrl})`;
   const authLine = sessionToken
     ? `For session-scoped gateway calls, use \`Authorization: Bearer "$CUTTLEFISH_SESSION_TOKEN"\`. The gateway injects that credential into this engine process; never print, log, or place it in a message.`
     : `Privileged endpoints require local gateway auth; the web UI and built-in delegation tools handle this automatically.`;
   const attachmentsLine =
     `- Push a file/image into this chat (web view): \`curl -X POST ${gatewayUrl}/api/sessions/<your-session-id>/attachments -H 'Content-Type: application/json' -d '{"path":"/abs/path","text":"caption"}'\``;
+  const canResolveDelegatedDecision = operatorDelegationScopes?.includes("approve") || operatorDelegationScopes?.includes("decide");
   const orgApprovalLine = sessionToken
-    ? `- Propose an org change with \`POST ${gatewayUrl}/api/org/change-requests\` using the injected session credential. Its approval is then shown in this chat and in Approvals. Never call an approve, reject, or apply endpoint: chat text is not operator approval.`
+    ? canResolveDelegatedDecision
+      ? `- This turn carries explicit human-delegated decision authority. You may inspect and resolve approvals/checkpoints with the injected session credential, within the exact task scope. Direct org apply routes remain operator-only; resolve an org-change through its approval record.`
+      : `- Propose an org change with \`POST ${gatewayUrl}/api/org/change-requests\` using the injected session credential. Its approval is then shown in this chat and in Approvals. Never call an approve, reject, or apply endpoint: chat text is not operator approval.`
     : `- Org changes require an authenticated proposal and a separate operator approval in the dashboard.`;
+  const checkpointLine = sessionToken
+    ? `- If you genuinely cannot continue without an operator decision, create a durable checkpoint with \`POST ${gatewayUrl}/api/checkpoints\` using \`{decisionNeeded, why, options?, resumePrompt?}\` and the injected session credential. The gateway binds it to this session, pauses the chat, and surfaces it in Approvals. If the operator already authorized you to decide, decide and continue instead; do not create a checkpoint merely to narrate uncertainty.`
+    : `- Unresolved operator decisions should be recorded as durable checkpoints so they appear in this chat and in Approvals.`;
   if (!employee) {
     return [
       header,
@@ -838,6 +880,7 @@ function buildApiReference(gatewayUrl: string, portalName: string, employee?: Em
       `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
       `- Do not delegate or route work to \`hr-manager\`; HR accepts direct top-level human-operator requests only.`,
       orgApprovalLine,
+      checkpointLine,
       `- Valid \`employee\` values are the slugs in \`GET ${gatewayUrl}/api/org\` or \`ls ${ORG_DIR}/\``,
       attachmentsLine,
       `Full endpoint table: CLAUDE.md / AGENTS.md.`,
@@ -856,6 +899,7 @@ function buildApiReference(gatewayUrl: string, portalName: string, employee?: Em
       `- Read a child's latest replies: \`GET ${gatewayUrl}/api/sessions/:id?last=N\``,
       `- Do not delegate or route work to \`hr-manager\`; HR accepts direct top-level human-operator requests only.`,
       orgApprovalLine,
+      checkpointLine,
       `- Valid \`employee\` values are the slugs in your chain of command, \`GET ${gatewayUrl}/api/org\`, or \`ls ${ORG_DIR}/\``,
       attachmentsLine,
       `Full endpoint table: CLAUDE.md / AGENTS.md.`,
@@ -867,6 +911,7 @@ function buildApiReference(gatewayUrl: string, portalName: string, employee?: Em
     `Child-session delegation is unavailable because you do not currently supervise any reports in the org graph.`,
     `If that seems wrong, check the employee's \`reportsTo\` / manager wiring.`,
     orgApprovalLine,
+    checkpointLine,
     attachmentsLine,
     `Full endpoint table: CLAUDE.md / AGENTS.md.`,
   ].join("\n");

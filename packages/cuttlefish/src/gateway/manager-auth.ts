@@ -4,6 +4,7 @@ import { orgWorkerIdForName } from "./org-worker-bridge.js";
 import { resolveOrgHierarchy, withPortalExecutive } from "./org-hierarchy.js";
 import { HR_EMPLOYEE_NAME } from "./org-policy.js";
 import type { GatewayPrincipal } from "./auth.js";
+import { activeOperatorDelegationMatches, isHumanDelegateRole, isHumanDelegationModelAllowed, readActiveOperatorDelegationScopes, type OperatorDelegationScope } from "../sessions/operator-delegation.js";
 
 /**
  * HR / Org Steward is a human-operator-facing advisory lane, not a worker
@@ -77,6 +78,42 @@ export function isCooSession(
 ): boolean {
   const session = deps.getSession(sessionId);
   return Boolean(session && session.employee === null && session.source !== "talk");
+}
+
+/** Human-delegated authority is intentionally narrower than ordinary manager
+ * authority: only the virtual COO or the Program Manager, and only on the
+ * operator-approved high-capability model allowlist. */
+export function isHumanDelegationSessionEligible(
+  sessionId: string,
+  operatorDelegationId?: string,
+  deps: { getSession: typeof getSession } = { getSession },
+): boolean {
+  const session = deps.getSession(sessionId);
+  return Boolean(
+    session
+      && isHumanDelegateRole(session.employee, session.source)
+      && isHumanDelegationModelAllowed(session.engine, session.model)
+      && readActiveOperatorDelegationScopes(session).length > 0
+      && activeOperatorDelegationMatches(session, operatorDelegationId),
+  );
+}
+
+export function isAuthorizedHumanDelegatePrincipal(
+  principal: GatewayPrincipal | undefined,
+  requiredScopes: OperatorDelegationScope[],
+  deps: { getSession: typeof getSession } = { getSession },
+): principal is Extract<GatewayPrincipal, { kind: "session" }> {
+  if (principal?.kind !== "session" || !isHumanDelegationSessionEligible(principal.sessionId, principal.operatorDelegationId, deps)) return false;
+  return requiredScopes.some((scope) => principal.delegatedScopes?.includes(scope));
+}
+
+export function delegatedApprovalActor(
+  principal: Extract<GatewayPrincipal, { kind: "session" }>,
+  deps: { getSession: typeof getSession } = { getSession },
+): string {
+  const session = deps.getSession(principal.sessionId);
+  const role = session?.employee === "program-manager" ? "program-manager" : "cuttlefish-coo";
+  return `operator-delegate:${role}:${principal.sessionId}`;
 }
 
 /** Fields a manager-scoped employee update (PATCH with a `managerName` claim)

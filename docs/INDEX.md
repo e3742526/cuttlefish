@@ -24,7 +24,8 @@ artifacts unless explicitly published.
   (`01`–`10` core surfaces; `11` model selection/switching; `12` failover;
   `13` inter-agent communication; `14` authorization/approvals; `15`
   stress/adversarial load; `16` autonomous operation and integrity boundaries;
-  `17` operations/data lifecycle; `18` orchestration control-plane semantics).
+  `17` operations/data lifecycle; `18` orchestration control-plane semantics;
+  `19` manager handoff, operator-attention, and delegated-job completion).
 - `docs/TODO_LEDGER.md`: current active documentation/governance TODO ledger.
 - `docs/TODO_HISTORY.md`: closed defects and completed TODOs with preserved
   closure evidence.

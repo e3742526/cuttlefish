@@ -16,6 +16,7 @@ import {
   hasPendingQueueItemBefore,
   insertMessage,
   listChildSessions,
+  patchSessionTransportMeta,
   type UpdateSessionFields,
   updateSession,
 } from "../../../sessions/registry.js";
@@ -23,7 +24,7 @@ import { forkEngineSession } from "../../../sessions/fork.js";
 import { CUTTLEFISH_HOME, ORG_DIR } from "../../../shared/paths.js";
 import { getClaudeExpectedResetAt } from "../../../shared/usageAwareness.js";
 import { logger } from "../../../shared/logger.js";
-import { isInterruptibleEngine } from "../../../shared/types.js";
+import { isInterruptibleEngine, type CuttlefishConfig } from "../../../shared/types.js";
 import { clearTalkAttachments } from "../../../talk/attachments.js";
 import { maybeEmitTalkGraph } from "../../../talk/graph.js";
 import { clearTalkMuted } from "../../../talk/mute-state.js";
@@ -60,6 +61,16 @@ import { claimManagerDelegationSynthesis, markManagerDelegationSynthesisDispatch
 import { dispatchEmployeeSessionRun } from "../../mid-pair-orchestrator.js";
 import { buildWorkspaceProfilePrompt, resolveWorkspaceProfile, type ResolvedWorkspaceProfile } from "../../workspace-profiles.js";
 import { archiveSessionBoardTickets } from "../../board-service.js";
+import {
+  buildOperatorDelegationGrant,
+  isHumanDelegateRole,
+  isHumanDelegationModelAllowed,
+  parseOperatorDelegationScopes,
+} from "../../../sessions/operator-delegation.js";
+
+function configuredEngineModel(config: CuttlefishConfig, engine: string): string | undefined {
+  return (config.engines as unknown as Record<string, { model?: string } | undefined>)[engine]?.model;
+}
 
 function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -588,9 +599,28 @@ export async function handleSessionWriteRoutes(
       cwd = validatedCwd.cwd;
     }
     const engineName = selection.engine || config.engines.default;
+    const delegationModel = selection.model ?? configuredEngineModel(config, engineName);
     const singletonSessionKey = singletonEmployeeSessionKey(employeeName);
     const sessionKey = singletonSessionKey ?? `web:${Date.now()}`;
     const userId = resolveUserHeader(req.headers, config.gateway.userHeader);
+    const requestedDelegationScopes = parseOperatorDelegationScopes(prompt);
+    if (requestedDelegationScopes) {
+      if (principal?.kind === "session") {
+        json(res, { error: "Only a direct human operator message can delegate operator authority", code: "operator_delegation_human_only" }, 403);
+        return true;
+      }
+      if (!isHumanDelegateRole(employeeName, "web")) {
+        json(res, { error: "Human-delegated authority is limited to Cuttlefish (COO) and Program Manager", code: "operator_delegation_role_forbidden" }, 403);
+        return true;
+      }
+      if (!isHumanDelegationModelAllowed(engineName, delegationModel)) {
+        json(res, { error: "Human-delegated authority requires GPT-5.5, GPT-5.6-sol, Opus 4.8, or Fable", code: "operator_delegation_model_forbidden" }, 403);
+        return true;
+      }
+    }
+    const operatorDelegation = requestedDelegationScopes
+      ? buildOperatorDelegationGrant({ prompt: dispatchPrompt, scopes: requestedDelegationScopes, grantedBy: userId })
+      : undefined;
     const existingSingletonSession = singletonSessionKey ? getReusableHrSession() : undefined;
     const requestedHrProfile = existingSingletonSession
       ? {
@@ -632,18 +662,21 @@ export async function handleSessionWriteRoutes(
           employee: employeeName,
           parentSessionId: body.parentSessionId,
           effortLevel: selection.effortLevel,
-          model: selection.model,
+          model: operatorDelegation ? delegationModel : selection.model,
           prompt: dispatchPrompt,
           promptExcerpt: typeof body.promptExcerpt === "string" ? body.promptExcerpt : prompt,
           cwd,
           portalName: config.portal?.portalName,
-          transportMeta: workspaceProfile
+          transportMeta: workspaceProfile || operatorDelegation
             ? {
+                ...(operatorDelegation ? { operatorDelegation: operatorDelegation as any } : {}),
+                ...(workspaceProfile ? {
                 workspaceProfile: {
                   id: workspaceProfile.id,
                   label: workspaceProfile.label,
                   cwd: workspaceProfile.cwd ?? null,
                 },
+              } : {}),
               }
             : undefined,
         });
@@ -765,6 +798,34 @@ export async function handleSessionWriteRoutes(
         : prompt;
 
     const config = context.getConfig();
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    const requestedDelegationScopes = isNotification ? null : parseOperatorDelegationScopes(prompt);
+    if (requestedDelegationScopes) {
+      if (principal?.kind === "session") {
+        json(res, { error: "Only a direct human operator message can delegate operator authority", code: "operator_delegation_human_only" }, 403);
+        return true;
+      }
+      if (!isHumanDelegateRole(session.employee, session.source)) {
+        json(res, { error: "Human-delegated authority is limited to Cuttlefish (COO) and Program Manager", code: "operator_delegation_role_forbidden" }, 403);
+        return true;
+      }
+      const delegationModel = session.model ?? configuredEngineModel(config, session.engine);
+      if (!isHumanDelegationModelAllowed(session.engine, delegationModel)) {
+        json(res, { error: "Human-delegated authority requires GPT-5.5, GPT-5.6-sol, Opus 4.8, or Fable", code: "operator_delegation_model_forbidden" }, 403);
+        return true;
+      }
+      if (!session.model && delegationModel) {
+        session = updateSession(session.id, { model: delegationModel }) ?? session;
+      }
+      session = patchSessionTransportMeta(session.id, {
+        operatorDelegation: buildOperatorDelegationGrant({
+          prompt,
+          scopes: requestedDelegationScopes,
+          grantedBy: resolveUserHeader(req.headers, config.gateway.userHeader),
+        }) as any,
+      }) ?? session;
+      context.emit("session:updated", { sessionId: session.id });
+    }
     const ptyEngine = body.mode === "interactive" ? context.ptyViewEngines?.[session.engine] : undefined;
     const engine = ptyEngine ?? context.sessionManager.getEngine(session.engine);
     if (!engine) {

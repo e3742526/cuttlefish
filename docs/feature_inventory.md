@@ -435,6 +435,12 @@
   decision notes, and resulting action.
 - `POST /api/checkpoints` creates a checkpoint for a session and, by default,
   pauses the session in `waiting` with a visible notification trail.
+- A session-scoped agent can create a checkpoint only for its own authenticated
+  session; the gateway binds the checkpoint to that identity even when the body
+  omits `sessionId`. Agents still cannot read or resolve checkpoints. Runtime
+  guidance tells managers to use this only when an operator decision genuinely
+  blocks progress, and to decide and continue when the operator delegated that
+  authority.
 - `GET /api/checkpoints` and `GET /api/checkpoints/:id` expose the checkpoint
   queue and history.
 - `POST /api/checkpoints/:id/decision` records a human decision and either
@@ -600,6 +606,12 @@
 - Runtime execution can enforce a bounded initial-task split for a top-level manager before its model runs. It requires either an exact direct-report reference or at least two distinct specialist signals; one roster, department, or marker-like token cannot trigger a fan-out. A manager session that was itself delegated work always reads the complete bounded brief and delegates explicitly, preventing the gateway from reducing acceptance criteria to keyword fragments. Automatically created children receive only their bounded assignment and matched signals—never the manager's full prompt, prompt excerpt, attachments, or resource context. Later manager turns, including child callbacks, stay inline unless the manager explicitly delegates. Enforced runs record the prompt hash and expected child ids in `transportMeta`; final synthesis waits for every started child’s durable lifecycle, then takes a one-per-prompt claim and persists the dispatch marker so stale or overlapping callbacks cannot queue an additional synthesis turn.
 - A completed or failed child report contacts its direct supervisor first. If the report remains unacknowledged for `gateway.leaderAckTimeoutMs`, the gateway sends that same supervisor a second notice and starts a fresh timeout window. Executive or manual-review escalation occurs only after the second contact also goes unanswered; a supervisor reply after either contact acknowledges the handoff and prevents escalation.
 - Claude child turns do not report completion while their background-agent streams remain active. The gateway retains the latest callback until the engine's quiet-window signal confirms the background work has drained, then wakes the direct supervisor with the latest durable assistant result. A completed synthesis marker applies only to the child batch and generation it names, so it cannot suppress callbacks from a later child or a later turn of the same child.
+- Session API responses expose a derived `jobState` (`idle`, `working`,
+  `needs_attention`, `finished`, or `failed`) that aggregates nested child,
+  queue, and background activity without changing the reusable chat session's
+  internal `idle` lifecycle. The chat sidebar renders explicit lifecycle text
+  and accessible status dots, including persistent "Needs your attention" and
+  "Job finished" states.
 - Runtime execution logs a debug-only `manager_delegation` telemetry record for eligible manager sessions with child-session counts before and after the engine run or enforced delegation.
 - Manual live behavior can be sampled with `node packages/cuttlefish/scripts/delegation-live-harness.mjs --employee <manager-slug>` against a running gateway. The harness is not part of CI because it depends on live model behavior and local credentials.
 

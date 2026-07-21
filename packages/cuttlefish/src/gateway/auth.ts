@@ -12,6 +12,7 @@ export { createPtyAccessToken, verifyPtyAccessToken } from "./pty-auth.js";
 export {
   createScopedSessionToken,
   verifyScopedSessionToken,
+  verifyScopedSessionPrincipal,
   scopedTokenForbidden,
   scopedTokenChildDetailReadTarget,
   scopedTokenSessionMessageTarget,
@@ -24,7 +25,7 @@ export { createAuthToken };
 
 // Internal bindings: re-exports above do not create local scope, so symbols
 // auth.ts uses directly are imported here too.
-import { verifyScopedSessionToken } from "./scoped-token.js";
+import { verifyScopedSessionPrincipal } from "./scoped-token.js";
 import type { GatewayPrincipal } from "./scoped-token.js";
 
 export const AUTH_COOKIE = "cuttlefish_auth";
@@ -160,8 +161,8 @@ export function authenticateGatewayRequest(
   // Agent (session-scoped) auth: a per-session token signed with the gateway secret.
   const bearer = getBearerToken(req.headers as Record<string, string | string[] | undefined>);
   if (bearer) {
-    const sessionId = verifyScopedSessionToken(bearer, expectedToken);
-    if (sessionId) return { ok: true, principal: { kind: "session", sessionId } };
+    const principal = verifyScopedSessionPrincipal(bearer, expectedToken);
+    if (principal) return { ok: true, principal };
   }
   return { ok: false, reason: "Missing or invalid gateway auth token" };
 }

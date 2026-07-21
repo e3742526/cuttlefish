@@ -13,6 +13,7 @@ import {
   listPendingQueueItems,
   listAllPendingQueueItems,
   listSessions,
+  patchSessionTransportMeta,
   updateSession,
   type QueueItem,
 } from "../../sessions/registry.js";
@@ -23,6 +24,7 @@ import { maybeEmitTalkGraph } from "../../talk/graph.js";
 import { claimManagerDelegationSynthesis, markManagerDelegationSynthesisDispatched } from "../../sessions/manager-delegation.js";
 import { runWebSession } from "../run-web-session.js";
 import type { ApiContext } from "./context.js";
+import { expireOperatorDelegationForPrompt } from "../../sessions/operator-delegation.js";
 
 export function killSessionEngines(context: ApiContext, session: Session, reason: string): { interruptible: number; killed: number } {
   const engines = new Set<Engine>();
@@ -286,6 +288,12 @@ export function dispatchWebSessionRun(
         await runWebSession(session, prompt, engine, config, context, opts?.attachments, opts?.resourceContext);
       }, opts?.queueItemId);
     } finally {
+      const latest = getSession(session.id);
+      const expiredGrant = latest ? expireOperatorDelegationForPrompt(latest, prompt) : null;
+      if (expiredGrant) {
+        patchSessionTransportMeta(session.id, { operatorDelegation: expiredGrant as any });
+        context.emit("session:updated", { sessionId: session.id });
+      }
       release?.();
       if (opts?.queueItemId) context.emit("queue:updated", { sessionId: session.id, sessionKey });
       if (opts?.queueItemId) dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);

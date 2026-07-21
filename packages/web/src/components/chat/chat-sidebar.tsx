@@ -59,6 +59,8 @@ import {
 
 export type { SidebarOrder } from "./sidebar-types"
 export {
+  getJobStateLabel,
+  getStatusDot,
   hasBackgroundActivity,
   isDirectSession,
   isRecentError,

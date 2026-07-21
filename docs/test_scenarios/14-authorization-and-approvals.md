@@ -7,6 +7,9 @@ around those gates: who may approve, what scoped agents may not do,
 remote-access pairing under `authRequired`, security-hook checkpoints,
 org-change proposal binding, decision vocabulary beyond approve/reject,
 and session-token hygiene.
+File `19` adds the run-local capability cases: own-session checkpoint creation,
+direct-child transcript reads, COO message-only follow-up, and explicit
+turn-scoped operator authority.
 
 Safety: use a disposable home and test pairing codes only. Never paste
 real operator credentials or live session tokens into prompts, tickets, or

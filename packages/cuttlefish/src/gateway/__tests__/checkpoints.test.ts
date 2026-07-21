@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import fs from "node:fs";
 import path from "node:path";
 import { withStaticTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
+import { buildOperatorDelegationGrant, operatorDelegationPromptHash } from "../../sessions/operator-delegation.js";
 
 const { home: tmp } = withStaticTempCuttlefishHome("cuttlefish-checkpoints-");
 
@@ -81,6 +82,40 @@ function makeCtx(over: Record<string, unknown> = {}) {
 }
 
 describe("checkpoint routes", () => {
+  it("binds a scoped agent checkpoint to its own session without requiring a body sessionId", async () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-own", prompt: "x" });
+    const req = makeJsonReq("POST", "/api/checkpoints", {
+      decisionNeeded: "Choose the release window",
+      why: "The operator did not delegate timing authority.",
+    });
+    req.cuttlefishPrincipal = { kind: "session", sessionId: session.id };
+    const cap = makeRes();
+
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(201);
+    expect(cap.body.checkpoint.sessionId).toBe(session.id);
+    expect(reg.getSession(session.id)?.status).toBe("waiting");
+  });
+
+  it("rejects a scoped agent checkpoint forged for another session", async () => {
+    const caller = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-caller", prompt: "x" });
+    const target = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-target", prompt: "x" });
+    const req = makeJsonReq("POST", "/api/checkpoints", {
+      sessionId: target.id,
+      decisionNeeded: "Approve unrelated work",
+      why: "Forged cross-session request.",
+    });
+    req.cuttlefishPrincipal = { kind: "session", sessionId: caller.id };
+    const cap = makeRes();
+
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(403);
+    expect(store.listApprovals({ state: "pending" }).filter((approval) =>
+      approval.sessionId === caller.id || approval.sessionId === target.id)).toEqual([]);
+  });
+
   it("creates a checkpoint, pauses the session, and lists it", async () => {
     const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp1", prompt: "x" });
     const cap = makeRes();
@@ -113,6 +148,39 @@ describe("checkpoint routes", () => {
     expect(listCap.body).toEqual([
       expect.objectContaining({ id: cap.body.checkpoint.id, type: "checkpoint" }),
     ]);
+  });
+
+  it("records a delegated Program Manager checkpoint decision with an auditable actor", async () => {
+    const prompt = "/delegate-authority decide\nDefer this rollout.";
+    const session = reg.createSession({
+      engine: "codex",
+      model: "gpt-5.5",
+      source: "web",
+      sourceRef: "web:delegated-pm",
+      employee: "program-manager",
+      prompt,
+      transportMeta: { operatorDelegation: buildOperatorDelegationGrant({ prompt, scopes: ["decide"] }) },
+    });
+    const checkpoint = store.createApproval({
+      sessionId: session.id,
+      type: "checkpoint",
+      payload: { decisionNeeded: "Choose rollout timing", why: "A timing decision is required" },
+    });
+    const req = makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "deferred" });
+    req.cuttlefishPrincipal = {
+      kind: "session",
+      sessionId: session.id,
+      delegatedScopes: ["decide"],
+      operatorDelegationId: operatorDelegationPromptHash(prompt),
+    };
+    const cap = makeRes();
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(200);
+    expect(store.getApproval(checkpoint.id)).toMatchObject({
+      state: "deferred",
+      actor: `operator-delegate:program-manager:${session.id}`,
+    });
   });
 
   it("defers a checkpoint and records notes plus resulting action", async () => {

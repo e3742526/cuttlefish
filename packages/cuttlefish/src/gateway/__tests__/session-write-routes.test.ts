@@ -172,7 +172,63 @@ describe("POST /api/sessions prompt validation (I-1)", () => {
     const cap = makeRes();
     await api.handleApiRequest(makeJsonReq("POST", "/api/sessions", { prompt: "  hello  " }), cap.res, ctx);
 
-    expect(cap.status).toBe(201);
+    expect(cap.status, JSON.stringify(cap.body)).toBe(201);
+  });
+
+  it("records an explicit turn-scoped COO grant only on an allowed model", async () => {
+    const { api, reg } = await setup();
+    const ctx = makeCtx(api);
+    ctx.getConfig = () => ({
+      gateway: { userHeader: "x-operator" },
+      engines: { default: "codex", codex: { bin: "codex", model: "gpt-5.6-sol" } },
+      portal: {},
+    }) as any;
+    ctx.sessionManager.getEngine = () => ({ name: "codex" }) as any;
+    const req = makeJsonReq("POST", "/api/sessions", {
+      prompt: "/delegate-authority approve,decide,plan,act\nResolve the release gate.",
+    });
+    req.headers["x-operator"] = "human@example.test";
+    const cap = makeRes();
+    await api.handleApiRequest(req, cap.res, ctx);
+
+    expect(cap.status, JSON.stringify(cap.body)).toBe(201);
+    expect(reg.getSession(String(cap.body.id))?.transportMeta?.operatorDelegation).toMatchObject({
+      state: "active",
+      scopes: ["approve", "decide", "plan", "act"],
+      grantedBy: "human@example.test",
+    });
+  });
+
+  it("rejects delegated authority from an agent or on a model outside the allowlist", async () => {
+    const { api } = await setup();
+    const ctx = makeCtx(api);
+    ctx.getConfig = () => ({
+      gateway: {},
+      engines: { default: "claude", claude: { bin: "claude", model: "sonnet" } },
+      portal: {},
+    }) as any;
+    ctx.sessionManager.getEngine = () => ({ name: "claude" }) as any;
+
+    const disallowedModel = makeRes();
+    await api.handleApiRequest(makeJsonReq("POST", "/api/sessions", {
+      prompt: "/delegate-authority all\nResolve the release gate.",
+    }), disallowedModel.res, ctx);
+    expect(disallowedModel.status).toBe(403);
+    expect(disallowedModel.body).toMatchObject({ code: "operator_delegation_model_forbidden" });
+
+    ctx.getConfig = () => ({
+      gateway: {},
+      engines: { default: "codex", codex: { bin: "codex", model: "gpt-5.5" } },
+      portal: {},
+    }) as any;
+    const agentReq = makeJsonReq("POST", "/api/sessions", {
+      prompt: "/delegate-authority all\nResolve the release gate.",
+    });
+    agentReq.cuttlefishPrincipal = { kind: "session", sessionId: "worker-run" };
+    const agent = makeRes();
+    await api.handleApiRequest(agentReq, agent.res, ctx);
+    expect(agent.status).toBe(403);
+    expect(agent.body).toMatchObject({ code: "operator_delegation_human_only" });
   });
 
   it("rejects a whitespace-only message on POST /api/sessions/:id/message", async () => {

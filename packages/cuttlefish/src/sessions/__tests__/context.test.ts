@@ -168,6 +168,8 @@ describe("buildContext — config awareness", () => {
     const out = buildContext({ ...baseOpts, config, sessionToken: secret });
 
     expect(out).toContain("$CUTTLEFISH_SESSION_TOKEN");
+    expect(out).toContain("/api/checkpoints");
+    expect(out).toContain("If the operator already authorized you to decide, decide and continue instead");
     expect(out).not.toContain(secret);
   });
 
@@ -304,6 +306,25 @@ describe("buildContext — audience scoping", () => {
     expect(out).toContain("CLAUDE.md");
   });
 
+  it("injects exact turn-scoped delegated authority without contradicting it", () => {
+    const config = {
+      gateway: { host: "127.0.0.1", port: 8899 },
+      engines: { default: "codex", codex: { model: "gpt-5.6-sol" } },
+      portal: {},
+    } as unknown as CuttlefishConfig;
+    const out = buildContext({
+      ...baseOpts,
+      config,
+      sessionToken: "signed-token",
+      operatorDelegationScopes: ["approve", "decide", "plan", "act"],
+    });
+    expect(out).toContain("## Human-delegated authority");
+    expect(out).toContain("for this turn only");
+    expect(out).toContain("GPT-5.5, GPT-5.6-sol, Opus 4.8, or Fable");
+    expect(out).toContain("You may inspect and resolve approvals/checkpoints");
+    expect(out).not.toContain("Never call an approve, reject, or apply endpoint");
+  });
+
   it("manager employees get the delegation mini-reference", () => {
     const out = buildContext({ ...baseOpts, employee: minimalEmployee, hierarchy });
     expect(out).toContain("Delegate to another employee");
@@ -312,6 +333,21 @@ describe("buildContext — audience scoping", () => {
     expect(out).toContain("/api/sessions/:id/message");
     expect(out).toContain("/attachments");
     expect(out).not.toContain("| `/api/cron` | GET |");
+    expect(out).toContain("For a second opinion, any manager may consult Program Manager");
+    expect(out).toContain("consult Cuttlefish (COO) by omitting `employee`");
+    expect(out).toContain("does not itself transfer human approval authority");
+  });
+
+  it("a manager with no reports can still consult Program Manager or COO", () => {
+    const isolatedManager: Employee = { ...minimalEmployee, name: "isolated-manager" };
+    const isolatedHierarchy = {
+      nodes: { "isolated-manager": { employee: isolatedManager, parentName: null, directReports: [], depth: 0, chain: [] } },
+      sorted: ["isolated-manager"],
+    } as any;
+    const out = buildContext({ ...baseOpts, employee: isolatedManager, hierarchy: isolatedHierarchy });
+    expect(out).toContain("## Manager delegation discipline");
+    expect(out).toContain('"employee":"program-manager"');
+    expect(out).toContain("consult Cuttlefish (COO) by omitting `employee`");
   });
 
   it("manager delegation discipline includes direct-report specialties for smart matching", () => {

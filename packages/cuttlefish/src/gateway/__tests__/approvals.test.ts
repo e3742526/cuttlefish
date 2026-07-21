@@ -4,6 +4,7 @@ import type { ServerResponse } from "node:http";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
+import { buildOperatorDelegationGrant, operatorDelegationPromptHash } from "../../sessions/operator-delegation.js";
 
 // Isolate the DB + approvals store before importing modules that resolve paths
 // from CUTTLEFISH_HOME at load time.
@@ -126,6 +127,35 @@ describe("approvals endpoints", () => {
     const cap = makeRes();
     await api.handleApiRequest(makeReq("POST", "/api/approvals/nope/approve"), cap.res, makeCtx());
     expect(cap.status).toBe(404);
+  });
+
+  it("records an eligible delegated COO decision with an auditable actor", async () => {
+    const prompt = "/delegate-authority decide\nReject the fallback.";
+    const session = reg.createSession({
+      engine: "claude",
+      model: "opus",
+      source: "web",
+      sourceRef: "web:delegated-coo",
+      employee: null,
+      prompt,
+      transportMeta: { operatorDelegation: buildOperatorDelegationGrant({ prompt, scopes: ["decide"] }) },
+    });
+    const approval = store.createApproval({ sessionId: session.id, type: "fallback", payload: {} });
+    const req = makeReq("POST", `/api/approvals/${approval.id}/reject`) as any;
+    req.cuttlefishPrincipal = {
+      kind: "session",
+      sessionId: session.id,
+      delegatedScopes: ["decide"],
+      operatorDelegationId: operatorDelegationPromptHash(prompt),
+    };
+    const cap = makeRes();
+    await api.handleApiRequest(req, cap.res, makeCtx());
+
+    expect(cap.status).toBe(200);
+    expect(store.getApproval(approval.id)).toMatchObject({
+      state: "rejected",
+      actor: `operator-delegate:cuttlefish-coo:${session.id}`,
+    });
   });
 
   it("approve on a non-pending approval → 409", async () => {

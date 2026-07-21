@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { serializeSession, isSessionLiveRunning } from "../serialize-session.js";
+import { buildSessionJobStateMap, serializeSession, isSessionLiveRunning } from "../serialize-session.js";
 import type { Session } from "../../../shared/types.js";
 import type { ApiContext } from "../context.js";
 
@@ -47,6 +47,29 @@ function makeContext(overrides: { getEngine?: (name: string) => unknown } = {}):
 }
 
 describe("serializeSession", () => {
+  it("derives attention, active, and terminal job states across nested child sessions", () => {
+    const parent = makeSession({ id: "parent", status: "idle" });
+    const child = makeSession({ id: "child", parentSessionId: parent.id, status: "running" });
+    const grandchild = makeSession({ id: "grandchild", parentSessionId: child.id, status: "idle" });
+
+    expect(buildSessionJobStateMap([parent, child, grandchild], makeContext()).get(parent.id)).toBe("working");
+
+    child.status = "idle";
+    expect(buildSessionJobStateMap([parent, child, grandchild], makeContext()).get(parent.id)).toBe("finished");
+
+    grandchild.status = "waiting";
+    expect(buildSessionJobStateMap([parent, child, grandchild], makeContext()).get(parent.id)).toBe("needs_attention");
+  });
+
+  it("keeps ordinary chats idle while marking settled delegated leaves finished", () => {
+    const root = makeSession({ id: "root", status: "idle" });
+    const leaf = makeSession({ id: "leaf", parentSessionId: "some-parent", status: "idle" });
+    const states = buildSessionJobStateMap([root, leaf], makeContext());
+
+    expect(states.get(root.id)).toBe("idle");
+    expect(states.get(leaf.id)).toBe("finished");
+  });
+
   it("ARCN-CTF-003: does not leak an internal-only Session field that isn't part of PublicSession", () => {
     // Simulates a field added to the internal Session type without anyone
     // remembering to thread it through the public DTO mapper.

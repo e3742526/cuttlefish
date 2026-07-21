@@ -11,6 +11,15 @@ import { badRequest, json, notFound } from "../responses.js";
 import { serializeSession } from "../serialize-session.js";
 import { dispatchWebSessionRun } from "../session-dispatch.js";
 import { resolveUserHeader } from "../../connector-reply.js";
+import type { GatewayPrincipal } from "../../auth.js";
+import { delegatedApprovalActor, isAuthorizedHumanDelegatePrincipal } from "../../manager-auth.js";
+
+function approvalActor(req: HttpRequest, context: ApiContext): string | null {
+  const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+  return principal?.kind === "session"
+    ? delegatedApprovalActor(principal)
+    : resolveUserHeader(req.headers, context.getConfig().gateway.userHeader) ?? null;
+}
 
 export async function handleApprovalRoutes(
   method: string,
@@ -36,8 +45,13 @@ export async function handleApprovalRoutes(
       notFound(res);
       return true;
     }
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    if (principal?.kind === "session" && !isAuthorizedHumanDelegatePrincipal(principal, ["approve", "decide"])) {
+      json(res, { error: "This session does not have explicit delegated approval authority" }, 403);
+      return true;
+    }
     const config = context.getConfig();
-    const actor = resolveUserHeader(req.headers, config.gateway.userHeader) ?? null;
+    const actor = approvalActor(req, context);
 
     if (approval.type === "checkpoint") {
       json(res, { error: "checkpoint approvals must be resolved via POST /api/checkpoints/:id/decision" }, 409);
@@ -189,6 +203,11 @@ export async function handleApprovalRoutes(
       notFound(res);
       return true;
     }
+    const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
+    if (principal?.kind === "session" && !isAuthorizedHumanDelegatePrincipal(principal, ["decide"])) {
+      json(res, { error: "This session does not have explicit delegated decision authority" }, 403);
+      return true;
+    }
     if (approval.type === "checkpoint") {
       json(res, { error: "checkpoint approvals must be resolved via POST /api/checkpoints/:id/decision" }, 409);
       return true;
@@ -214,7 +233,7 @@ export async function handleApprovalRoutes(
         return true;
       }
       const config = context.getConfig();
-      const actor = resolveUserHeader(req.headers, config.gateway.userHeader) ?? null;
+      const actor = approvalActor(req, context);
       const resolved = approval.state === "rejected"
         ? approval
         : resolveApproval(approval.id, "rejected", actor);
@@ -233,7 +252,7 @@ export async function handleApprovalRoutes(
       return true;
     }
     const config = context.getConfig();
-    const actor = resolveUserHeader(req.headers, config.gateway.userHeader) ?? null;
+    const actor = approvalActor(req, context);
     const resolved = resolveApproval(approval.id, "rejected", actor);
     const session = getSession(approval.sessionId);
     if (session) {

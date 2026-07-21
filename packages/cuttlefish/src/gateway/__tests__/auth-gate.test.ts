@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { createAuthSession, createScopedSessionToken } from "../auth.js";
 import { resolvePrincipalGate } from "../server/auth-gate.js";
+import { operatorDelegationPromptHash } from "../../sessions/operator-delegation.js";
 
 function req(headers: Record<string, string | undefined>, remoteAddress = "127.0.0.1") {
   return { headers, socket: { remoteAddress } } as any;
@@ -49,6 +50,29 @@ describe("resolvePrincipalGate (CF2-120)", () => {
     expect(gate.status).toBe(401);
   });
 
+  it("requires identity for checkpoint creation and allows an authenticated scoped chat", () => {
+    const anonymous = resolvePrincipalGate({
+      req: req({}),
+      method: "POST",
+      pathname: "/api/checkpoints",
+      authRequiredNow: () => false,
+      gatewayAuthToken: TOKEN,
+      cuttlefishHome: "/tmp/does-not-matter",
+    });
+    expect(anonymous.status).toBe(401);
+
+    const scoped = createScopedSessionToken("session-abc", TOKEN);
+    const authenticated = resolvePrincipalGate({
+      req: req({ authorization: `Bearer ${scoped}` }),
+      method: "POST",
+      pathname: "/api/checkpoints",
+      authRequiredNow: () => false,
+      gatewayAuthToken: TOKEN,
+      cuttlefishHome: "/tmp/does-not-matter",
+    });
+    expect(authenticated).toMatchObject({ status: 200, principal: { kind: "session", sessionId: "session-abc" } });
+  });
+
   it("allows a scoped chat token to submit an org change but not resolve it", () => {
     const scoped = createScopedSessionToken("session-abc", TOKEN);
     const proposal = resolvePrincipalGate({
@@ -82,6 +106,56 @@ describe("resolvePrincipalGate (CF2-120)", () => {
       cuttlefishHome: "/tmp/does-not-matter",
     });
     expect(gate.status).toBe(401);
+  });
+
+  it("allows only a live, prompt-bound delegated COO/Program Manager token to resolve decisions", () => {
+    const delegationId = operatorDelegationPromptHash("authorized turn");
+    const scoped = createScopedSessionToken("program-manager-run", TOKEN, {
+      delegatedScopes: ["approve"],
+      operatorDelegationId: delegationId,
+    });
+    const allowed = resolvePrincipalGate({
+      req: req({ authorization: `Bearer ${scoped}` }),
+      method: "POST",
+      pathname: "/api/approvals/approval-1/approve",
+      authRequiredNow: () => false,
+      gatewayAuthToken: TOKEN,
+      cuttlefishHome: "/tmp/does-not-matter",
+      isHumanDelegationSessionEligible: (sessionId, activeId) => sessionId === "program-manager-run" && activeId === delegationId,
+    });
+    expect(allowed).toMatchObject({
+      status: 200,
+      principal: { kind: "session", sessionId: "program-manager-run", delegatedScopes: ["approve"], operatorDelegationId: delegationId },
+    });
+
+    const replayed = resolvePrincipalGate({
+      req: req({ authorization: `Bearer ${scoped}` }),
+      method: "POST",
+      pathname: "/api/approvals/approval-1/approve",
+      authRequiredNow: () => false,
+      gatewayAuthToken: TOKEN,
+      cuttlefishHome: "/tmp/does-not-matter",
+      isHumanDelegationSessionEligible: (_sessionId, activeId) => activeId !== delegationId,
+    });
+    expect(replayed.status).toBe(403);
+  });
+
+  it("does not let approve-only authority reject, reach direct org decisions, or omit prompt binding", () => {
+    const delegationId = operatorDelegationPromptHash("approve only");
+    const scoped = createScopedSessionToken("coo-run", TOKEN, {
+      delegatedScopes: ["approve"],
+      operatorDelegationId: delegationId,
+    });
+    const common = {
+      req: req({ authorization: `Bearer ${scoped}` }),
+      authRequiredNow: () => false,
+      gatewayAuthToken: TOKEN,
+      cuttlefishHome: "/tmp/does-not-matter",
+      isHumanDelegationSessionEligible: () => true,
+    };
+    expect(resolvePrincipalGate({ ...common, method: "POST", pathname: "/api/approvals/a/reject" }).status).toBe(403);
+    expect(resolvePrincipalGate({ ...common, method: "POST", pathname: "/api/org/change-requests/c/approve" }).status).toBe(403);
+    expect(() => createScopedSessionToken("coo-run", TOKEN, { delegatedScopes: ["approve"] })).toThrow(/prompt hash/);
   });
 
   it("403s a scoped session token hitting a forbidden control-plane path even when auth is NOT required (loopback default) — this is the CF2-120 regression", () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Employee } from "../../shared/types.js";
-import { authorizeManagerScope, isCooSession, isDirectChildSession, isHrHumanOnlyBlocked, isManagerNameAuthorizedForPrincipal } from "../manager-auth.js";
+import { authorizeManagerScope, isAuthorizedHumanDelegatePrincipal, isCooSession, isDirectChildSession, isHrHumanOnlyBlocked, isHumanDelegationSessionEligible, isManagerNameAuthorizedForPrincipal } from "../manager-auth.js";
+import { buildOperatorDelegationGrant, operatorDelegationPromptHash } from "../../sessions/operator-delegation.js";
 import { HR_EMPLOYEE_NAME } from "../org-policy.js";
 
 function employee(overrides: Partial<Employee>): Employee {
@@ -116,6 +117,34 @@ describe("isCooSession", () => {
     expect(isCooSession("employee-run", { getSession })).toBe(false);
     expect(isCooSession("talk-run", { getSession })).toBe(false);
     expect(isCooSession("missing", { getSession: vi.fn(() => undefined) as any })).toBe(false);
+  });
+});
+
+describe("human-delegated operator authority", () => {
+  const prompt = "/delegate-authority approve,decide\nResolve the release gate.";
+  const delegationId = operatorDelegationPromptHash(prompt);
+  const activeGrant = buildOperatorDelegationGrant({ prompt, scopes: ["approve", "decide"] });
+  const eligible = {
+    id: "pm-run",
+    employee: "program-manager",
+    source: "web",
+    engine: "codex",
+    model: "gpt-5.6-sol",
+    transportMeta: { operatorDelegation: activeGrant },
+  } as any;
+
+  it("requires the eligible role, model, active grant, and exact prompt binding", () => {
+    expect(isHumanDelegationSessionEligible("pm-run", delegationId, { getSession: vi.fn(() => eligible) as any })).toBe(true);
+    expect(isHumanDelegationSessionEligible("pm-run", operatorDelegationPromptHash("old turn"), { getSession: vi.fn(() => eligible) as any })).toBe(false);
+    expect(isHumanDelegationSessionEligible("pm-run", delegationId, { getSession: vi.fn(() => ({ ...eligible, model: "sonnet" })) as any })).toBe(false);
+    expect(isHumanDelegationSessionEligible("pm-run", delegationId, { getSession: vi.fn(() => ({ ...eligible, employee: "engineering-manager" })) as any })).toBe(false);
+    expect(isHumanDelegationSessionEligible("pm-run", delegationId, { getSession: vi.fn(() => ({ ...eligible, transportMeta: { operatorDelegation: { ...activeGrant, state: "expired" } } })) as any })).toBe(false);
+  });
+
+  it("requires a signed matching scope in addition to live eligibility", () => {
+    const deps = { getSession: vi.fn(() => eligible) as any };
+    expect(isAuthorizedHumanDelegatePrincipal({ kind: "session", sessionId: "pm-run", delegatedScopes: ["approve"], operatorDelegationId: delegationId }, ["approve"], deps)).toBe(true);
+    expect(isAuthorizedHumanDelegatePrincipal({ kind: "session", sessionId: "pm-run", delegatedScopes: ["approve"], operatorDelegationId: delegationId }, ["decide"], deps)).toBe(false);
   });
 });
 
