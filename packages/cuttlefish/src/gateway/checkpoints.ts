@@ -7,7 +7,7 @@ import type {
   JsonObject,
   Session,
 } from "../shared/types.js";
-import { createApproval, getApproval, listApprovals, resolveApproval, resolveApprovalAsAutonomous } from "./approvals.js";
+import { ApprovalStateError, createApproval, getApproval, listApprovals, resolveApproval, resolveApprovalAsAutonomous } from "./approvals.js";
 import { getSession, insertMessage, patchSessionTransportMeta, updateSession } from "../sessions/registry.js";
 import type { ApiContext } from "./api/context.js";
 import { dispatchWebSessionRun } from "./api/session-dispatch.js";
@@ -15,6 +15,15 @@ import { emitCheckpointDecisionBestEffort, knowledgeRelayOptions } from "../know
 import { logger } from "../shared/logger.js";
 
 const CHECKPOINT_META_KEY = "humanCheckpoint";
+
+export class CheckpointDecisionConflictError extends Error {
+  constructor(
+    public readonly checkpoint: Approval,
+    public readonly requestedDecision: ApprovalDecision,
+  ) {
+    super(`checkpoint is already ${checkpoint.state}; cannot apply ${requestedDecision}`);
+  }
+}
 
 function safeTrim(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -158,10 +167,15 @@ export async function applyCheckpointDecision(
     autonomous?: boolean;
   },
   context: ApiContext,
-): Promise<{ checkpoint: Approval; session?: Session }> {
+): Promise<{ checkpoint: Approval; session?: Session; idempotent?: boolean }> {
   const checkpoint = getCheckpoint(checkpointId);
   if (!checkpoint) throw new Error(`checkpoint ${checkpointId} not found`);
-  if (checkpoint.state !== "pending") return { checkpoint, session: getSession(checkpoint.sessionId) };
+  if (checkpoint.state !== "pending") {
+    if (checkpoint.state === input.decision) {
+      return { checkpoint, session: getSession(checkpoint.sessionId), idempotent: true };
+    }
+    throw new CheckpointDecisionConflictError(checkpoint, input.decision);
+  }
 
   const prompt = decisionPrompt(checkpoint.payload, input.decision, input.resumePrompt ?? null);
   const resultingAction = (input.resultingAction ?? defaultResultingAction(input.decision, checkpoint.payload, input.resumePrompt ?? null)) as string;
@@ -175,13 +189,25 @@ export async function applyCheckpointDecision(
   }
 
   const resolve = input.autonomous ? resolveApprovalAsAutonomous : resolveApproval;
-  const resolved = resolve(
-    checkpoint.id,
-    input.decision,
-    input.actor ?? null,
-    input.notes ?? null,
-    resultingAction,
-  );
+  let resolved: Approval;
+  try {
+    resolved = resolve(
+      checkpoint.id,
+      input.decision,
+      input.actor ?? null,
+      input.notes ?? null,
+      resultingAction,
+    );
+  } catch (err) {
+    if (err instanceof ApprovalStateError) {
+      const current = getCheckpoint(checkpoint.id);
+      if (current?.state === input.decision) {
+        return { checkpoint: current, session: getSession(current.sessionId), idempotent: true };
+      }
+      if (current) throw new CheckpointDecisionConflictError(current, input.decision);
+    }
+    throw err;
+  }
 
   const session = getSession(resolved.sessionId);
   if (!session) {

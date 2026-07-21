@@ -214,6 +214,90 @@ describe("checkpoint routes", () => {
     expect(reg.getSession(session.id)?.status).toBe("waiting");
   });
 
+  it("marks an identical terminal checkpoint decision as an explicit idempotent replay", async () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-idempotent", prompt: "x" });
+    const checkpoint = store.createApproval({
+      sessionId: session.id,
+      type: "checkpoint",
+      payload: { decisionNeeded: "Ship migration", why: "Need human timing confirmation" },
+    });
+
+    const first = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "deferred" }),
+      first.res,
+      makeCtx(),
+    );
+    const replay = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "deferred" }),
+      replay.res,
+      makeCtx(),
+    );
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(replay.body).toEqual(expect.objectContaining({ idempotent: true, checkpoint: expect.objectContaining({ state: "deferred" }) }));
+  });
+
+  it("rejects a conflicting terminal checkpoint decision without changing the retained state", async () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-conflict", prompt: "x" });
+    const checkpoint = store.createApproval({
+      sessionId: session.id,
+      type: "checkpoint",
+      payload: { decisionNeeded: "Ship migration", why: "Need human timing confirmation" },
+    });
+
+    const deferred = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "deferred" }),
+      deferred.res,
+      makeCtx(),
+    );
+    const conflicting = makeRes();
+    await api.handleApiRequest(
+      makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "rejected" }),
+      conflicting.res,
+      makeCtx(),
+    );
+
+    expect(conflicting.status).toBe(409);
+    expect(conflicting.body).toEqual(expect.objectContaining({
+      code: "checkpoint_decision_conflict",
+      requestedDecision: "rejected",
+      currentDecision: "deferred",
+    }));
+    expect(store.getApproval(checkpoint.id)?.state).toBe("deferred");
+    expect(reg.getSession(session.id)?.status).toBe("waiting");
+  });
+
+  it("serializes simultaneous conflicting checkpoint decisions as one result and one conflict", async () => {
+    const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp-concurrent", prompt: "x" });
+    const checkpoint = store.createApproval({
+      sessionId: session.id,
+      type: "checkpoint",
+      payload: { decisionNeeded: "Ship migration", why: "Need human timing confirmation" },
+    });
+    const deferred = makeRes();
+    const rejected = makeRes();
+
+    await Promise.all([
+      api.handleApiRequest(
+        makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "deferred" }),
+        deferred.res,
+        makeCtx(),
+      ),
+      api.handleApiRequest(
+        makeJsonReq("POST", `/api/checkpoints/${checkpoint.id}/decision`, { decision: "rejected" }),
+        rejected.res,
+        makeCtx(),
+      ),
+    ]);
+
+    expect([deferred.status, rejected.status].sort()).toEqual([200, 409]);
+    expect(store.getApproval(checkpoint.id)?.state).toMatch(/deferred|rejected/);
+  });
+
   it("approves a checkpoint with a resume prompt and resumes the session", async () => {
     const session = reg.createSession({ engine: "claude", source: "web", sourceRef: "web:cp3", prompt: "x" });
     const checkpoint = store.createApproval({
