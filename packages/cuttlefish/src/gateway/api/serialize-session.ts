@@ -1,5 +1,5 @@
 import { isInterruptibleEngine, type Session } from "../../shared/types.js";
-import type { PublicSession } from "@cuttlefish/contracts";
+import type { PublicSession, SessionJobState } from "@cuttlefish/contracts";
 import type { ApiContext } from "./context.js";
 import { enrichRunAttachmentsForSession } from "../run-attachments.js";
 import { type ExecutionRunState } from "../employee-execution.js";
@@ -29,7 +29,54 @@ function extractExecutionRunState(session: Session): ExecutionRunState | null {
   };
 }
 
-export function serializeSession(session: Session, context: ApiContext): Session & PublicSession & { executionRunState?: ExecutionRunState | null } {
+function localJobState(session: Session, context: ApiContext): SessionJobState {
+  if (session.status === "waiting") return "needs_attention";
+  const queue = context.sessionManager.getQueue();
+  const transportState = queue.getTransportState(session.sessionKey || session.sourceRef, session.status);
+  const bg = context.backgroundActivity?.get(session.id);
+  const backgroundActive = Boolean(bg && Date.now() - bg.lastActivityAt <= BACKGROUND_ACTIVITY_STALE_MS && bg.activeStreams > 0);
+  if (session.status === "running" || transportState === "queued" || transportState === "running" || backgroundActive) return "working";
+  if (session.status === "error" || session.status === "interrupted") return "failed";
+  return session.parentSessionId ? "finished" : "idle";
+}
+
+/**
+ * Aggregate direct and nested child activity into one operator-facing state.
+ * This is computed from durable session edges plus live queue/background state;
+ * it does not mutate the reusable chat session's underlying `idle` status.
+ */
+export function buildSessionJobStateMap(sessions: readonly Session[], context: ApiContext): Map<string, SessionJobState> {
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  const children = new Map<string, Session[]>();
+  for (const session of sessions) {
+    if (!session.parentSessionId || !byId.has(session.parentSessionId)) continue;
+    const group = children.get(session.parentSessionId) ?? [];
+    group.push(session);
+    children.set(session.parentSessionId, group);
+  }
+  const result = new Map<string, SessionJobState>();
+  const visiting = new Set<string>();
+  const resolve = (session: Session): SessionJobState => {
+    const cached = result.get(session.id);
+    if (cached) return cached;
+    if (visiting.has(session.id)) return localJobState(session, context);
+    visiting.add(session.id);
+    const own = localJobState(session, context);
+    const childStates = (children.get(session.id) ?? []).map(resolve);
+    let state = own;
+    if (own === "needs_attention" || childStates.includes("needs_attention")) state = "needs_attention";
+    else if (own === "working" || childStates.includes("working")) state = "working";
+    else if (own === "failed") state = "failed";
+    else if (childStates.length > 0) state = "finished";
+    visiting.delete(session.id);
+    result.set(session.id, state);
+    return state;
+  };
+  for (const session of sessions) resolve(session);
+  return result;
+}
+
+export function serializeSession(session: Session, context: ApiContext, jobState = localJobState(session, context)): Session & PublicSession & { executionRunState?: ExecutionRunState | null } {
   const queue = context.sessionManager.getQueue();
   const queueDepth = queue.getPendingCount(session.sessionKey || session.sourceRef);
   const transportState = queue.getTransportState(session.sessionKey || session.sourceRef, session.status);
@@ -70,6 +117,7 @@ export function serializeSession(session: Session, context: ApiContext): Session
     attachments: enrichRunAttachmentsForSession(session),
     queueDepth,
     transportState,
+    jobState,
     backgroundActivity: bg && !bgIsStale
       ? { activeStreams: bg.activeStreams, lastActivityAt: new Date(bg.lastActivityAt).toISOString() }
       : null,

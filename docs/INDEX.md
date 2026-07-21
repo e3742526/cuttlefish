@@ -56,6 +56,7 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-20-leader-ack-root-cause-repair.md`: root-cause analysis and closure evidence for premature background callbacks, stale manager-synthesis suppression, and stale acknowledgement re-arming; also records the two-contact supervisor policy and cheap executive triage.
 - `docs/audits/072026/2026-07-20-test-scenario-library-rigor-audit.md` and
   `docs/logs/session/072026/2026-07-20-test-scenario-library-rigor-expansion.md`:
   full 181-card structural/source audit, 26-card operations/control-plane

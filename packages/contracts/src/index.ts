@@ -20,6 +20,7 @@ export type {
   ContentScreeningState,
   ContentScreeningVerdict,
   PublicSession,
+  SessionJobState,
   RunAttachment,
   RunAttachmentAccess,
   RunAttachmentKind,

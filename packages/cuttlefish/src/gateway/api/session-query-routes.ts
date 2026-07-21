@@ -16,7 +16,7 @@ import { loadRawTranscript, scheduleTranscriptBackfill } from "../transcript-bac
 import type { ApiContext } from "./context.js";
 import { matchRoute } from "./match-route.js";
 import { json, notFound } from "./responses.js";
-import { serializeSession } from "./serialize-session.js";
+import { buildSessionJobStateMap, serializeSession } from "./serialize-session.js";
 
 export function sliceLastMessages<T>(messages: T[], lastParam: string | null): T[] {
   const lastN = parseInt(lastParam || "0", 10);
@@ -43,7 +43,8 @@ export function loadSessionMessagesForApi(
   }
 
   messages = sliceLastMessages(messages, lastParam);
-  return { session: serializeSession(session, context), messages };
+  const jobStates = buildSessionJobStateMap(listSessions(), context);
+  return { session: serializeSession(session, context, jobStates.get(session.id)), messages };
 }
 
 export async function handleSessionQueryRoutes(
@@ -54,11 +55,16 @@ export async function handleSessionQueryRoutes(
   context: ApiContext,
   perGroup: number,
 ): Promise<boolean> {
+  const serializeWithJobStates = (sessions: ReturnType<typeof listSessions>) => {
+    const all = listSessions();
+    const jobStates = buildSessionJobStateMap(all, context);
+    return sessions.map((session) => serializeSession(session, context, jobStates.get(session.id)));
+  };
   if (method === "GET" && pathname === "/api/sessions") {
     const query = url.searchParams.get("q");
     if (query && query.trim()) {
       const matches = searchSessions(query.trim());
-      json(res, matches.map((session) => serializeSession(session, context)));
+      json(res, serializeWithJobStates(matches));
       return true;
     }
 
@@ -69,19 +75,20 @@ export async function handleSessionQueryRoutes(
       const limit = Math.max(1, parseInt(rawLimit || "50", 10) || 50);
       const offset = Math.max(0, parseInt(url.searchParams.get("offset") || "0", 10) || 0);
       const page = listSessionsForGroup(group, limit, offset, portalSlug);
-      json(res, page.map((session) => serializeSession(session, context)));
+      json(res, serializeWithJobStates(page));
       return true;
     }
 
     if (rawLimit === "0") {
       const all = listSessions();
-      json(res, all.map((session) => serializeSession(session, context)));
+      const jobStates = buildSessionJobStateMap(all, context);
+      json(res, all.map((session) => serializeSession(session, context, jobStates.get(session.id))));
       return true;
     }
 
     const sessions = listRecentPerGroup(perGroup, portalSlug);
     json(res, {
-      sessions: sessions.map((session) => serializeSession(session, context)),
+      sessions: serializeWithJobStates(sessions),
       counts: getSessionGroupCounts(portalSlug),
       perGroup,
     });
@@ -90,14 +97,14 @@ export async function handleSessionQueryRoutes(
 
   if (method === "GET" && pathname === "/api/sessions/interrupted") {
     const interrupted = getInterruptedSessions();
-    json(res, interrupted.map((session) => serializeSession(session, context)));
+    json(res, serializeWithJobStates(interrupted));
     return true;
   }
 
   const childrenParams = matchRoute("/api/sessions/:id/children", pathname);
   if (method === "GET" && childrenParams) {
     const children = listChildSessions(childrenParams.id);
-    json(res, children.map((child) => serializeSession(child, context)));
+    json(res, serializeWithJobStates(children));
     return true;
   }
 

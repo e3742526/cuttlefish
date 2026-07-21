@@ -41,6 +41,7 @@ export interface RunAttachment {
 
 export type SessionStatus = "idle" | "running" | "error" | "waiting" | "interrupted";
 export type SessionTransportState = "idle" | "queued" | "running" | "error" | "interrupted";
+export type SessionJobState = "idle" | "working" | "needs_attention" | "finished" | "failed";
 
 export interface BackgroundActivity {
   activeStreams: number;
@@ -72,6 +73,8 @@ export interface PublicSession {
   lastContextTokens?: number | null;
   queueDepth?: number;
   transportState?: SessionTransportState;
+  /** Operator-facing aggregate state for this session and its delegated descendants. */
+  jobState?: SessionJobState;
   backgroundActivity?: BackgroundActivity | null;
   attachments?: RunAttachment[];
   createdAt?: string;
