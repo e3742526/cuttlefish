@@ -191,7 +191,7 @@ export function DataTable<T>({
         style={{ gridTemplateColumns: gridTemplate, height: rowHeight }}
       >
         {visibleColumns.map((column) => (
-          <div key={column.key} className={cn("min-w-0 truncate", alignClass(column.align))}>
+          <div key={column.key} role="cell" className={cn("min-w-0 truncate", alignClass(column.align))}>
             {column.render(row)}
           </div>
         ))}

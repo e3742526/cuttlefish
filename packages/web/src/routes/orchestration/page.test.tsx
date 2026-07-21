@@ -37,6 +37,7 @@ const stopLeaseMock = vi.mocked(stopOrchestrationLease)
 beforeEach(() => {
   vi.clearAllMocks()
   window.localStorage.clear()
+  window.history.replaceState({}, "", "/orchestration")
 })
 
 describe("OrchestrationPage", () => {
@@ -169,7 +170,7 @@ describe("OrchestrationPage", () => {
 
     await screen.findByRole("tab", { name: "Workers" })
     activateTab("Workers")
-    const search = await screen.findByRole("textbox", { name: "Search workers" })
+    const search = await screen.findByRole("searchbox", { name: "Search workers" })
     fireEvent.change(search, { target: { value: "mock" } })
     openSavedViews()
     fireEvent.click(await screen.findByText("Save current view…"))
@@ -183,11 +184,75 @@ describe("OrchestrationPage", () => {
     prompt.mockRestore()
   })
 
+  it("restores a shared Workers view and exposes its presence and assignment inspector", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/orchestration?tab=Workers&workersSearch=openai&workersSort=provider&workersDirection=desc&workersColumns=capabilities&worker=worker-2",
+    )
+    loadMock.mockResolvedValue(sampleData({
+      workers: [
+        {
+          id: "worker-2",
+          provider: "openai",
+          family: "openai",
+          tier: "frontier",
+          capabilities: ["repo_edit", "review"],
+          tools: ["filesystem"],
+          maxConcurrentTasks: 2,
+          costClass: "medium",
+          workspacePolicy: "isolated_worktree",
+        },
+      ],
+      leases: [{
+        leaseId: "lease-2",
+        taskId: "task-2",
+        coordinatorId: "coord-2",
+        workerId: "worker-2",
+        role: "implementer",
+        state: "running",
+        leaseExpiresAt: "2026-07-20T12:00:00.000Z",
+      }],
+      holds: [{
+        holdId: "hold-2",
+        managerName: "Release manager",
+        state: "active",
+        roles: [],
+        workerIds: ["worker-2"],
+        taskId: null,
+        coordinatorId: null,
+        reason: "Reserve review capacity",
+        createdAt: "2026-07-20T10:00:00.000Z",
+        updatedAt: "2026-07-20T10:00:00.000Z",
+        expiresAt: "2026-07-20T13:00:00.000Z",
+      }],
+    }))
+
+    render(<OrchestrationPage />)
+
+    expect((await screen.findByRole("searchbox", { name: "Search workers" }) as HTMLInputElement).value).toBe("openai")
+    const inspector = await screen.findByRole("complementary", { name: "Worker inspector" })
+    expect(inspector.textContent).toContain("Working")
+    expect(inspector.textContent).toContain("Coordinator assignments")
+    expect(inspector.textContent).toContain("task-2")
+    expect(inspector.textContent).toContain("coord-2 · implementer")
+    expect(inspector.textContent).toContain("Reserve review capacity")
+
+    fireEvent.click(screen.getByRole("button", { name: "Close worker inspector" }))
+    expect(screen.queryByRole("complementary", { name: "Worker inspector" })).toBeNull()
+    expect(new URLSearchParams(window.location.search).get("worker")).toBeNull()
+  })
+
   it("has no axe-core structural/semantic violations (color-contrast excluded — jsdom has no real paint)", async () => {
     loadMock.mockResolvedValue(sampleData())
 
     const { container } = render(<OrchestrationPage />)
     await screen.findByRole("tab", { name: "Dual-lane" })
+    activateTab("Workers")
+    const workerRow = (await screen.findAllByRole("row")).find((row) => row.textContent?.includes("worker-1"))
+    if (!workerRow) throw new Error("Expected Workers DataView row")
+    fireEvent.keyDown(workerRow, { key: "Enter" })
+    await screen.findByRole("complementary", { name: "Worker inspector" })
 
     const violations = await runAxe(container)
     expect(violations, formatViolations(violations)).toEqual([])

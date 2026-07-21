@@ -7,15 +7,9 @@ import { ErrorState } from "@/components/ui/error-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   DataTable,
-  DensityToggle,
-  ColumnConfigMenu,
-  ExportMenu,
-  SavedViewsMenu,
   useViewPreferences,
   type DataTableColumn,
   type SortState,
-  type ExportColumn,
-  type SavedView,
 } from "@/components/data-view"
 import { useBreadcrumbs } from "@/context/breadcrumb-context"
 import {
@@ -36,22 +30,13 @@ import {
   type ContinuationSummary,
   type DualLaneSummary,
   type OrchestrationDashboardData,
-  type WorkerSummary,
   type WorktreeSummary,
   type TelemetryBucket,
 } from "@/lib/orchestration-api"
+import { WorkersDataView, type WorkerViewFilters } from "./workers-data-view"
+import { ORCHESTRATION_TABS, readOrchestrationTab, replaceOrchestrationViewUrl, type OrchestrationTab } from "./workers-view-url"
 
-const TABS = ["Overview", "Workers", "Queue", "Holds", "Continuations", "Dual-lane", "Recovery", "Worktrees", "Telemetry"] as const
-
-const WORKER_COLUMNS: DataTableColumn<WorkerSummary>[] = [
-  { key: "id", label: "Worker", render: (w) => w.id, sortValue: (w) => w.id, required: true },
-  { key: "provider", label: "Provider", render: (w) => w.provider, sortValue: (w) => w.provider },
-  { key: "family", label: "Family", render: (w) => w.family, sortValue: (w) => w.family },
-  { key: "tier", label: "Tier", render: (w) => w.tier, sortValue: (w) => w.tier },
-  { key: "cost", label: "Cost", render: (w) => w.costClass, sortValue: (w) => w.costClass },
-  { key: "workspace", label: "Workspace", render: (w) => w.workspacePolicy },
-  { key: "capabilities", label: "Capabilities", render: (w) => w.capabilities.join(", ") },
-]
+const TABS = ORCHESTRATION_TABS
 
 const WORKTREE_COLUMNS: DataTableColumn<WorktreeSummary>[] = [
   { key: "taskId", label: "Task", render: (w) => w.taskId, sortValue: (w) => w.taskId, required: true },
@@ -60,8 +45,6 @@ const WORKTREE_COLUMNS: DataTableColumn<WorktreeSummary>[] = [
   { key: "path", label: "Path", render: (w) => w.path },
   { key: "created", label: "Created", render: (w) => formatDate(w.createdAt), sortValue: (w) => w.createdAt },
 ]
-
-type WorkerViewFilters = { search: string }
 
 export default function OrchestrationPage() {
   useBreadcrumbs([{ label: "Orchestration" }])
@@ -73,8 +56,7 @@ export default function OrchestrationPage() {
   const [actionKey, setActionKey] = useState<string | null>(null)
   const [artifactText, setArtifactText] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
-  const [workersSearch, setWorkersSearch] = useState("")
-  const [workersSort, setWorkersSort] = useState<SortState | null>(null)
+  const [activeTab, setActiveTab] = useState<OrchestrationTab>(() => readOrchestrationTab())
   const [worktreesSort, setWorktreesSort] = useState<SortState | null>(null)
   const [telemetrySort, setTelemetrySort] = useState<SortState | null>(null)
   const {
@@ -103,6 +85,12 @@ export default function OrchestrationPage() {
     void refresh()
   }, [refresh])
 
+  useEffect(() => {
+    const onPopState = () => setActiveTab(readOrchestrationTab())
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [])
+
   const failedContinuations = useMemo(
     () => data?.continuations.filter((entry) => entry.state === "failed") ?? [],
     [data],
@@ -125,6 +113,13 @@ export default function OrchestrationPage() {
     } finally {
       setActionKey(null)
     }
+  }
+
+  function changeTab(value: string) {
+    if (!TABS.includes(value as OrchestrationTab)) return
+    const nextTab = value as OrchestrationTab
+    setActiveTab(nextTab)
+    replaceOrchestrationViewUrl({ tab: nextTab })
   }
 
   return (
@@ -202,7 +197,7 @@ export default function OrchestrationPage() {
               description="Try refreshing, or check the gateway's orchestration configuration."
             />
           ) : (
-            <Tabs defaultValue="Overview" className="gap-[var(--space-4)]">
+            <Tabs value={activeTab} onValueChange={changeTab} className="gap-[var(--space-4)]">
               <TabsList className="flex flex-wrap h-auto justify-start bg-[var(--material-regular)] border border-[var(--separator)]">
                 {TABS.map((tab) => (
                   <TabsTrigger key={tab} value={tab} className="min-h-8">
@@ -221,22 +216,15 @@ export default function OrchestrationPage() {
                 />
               </TabsContent>
               <TabsContent value="Workers">
-                <WorkersTab
+                <WorkersDataView
                   workers={data.workers}
-                  search={workersSearch}
-                  onSearchChange={setWorkersSearch}
-                  sort={workersSort}
-                  onSortChange={setWorkersSort}
+                  leases={data.leases}
+                  holds={data.holds}
                   density={viewPrefs.density}
                   onDensityChange={setDensity}
-                  hiddenColumns={viewPrefs.hiddenColumns}
-                  onHiddenColumnsChange={setHiddenColumns}
+                  storedHiddenColumns={viewPrefs.hiddenColumns}
+                  onStoredHiddenColumnsChange={setHiddenColumns}
                   savedViews={viewPrefs.savedViews}
-                  onApplySavedView={(view) => {
-                    setWorkersSearch(view.filters.search)
-                    setWorkersSort(view.sort)
-                    setHiddenColumns(view.hiddenColumns)
-                  }}
                   onSaveView={saveView}
                   onDeleteView={deleteView}
                 />
@@ -372,109 +360,6 @@ function Overview({ data, failedContinuations, selectableRuns, actionKey, onStop
         <RunningLeaseList leases={runningLeases} actionKey={actionKey} onStopLease={onStopLease} />
       </Section>
     </div>
-  )
-}
-
-const WORKER_EXPORT_COLUMNS: ExportColumn<WorkerSummary>[] = [
-  { key: "id", label: "Worker", value: (w) => w.id },
-  { key: "provider", label: "Provider", value: (w) => w.provider },
-  { key: "family", label: "Family", value: (w) => w.family },
-  { key: "tier", label: "Tier", value: (w) => w.tier },
-  { key: "cost", label: "Cost", value: (w) => w.costClass },
-  { key: "workspace", label: "Workspace", value: (w) => w.workspacePolicy },
-  { key: "capabilities", label: "Capabilities", value: (w) => w.capabilities.join(", ") },
-]
-
-// The Phase 3 flagship DataView surface: search, sortable/virtualized table,
-// column visibility, density, and CSV/JSON export, all backed by
-// useViewPreferences. Worktrees/Telemetry share DataTable's rendering but
-// keep their own (simpler) local Table-less markup rather than the full
-// toolbar — see the Phase 3 ledger entry for what's deliberately deferred.
-function WorkersTab({
-  workers,
-  search,
-  onSearchChange,
-  sort,
-  onSortChange,
-  density,
-  onDensityChange,
-  hiddenColumns,
-  onHiddenColumnsChange,
-  savedViews,
-  onApplySavedView,
-  onSaveView,
-  onDeleteView,
-}: {
-  workers: WorkerSummary[]
-  search: string
-  onSearchChange: (value: string) => void
-  sort: SortState | null
-  onSortChange: (sort: SortState | null) => void
-  density: "comfortable" | "compact"
-  onDensityChange: (density: "comfortable" | "compact") => void
-  hiddenColumns: string[]
-  onHiddenColumnsChange: (hiddenColumns: string[]) => void
-  savedViews: SavedView<WorkerViewFilters>[]
-  onApplySavedView: (view: SavedView<WorkerViewFilters>) => void
-  onSaveView: (view: Omit<SavedView<WorkerViewFilters>, "id">) => void
-  onDeleteView: (id: string) => void
-}) {
-  const filtered = useMemo(() => {
-    const query = search.trim().toLowerCase()
-    if (!query) return workers
-    return workers.filter((w) =>
-      [w.id, w.provider, w.family, w.tier, w.costClass, w.workspacePolicy, ...w.capabilities]
-        .join(" ")
-        .toLowerCase()
-        .includes(query),
-    )
-  }, [workers, search])
-
-  return (
-    <Section
-      title="Workers"
-      count={filtered.length}
-      actions={
-        <div className="flex flex-wrap items-center gap-[var(--space-2)]">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search workers…"
-            aria-label="Search workers"
-            className="focus-ring h-8 rounded-[var(--radius-sm)] border border-[var(--separator)] bg-[var(--material-thin)] px-3 text-[length:var(--text-footnote)] text-[var(--text-primary)] outline-none"
-          />
-          <DensityToggle density={density} onChange={onDensityChange} />
-          <ColumnConfigMenu
-            columns={WORKER_COLUMNS.map((c) => ({ key: c.key, label: c.label, required: c.required }))}
-            hiddenColumns={hiddenColumns}
-            onChange={onHiddenColumnsChange}
-          />
-          <SavedViewsMenu
-            savedViews={savedViews}
-            pinnedViewId={null}
-            currentFilters={{ search }}
-            currentSort={sort}
-            currentHiddenColumns={hiddenColumns}
-            onApply={onApplySavedView}
-            onSave={onSaveView}
-            onDelete={onDeleteView}
-          />
-          <ExportMenu rows={filtered} columns={WORKER_EXPORT_COLUMNS} filenamePrefix="orchestration-workers" />
-        </div>
-      }
-    >
-      <DataTable
-        columns={WORKER_COLUMNS}
-        rows={filtered}
-        getRowKey={(w) => w.id}
-        hiddenColumns={hiddenColumns}
-        density={density}
-        sort={sort}
-        onSortChange={onSortChange}
-        emptyState={<EmptyState title="No workers match this search." />}
-      />
-    </Section>
   )
 }
 

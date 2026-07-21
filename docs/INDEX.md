@@ -99,6 +99,10 @@ artifacts unless explicitly published.
   alignment of the virtual COO, default configuration, and Fable-to-Opus
   fallback policy.
 
+- `docs/logs/session/072026/2026-07-20-fleetview-workers-dataview.md`:
+  implementation and validation record for shareable Workers DataView URLs,
+  derived presence, the accessible inspector, and built-browser coverage.
+
 - `docs/audits/072026/2026-07-16-full-audit-repair-campaign.md`:
   current-source full repository audit; records twelve confirmed P1–P3
   findings, their repair dispositions, final regression evidence, and explicit

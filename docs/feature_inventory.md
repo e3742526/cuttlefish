@@ -129,8 +129,18 @@
 - `/orchestration` shows real orchestration status, workers, running leases,
   blocked queue items, durable continuations, dual-lane selection manifests,
   managed worktrees, and telemetry/cost summaries.
-- The Workers DataView supports named local saved views that reapply its search,
-  sort, and visible-column state.
+- The Workers DataView supports named local saved views and URL-serialized active
+  state: the Workers tab, search, sorting, visible-column state, and selected
+  worker can be restored from or shared in the browser URL without discarding
+  unrelated route parameters.
+- Workers expose derived `Available`, `Held`, `Working`, or `At capacity`
+  presence based solely on current leases and holds. Keyboard or mouse selection
+  opens an accessible inspector with worker capability/capacity details plus the
+  active coordinator assignments and scheduling holds that explain that presence;
+  it does not alter orchestration or delegation state.
+- The Workers table has explicit table-cell semantics, a keyboard-accessible
+  inspector flow, focused axe coverage, and a built-dashboard browser regression
+  for shared URLs and inspector state.
 - Dashboard actions are deliberately limited to safe backend actions: retry a
   continuation only when it is `failed`, select or apply a dual-lane winner,
   pause/resume the global queue or one queued task, create/extend/cancel
