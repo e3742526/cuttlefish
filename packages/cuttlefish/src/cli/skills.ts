@@ -163,6 +163,22 @@ export function copySkillToInstance(name: string, sourceDir: string): void {
   copyDirRecursive(sourceDir, destDir);
 }
 
+export interface SkillsAddDependencies {
+  runInstaller?: (args: string[]) => ReturnType<typeof spawnSync>;
+  findGlobalSkill?: (name: string) => { name: string; dir: string } | null;
+  snapshot?: () => Map<string, Set<string>>;
+  diffSnapshots?: (
+    before: Map<string, Set<string>>,
+    after: Map<string, Set<string>>,
+  ) => Array<{ dir: string; name: string }>;
+}
+
+function addExistingSkillToInstance(source: string, existing: { name: string; dir: string }): void {
+  copySkillToInstance(existing.name, existing.dir);
+  upsertManifest(existing.name, source);
+  console.log(`\n${GREEN}Skill "${existing.name}" added to ${SKILLS_DIR}${RESET}`);
+}
+
 function copyDirRecursive(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -186,44 +202,45 @@ export function skillsFind(query?: string): void {
   process.exitCode = result.status ?? 1;
 }
 
-export function skillsAdd(pkg: string): void {
-  console.log(`\nInstalling skill: ${pkg}\n`);
-
-  // Snapshot before
-  const before = snapshotDirs();
-
-  // Run npx skills add
-  const result = runNpxSkills(["add", pkg, "-g", "-y"]);
-
-  if (result.status !== 0) {
-    console.error(`\n${RED}Failed to install skill.${RESET}`);
-    process.exitCode = 1;
+export function skillsAdd(pkg: string, dependencies: SkillsAddDependencies = {}): void {
+  const skillName = extractSkillName(pkg);
+  const manifestEntry = readManifest().find((entry) => entry.name === skillName);
+  const instanceDir = path.join(SKILLS_DIR, skillName);
+  if (manifestEntry && fs.existsSync(instanceDir)) {
+    console.log(`\n${DIM}Skill "${skillName}" is already installed in ${SKILLS_DIR}${RESET}`);
     return;
   }
 
-  // Snapshot after to detect new directories
-  const after = snapshotDirs();
-  const newDirs = diffSnapshots(before, after);
+  const findGlobalSkill = dependencies.findGlobalSkill ?? findExistingSkill;
+  const existingGlobal = findGlobalSkill(skillName);
+  if (existingGlobal) {
+    addExistingSkillToInstance(pkg, existingGlobal);
+    return;
+  }
 
-  if (newDirs.length === 0) {
-    // Skill may have been already installed globally — try to find it by name
-    const skillName = extractSkillName(pkg);
-    const existing = findExistingSkill(skillName);
-    if (existing) {
-      copySkillToInstance(existing.name, existing.dir);
-      upsertManifest(existing.name, pkg);
-      console.log(`\n${GREEN}Skill "${existing.name}" added to ${SKILLS_DIR}${RESET}`);
-    } else {
-      console.log(`\n${YELLOW}Skill installed globally but could not locate the directory.${RESET}`);
+  console.log(`\nInstalling skill: ${pkg}\n`);
+  const snapshot = dependencies.snapshot ?? snapshotDirs;
+  const detectNewDirs = dependencies.diffSnapshots ?? diffSnapshots;
+  const before = snapshot();
+  // Keep installer output out of the command's final status. Some global
+  // installers exit non-zero after writing the skill, so state inspection
+  // below—not that noisy process status alone—determines the truthful result.
+  const result = (dependencies.runInstaller ?? ((args) => runNpxSkills(args, "pipe")))(["add", pkg, "-g", "-y"]);
+  const newDirs = detectNewDirs(before, snapshot());
+  const installed = newDirs[0]
+    ? { name: newDirs[0].name, dir: path.join(newDirs[0].dir, newDirs[0].name) }
+    : findGlobalSkill(skillName);
+
+  if (installed) {
+    addExistingSkillToInstance(pkg, installed);
+    if (result.status !== 0) {
+      console.log(`${YELLOW}The global installer reported a non-zero exit after creating the skill; the instance install completed.${RESET}`);
     }
     return;
   }
 
-  // Copy first new directory to our skills dir
-  const installed = newDirs[0];
-  copySkillToInstance(installed.name, path.join(installed.dir, installed.name));
-  upsertManifest(installed.name, pkg);
-  console.log(`\n${GREEN}Skill "${installed.name}" added to ${SKILLS_DIR}${RESET}`);
+  console.error(`\n${RED}Failed to install skill.${RESET}`);
+  process.exitCode = 1;
 }
 
 export function skillsRemove(name: string): void {
