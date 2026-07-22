@@ -30,17 +30,12 @@ Publishing the GitHub release is the single trigger; everything downstream is au
 > was at 0.23.x) and never reached npm — which is why the version numbering
 > continues from 0.23.x, not from the old tag names.
 
-> **First-publish caveat (still open as of 2026-07-22):** `cuttlefish-cli` has
-> never successfully published to npm. The v0.23.4 attempt passed the tag check
-> but failed `npm publish` with `E404` (PUT not allowed): the workflow has no
-> real npm credential — setup-node leaves a placeholder `NODE_AUTH_TOKEN`, no
-> `NPM_TOKEN` secret is wired into the publish step, and OIDC trusted publishing
-> can't be configured for a package that doesn't exist yet. A maintainer must
-> either (a) do a one-time manual `npm publish` from `packages/cuttlefish` with a
-> real npm account to create the package, then configure the trusted publisher /
-> `NPM_TOKEN` for the workflow, or (b) add an npm token with create-package
-> rights to the `npm-production` environment and re-run the release workflow.
-> Once the package exists on npm this caveat is obsolete — delete it.
+> **Current npm authentication (2026-07-22):** a one-time authenticated publish
+> created `cuttlefish-cli@0.23.4`. The automated publish job reads the granular
+> `NPM_TOKEN` secret from the protected `npm-production` GitHub environment.
+> That bootstrap token expires on 2026-07-29; replace it before then or migrate
+> the package to an npm trusted-publisher connection for this repository,
+> `release-npm.yml`, and the `npm-production` environment.
 
 ## Steps
 

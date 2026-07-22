@@ -12,13 +12,10 @@ Override with `CUTTLEFISH_HOME`.
 
 | Path | Best for | Status |
 |------|----------|--------|
-| **npm** `npm install -g cuttlefish-cli` | Everyday installs after a published release | Available only after the matching GitHub Release successfully publishes to npm — see [RELEASING.md](RELEASING.md) |
+| **npm** `npm install -g cuttlefish-cli` | Everyday installs | Public package; matching GitHub releases publish new versions through the automated pipeline — see [RELEASING.md](RELEASING.md) |
 | **Homebrew** (macOS/Linux) | Formula users | Updated automatically after npm publish |
 | **GitHub Release archive** | Offline / pinned platform trees with native modules prebuilt | `linux-x64` + `darwin-arm64` `.tar.gz`, `win32-x64` `.zip` attached to the release |
 | **Source** | Contributors and pre-publish installs | Always works |
-
-Until the first successful npm publication, **source** and (once a release
-exists with assets) **platform archives** are the supported public paths.
 
 ---
 
@@ -65,8 +62,8 @@ irm https://raw.githubusercontent.com/cephalopod-ai/cuttlefish/main/scripts/inst
 .\install.ps1 -FromRelease -Force
 
 # Or a specific version / local file
-.\install.ps1 -FromRelease -Version 0.23.3 -Force
-.\install.ps1 -ArchivePath .\cuttlefish-cli-0.23.3-win32-x64.zip -Force
+.\install.ps1 -FromRelease -Version 0.23.5 -Force
+.\install.ps1 -ArchivePath .\cuttlefish-cli-0.23.5-win32-x64.zip -Force
 ```
 
 Asset name: `cuttlefish-cli-<version>-win32-x64.zip`  

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.23.5] - 2026-07-22
+
+Corrected follow-up release after the `v0.23.4` GitHub workflow reached npm
+without a usable publish credential. A one-time authenticated publish created
+`cuttlefish-cli@0.23.4`; this release exercises the complete automated pipeline
+with the corrected CLI bin path and the protected npm production credential.
+
+### Packaging
+- Normalized the npm `bin` target to `dist/bin/cuttlefish.js`, avoiding npm's
+  invalid-bin auto-correction of the previous `./dist/bin/cuttlefish.js` form.
+- Wired the `npm-production` environment's `NPM_TOKEN` secret into the publish
+  step while retaining npm provenance generation.
+- Updated install and release documentation now that `cuttlefish-cli` exists
+  publicly on npm.
+
 ## [0.23.4] - 2026-07-22
 
 First release cut with the tag aligned to the package version (`v0.23.4` ==

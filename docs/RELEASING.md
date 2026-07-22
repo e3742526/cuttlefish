@@ -29,7 +29,9 @@ The release workflows deliberately run in this order:
 
 1. **Publish npm Package** validates the tag/version match, runs the project
    checks, verifies the tarball contents (including the bundled shared runtime
-   contract), and publishes with npm provenance.
+   contract), and publishes with npm provenance. The job reads `NPM_TOKEN` from
+   the protected `npm-production` GitHub environment; keep that granular token
+   valid until the package is migrated to an npm trusted-publisher connection.
 2. **Release Artifacts** runs only after that workflow succeeds. It builds the
    platform-specific production dependency trees and uploads the archives to
    the existing GitHub Release:

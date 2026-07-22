@@ -33,4 +33,6 @@ jobs:
         run: pnpm --filter=cuttlefish-cli verify:package
       - name: Publish with npm provenance
         working-directory: packages/cuttlefish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public

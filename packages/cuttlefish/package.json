@@ -1,6 +1,6 @@
 {
   "name": "cuttlefish-cli",
-  "version": "0.23.4",
+  "version": "0.23.5",
   "description": "Cuttlefish AI gateway daemon orchestrating professional AI coding CLIs",
   "license": "MIT",
   "type": "module",

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.23.3-7c3aed" alt="version 0.23.3" />
+  <img src="https://img.shields.io/badge/version-0.23.5-7c3aed" alt="version 0.23.5" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-7c3aed" alt="license: MIT" /></a>
   <img src="https://img.shields.io/badge/node-%E2%89%A524%20%3C25-7c3aed" alt="node >=24 <25" />
   <img src="https://img.shields.io/badge/status-beta-7c3aed" alt="status: beta" />
@@ -108,7 +108,10 @@ Windows zip install:
 
 Then open **[http://localhost:8888](http://localhost:8888)**, send your first message, and watch your COO delegate.
 
-> **Package availability.** `cuttlefish-cli` is not yet available from npm, so **source** (and the Windows `install.ps1` / `package-windows.ps1` path above) is the supported install today. A release with a matching `v<version>` tag publishes the npm package first; only after that succeeds are platform archives and the Homebrew formula updated. See [`docs/RELEASING.md`](docs/RELEASING.md) and [`docs/INSTALL.md`](docs/INSTALL.md).
+> **Package availability.** `cuttlefish-cli` is available from npm. A release
+> with a matching `v<version>` tag publishes the npm package first; only after
+> that succeeds are platform archives and the Homebrew formula updated. See
+> [`docs/RELEASING.md`](docs/RELEASING.md) and [`docs/INSTALL.md`](docs/INSTALL.md).
 
 > **`--version` ≠ signed in.** Cuttlefish drives the official engine CLIs, so authenticate each one *before* `cuttlefish start` (run `claude` → `/login`, run `codex` to sign in, etc.). Without this, sessions can't reach the models - the most common fresh-install gotcha.
 
