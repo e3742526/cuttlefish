@@ -614,6 +614,7 @@ export function deleteSession(id: string): boolean {
     // approvals are owned by the session (session_id NOT NULL) — delete them so a
     // removed session leaves no dangling approval rows.
     db.prepare('DELETE FROM approvals WHERE session_id = ?').run(id);
+    db.prepare('DELETE FROM communication_events WHERE session_id = ? OR project_root_session_id = ?').run(id, id);
     unlinkEmailReferencesForSessions(db, [id]);
     const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
     return result.changes > 0;
@@ -638,10 +639,81 @@ export function deleteSessions(ids: string[]): number {
     }
     // See deleteSession: owned approvals are deleted; soft email links are unlinked.
     db.prepare(`DELETE FROM approvals WHERE session_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM communication_events WHERE session_id IN (${placeholders}) OR project_root_session_id IN (${placeholders})`)
+      .run(...ids, ...ids);
     unlinkEmailReferencesForSessions(db, ids);
     return db.prepare(`DELETE FROM sessions WHERE id IN (${placeholders})`).run(...ids).changes;
   });
   return txn();
+}
+
+export type DeleteSessionTreeResult =
+  | { ok: true; deletedIds: string[] }
+  | { ok: false; code: "not_found" | "stale_title" | "stale_count" | "active"; actualCount?: number; activeSessionIds?: string[] };
+
+/** Permanently removes one root session and every recursively reachable child
+ * in a single transaction. The recursive CTE uses UNION (not UNION ALL), so a
+ * corrupt cyclic graph terminates deterministically instead of looping. */
+export function deleteSessionTreeAtomically(input: {
+  rootSessionId: string;
+  expectedTitle: string;
+  expectedSessionCount: number;
+}): DeleteSessionTreeResult {
+  const db = initDb();
+  const tx = db.transaction((): DeleteSessionTreeResult => {
+    const root = db.prepare('SELECT id, title FROM sessions WHERE id = ?').get(input.rootSessionId) as
+      | { id: string; title: string | null }
+      | undefined;
+    if (!root) return { ok: false, code: "not_found" };
+    const actualTitle = root.title?.trim() || root.id;
+    if (actualTitle !== input.expectedTitle) return { ok: false, code: "stale_title" };
+
+    const rows = db.prepare(`
+      WITH RECURSIVE tree(id) AS (
+        SELECT id FROM sessions WHERE id = ?
+        UNION
+        SELECT sessions.id
+        FROM sessions JOIN tree ON sessions.parent_session_id = tree.id
+      )
+      SELECT sessions.id, sessions.status
+      FROM sessions JOIN tree ON sessions.id = tree.id
+      ORDER BY sessions.id
+    `).all(input.rootSessionId) as Array<{ id: string; status: Session["status"] }>;
+    if (rows.length !== input.expectedSessionCount) {
+      return { ok: false, code: "stale_count", actualCount: rows.length };
+    }
+    const ids = rows.map((row) => row.id);
+    const placeholders = ids.map(() => "?").join(",");
+    const queued = db.prepare(`
+      SELECT DISTINCT session_id AS id FROM queue_items
+      WHERE session_id IN (${placeholders}) AND status IN ('pending', 'running')
+    `).all(...ids) as Array<{ id: string }>;
+    const activeIds = new Set(
+      rows.filter((row) => row.status === "running" || row.status === "waiting").map((row) => row.id),
+    );
+    for (const row of queued) activeIds.add(row.id);
+    if (activeIds.size > 0) {
+      return { ok: false, code: "active", activeSessionIds: [...activeIds].sort() };
+    }
+
+    const sessionKeys = db.prepare(
+      `SELECT session_key as sessionKey FROM sessions WHERE id IN (${placeholders}) AND session_key IS NOT NULL`,
+    ).all(...ids) as Array<{ sessionKey: string }>;
+    db.prepare(`DELETE FROM communication_events WHERE session_id IN (${placeholders}) OR project_root_session_id IN (${placeholders})`)
+      .run(...ids, ...ids);
+    db.prepare(`DELETE FROM messages WHERE session_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM queue_items WHERE session_id IN (${placeholders})`).run(...ids);
+    db.prepare(`DELETE FROM approvals WHERE session_id IN (${placeholders})`).run(...ids);
+    if (sessionKeys.length > 0) {
+      const keyPlaceholders = sessionKeys.map(() => "?").join(",");
+      db.prepare(`DELETE FROM queue_pauses WHERE session_key IN (${keyPlaceholders})`)
+        .run(...sessionKeys.map((row) => row.sessionKey));
+    }
+    unlinkEmailReferencesForSessions(db, ids);
+    db.prepare(`DELETE FROM sessions WHERE id IN (${placeholders})`).run(...ids);
+    return { ok: true, deletedIds: ids };
+  });
+  return tx();
 }
 
 export function getEmployeeSpendSince(employee: string, sinceIsoDate: string): number {

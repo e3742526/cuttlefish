@@ -24,7 +24,7 @@ describe('MOBILE_TAB_ITEMS', () => {
   it('lists the curated hrefs in order', () => {
     expect(MOBILE_TAB_ITEMS.map((item) => item.href)).toEqual([
       '/',
-      '/talk',
+      '/command',
       '/org',
       '/approvals',
       '/settings',

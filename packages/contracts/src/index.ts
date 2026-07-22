@@ -28,6 +28,25 @@ export type {
   SessionTransportState,
 } from "./session.js";
 export type {
+  CollaborationAttribution,
+  CollaborationAuthorKind,
+  CollaborationFeedItem,
+  CollaborationFeedKind,
+  CollaborationFeedPage,
+  CollaborationLane,
+  CollaborationSendRequest,
+  CollaborationSendResponse,
+  DeliveryReceipt,
+  ManagementRecipient,
+  ManagementRecipientsResponse,
+  OperatorDelegationScope,
+  ProjectDeleteRequest,
+  ProjectIntegrity,
+  ProjectSummary,
+  ProjectTreeNode,
+  ProjectTreeResponse,
+} from "./collaboration.js";
+export type {
   WorkspaceProfile,
   WorkspaceProfilesResponse,
 } from "./workspace.js";

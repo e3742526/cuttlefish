@@ -1,5 +1,5 @@
 /**
- * Whisper STT model-download modal — shared by /chat (ChatInput) and /talk.
+ * Whisper STT model-download modal used by chat input.
  *
  * Both surfaces drive the same useStt flow: when the mic is tapped and no local
  * model is installed, stt.state becomes "no-model" and this modal asks to

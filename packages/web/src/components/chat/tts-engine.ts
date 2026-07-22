@@ -4,7 +4,7 @@
  * Latency model: the server STREAMS one WAV frame per sentence (POST /api/tts,
  * length-prefixed frames). We start playing sentence 1 the moment it arrives while
  * 2..N are still synthesizing → time-to-first-audio ≈ one sentence, independent of
- * message length. Playback reuses the /talk gapless sequential queue
+ * message length. Playback reuses the gapless sequential audio queue
  * (TalkAudioPlayer), fed binary buffers as frames decode.
  *
  * Strategy per message:

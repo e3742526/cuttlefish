@@ -259,6 +259,38 @@ CREATE INDEX IF NOT EXISTS idx_email_messages_thread
 ON email_messages (inbox_id, thread_key, received_at DESC)
 `;
 
+export const CREATE_COMMUNICATION_EVENTS_TABLE = `
+CREATE TABLE IF NOT EXISTS communication_events (
+  id TEXT PRIMARY KEY,
+  lane TEXT NOT NULL CHECK (lane IN ('team', 'management')),
+  project_root_session_id TEXT,
+  session_id TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('message', 'delegation', 'callback', 'status', 'error')),
+  author_kind TEXT NOT NULL CHECK (author_kind IN ('operator', 'agent', 'system')),
+  author_id TEXT,
+  author_display_name TEXT NOT NULL,
+  recipients_json TEXT NOT NULL DEFAULT '[]',
+  content TEXT NOT NULL,
+  timestamp INTEGER NOT NULL,
+  attribution TEXT NOT NULL CHECK (attribution IN ('recorded', 'inferred')),
+  delivery_receipts_json TEXT,
+  referenced_message_ids_json TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY (project_root_session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+)
+`;
+
+export const CREATE_COMMUNICATION_EVENTS_FEED_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_communication_events_feed
+ON communication_events (lane, project_root_session_id, timestamp DESC, id DESC)
+`;
+
+export const CREATE_COMMUNICATION_EVENTS_SESSION_INDEX = `
+CREATE INDEX IF NOT EXISTS idx_communication_events_session
+ON communication_events (session_id, timestamp DESC, id DESC)
+`;
+
 export const CREATE_FTS = `
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(content, content='messages', content_rowid='rowid', tokenize='unicode61');
 CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages WHEN new.role IN ('user','assistant') BEGIN
@@ -335,5 +367,8 @@ export function installPostMigrationSchema(db: Database.Database): void {
   db.exec(CREATE_EMAIL_HEALTH_TABLE);
   db.exec(CREATE_EMAIL_MESSAGES_INBOX_INDEX);
   db.exec(CREATE_EMAIL_MESSAGES_THREAD_INDEX);
+  db.exec(CREATE_COMMUNICATION_EVENTS_TABLE);
+  db.exec(CREATE_COMMUNICATION_EVENTS_FEED_INDEX);
+  db.exec(CREATE_COMMUNICATION_EVENTS_SESSION_INDEX);
   db.exec(`UPDATE email_messages SET received_at = created_at WHERE received_at IS NULL`);
 }

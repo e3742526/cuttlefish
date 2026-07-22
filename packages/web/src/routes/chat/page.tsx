@@ -24,6 +24,8 @@ import { ChatErrorBoundary } from './chat-page-error-boundary'
 import { ChatMoreMenu } from './chat-more-menu'
 import { ChatPageShell } from './chat-page-shell'
 import { clearSelectedRoomId, loadSelectedRoomId, saveSelectedRoomId } from './room-selection-storage'
+import { groupSessionsByProject } from '@/components/chat/project-session-tree'
+import { readCollaborationRouteState, writeCollaborationRouteState } from './collaboration-route-state'
 
 export default function ChatPageWrapper() {
   return (
@@ -45,10 +47,19 @@ function ChatPage() {
   const { settings } = useSettings()
   const portalName = settings.portalName ?? 'Cuttlefish'
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() => loadSelectedRoomId())
+  const initialSearch = useMemo(() => new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search), [])
+  const initialCollaborationState = useMemo(
+    () => readCollaborationRouteState(initialSearch), [initialSearch],
+  )
+  const [collaborationMode, setCollaborationMode] = useState(() => !selectedRoomId && (!initialSearch.has('session') || initialSearch.has('lane') || initialSearch.has('project')))
+  const [collaborationLane, setCollaborationLane] = useState<'team' | 'management'>(initialCollaborationState.lane)
+  const [projectRootSessionId, setProjectRootSessionId] = useState<string | null>(initialCollaborationState.projectRootSessionId)
+  const [sessionFilterId, setSessionFilterId] = useState<string | null>(initialCollaborationState.sessionId)
+  const [inspectorOpen, setInspectorOpen] = useState(initialCollaborationState.inspectorOpen)
   // When set, the main surface shows a department project-room's merged timeline
   // (read-only) instead of a single session's ChatPane. Mutually exclusive with
   // selectedId — selecting a session clears the room, and vice-versa.
-  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(() => loadSelectedRoomId())
   const [mobileView, setMobileView] = useState<'sidebar' | 'chat'>('sidebar')
   // sessionMeta carries the sessionId it belongs to so the tab-label effect
   // can ignore stale meta from a previous session mid-switch (title flash fix).
@@ -236,6 +247,7 @@ function ChatPage() {
   const handleSelect = useCallback(
     (id: string) => {
       newChatIntentRef.current = false
+      setCollaborationMode(false)
       clearSelectedRoomId()
       setSelectedRoomId(null)
       setSelectedId(id)
@@ -267,6 +279,7 @@ function ChatPage() {
 
   const handleNewChat = useCallback(() => {
     newChatIntentRef.current = true
+    setCollaborationMode(false)
     setPendingEmployee(null)
     clearSelectedRoomId()
     setSelectedRoomId(null)
@@ -282,6 +295,7 @@ function ChatPage() {
   // The actual session is created on first send (ChatPane → buildNewSessionParams).
   const contactEmployee = useCallback((name: string) => {
     newChatIntentRef.current = true
+    setCollaborationMode(false)
     setPendingEmployee(name)
     clearSelectedRoomId()
     setSelectedRoomId(null)
@@ -297,7 +311,71 @@ function ChatPage() {
   // (cleared from the URL) so it doesn't re-fire on unrelated re-renders or stick
   // across navigation. Mirrors routes/file/page.tsx's useSearchParams usage.
   const [searchParams, setSearchParams] = useSearchParams()
+  const persistCollaborationState = useCallback((state: ReturnType<typeof readCollaborationRouteState>, replace = false) => {
+    setSearchParams(writeCollaborationRouteState(searchParams, state), { replace })
+  }, [searchParams, setSearchParams])
+
+  const handleSelectProject = useCallback((rootSessionId: string) => {
+    newChatIntentRef.current = false
+    clearSelectedRoomId()
+    setSelectedRoomId(null)
+    setCollaborationMode(true)
+    setCollaborationLane('team')
+    setProjectRootSessionId(rootSessionId)
+    setSessionFilterId(null)
+    setInspectorOpen(false)
+    setSelectedId(rootSessionId)
+    setMobileView('chat')
+    chatTabs.openProjectTab({ rootSessionId, label: 'Project', status: 'idle', unread: false })
+    persistCollaborationState({ lane: 'team', projectRootSessionId: rootSessionId, sessionId: null, inspectorOpen: false })
+  }, [chatTabs, persistCollaborationState])
+
+  const handleSelectProjectSession = useCallback((rootSessionId: string, sessionId: string) => {
+    newChatIntentRef.current = false
+    clearSelectedRoomId()
+    setSelectedRoomId(null)
+    setCollaborationMode(true)
+    setCollaborationLane('team')
+    setProjectRootSessionId(rootSessionId)
+    setSessionFilterId(sessionId)
+    setInspectorOpen(true)
+    setSelectedId(sessionId)
+    setMobileView('chat')
+    chatTabs.openProjectTab({ rootSessionId, label: 'Project', status: 'idle', unread: false })
+    persistCollaborationState({ lane: 'team', projectRootSessionId: rootSessionId, sessionId, inspectorOpen: true })
+  }, [chatTabs, persistCollaborationState])
+
+  const handleLaneChange = useCallback((lane: 'team' | 'management') => {
+    newChatIntentRef.current = false
+    setCollaborationMode(true)
+    setCollaborationLane(lane)
+    setSessionFilterId(null)
+    setInspectorOpen(false)
+    setMobileView('chat')
+    if (lane === 'management') {
+      setSelectedId(null)
+      chatTabs.clearActiveTab()
+      persistCollaborationState({ lane, projectRootSessionId, sessionId: null, inspectorOpen: false })
+    } else {
+      persistCollaborationState({ lane, projectRootSessionId, sessionId: null, inspectorOpen: false })
+    }
+  }, [chatTabs, persistCollaborationState, projectRootSessionId])
+
   useEffect(() => {
+    if (!searchParams.has('lane') && !searchParams.has('project')) return
+    const state = readCollaborationRouteState(searchParams)
+    setCollaborationMode(true)
+    setCollaborationLane(state.lane)
+    setProjectRootSessionId(state.projectRootSessionId)
+    setSessionFilterId(state.sessionId)
+    setInspectorOpen(state.inspectorOpen)
+    if (state.sessionId) setSelectedId(state.sessionId)
+    else if (state.projectRootSessionId) setSelectedId(state.projectRootSessionId)
+    else setSelectedId(null)
+  }, [searchParams])
+
+  useEffect(() => {
+    if (searchParams.has('lane') || searchParams.has('project')) return
     const link = resolveDeepLink(searchParams)
     if (!link) return
     if (link.kind === 'session') handleSelect(link.id)
@@ -336,14 +414,17 @@ function ChatPage() {
   }, [chatTabs])
 
   const handleSessionsLoaded = useCallback(
-    (sessions: { id: string }[]) => {
+    (sessions: Array<{ id: string; parentSessionId?: string | null; lastActivity?: string; title?: string | null; employee?: string | null; status?: string }>) => {
       // Don't auto-open the first session while a room timeline is showing
       // (read the room from a ref so a refetch can't fire a stale guard).
-      if (!selectedId && !selectedRoomIdRef.current && !newChatIntentRef.current && sessions.length > 0) {
+      if (collaborationMode && collaborationLane === 'team' && !projectRootSessionId && !newChatIntentRef.current && sessions.length > 0) {
+        const project = groupSessionsByProject(sessions as never).at(0)
+        if (project) handleSelectProject(project.rootSessionId)
+      } else if (!collaborationMode && !selectedId && !selectedRoomIdRef.current && !newChatIntentRef.current && sessions.length > 0) {
         handleSelect(sessions[0].id)
       }
     },
-    [selectedId, handleSelect]
+    [collaborationLane, collaborationMode, handleSelect, handleSelectProject, projectRootSessionId, selectedId]
   )
 
   const handleDeleteSession = useCallback(async (id: string) => {
@@ -508,6 +589,10 @@ function ChatPage() {
   // When active tab changes, sync selectedId
   useEffect(() => {
     const at = chatTabs.activeTab
+    if (at?.kind === 'project' && at.rootSessionId !== projectRootSessionId) {
+      handleSelectProject(at.rootSessionId)
+      return
+    }
     if (at && at.kind === 'session' && at.sessionId !== selectedId) {
       clearSelectedRoomId()
       setSelectedRoomId(null) // a session tab takes over the surface from a room
@@ -522,7 +607,7 @@ function ChatPage() {
     }
     // When at.kind === 'file', leave selectedId untouched — we render FileView
     // instead of ChatPane, but the underlying session selection is preserved.
-  }, [chatTabs.activeTab, selectedId])
+  }, [chatTabs.activeTab, handleSelectProject, projectRootSessionId, selectedId])
 
   const cliModeAvailable = !sessionMeta?.engine || ['claude', 'codex', 'antigravity', 'grok'].includes(sessionMeta.engine)
   const activeSessionTab = chatTabs.activeTab?.kind === 'session' ? chatTabs.activeTab : null
@@ -566,9 +651,61 @@ function ChatPage() {
     />
   )
 
-  const headerTitle = sessionMeta?.title?.trim() || (selectedId ? '' : 'New chat')
+  const headerTitle = collaborationMode
+    ? collaborationLane === 'management' ? 'Management' : 'Team'
+    : sessionMeta?.title?.trim() || (selectedId ? '' : 'New chat')
 
   const onMobileList = mobileView === 'sidebar'
+
+  const handleInspectSession = useCallback((sessionId: string) => {
+    if (!projectRootSessionId) return
+    setSessionFilterId(sessionId)
+    setInspectorOpen(true)
+    setSelectedId(sessionId)
+    persistCollaborationState({ lane: 'team', projectRootSessionId, sessionId, inspectorOpen: true })
+  }, [persistCollaborationState, projectRootSessionId])
+
+  const handleCloseInspector = useCallback(() => {
+    setInspectorOpen(false)
+    persistCollaborationState({ lane: collaborationLane, projectRootSessionId, sessionId: sessionFilterId, inspectorOpen: false }, true)
+  }, [collaborationLane, persistCollaborationState, projectRootSessionId, sessionFilterId])
+
+  const handleInvalidProject = useCallback(() => {
+    setProjectRootSessionId(null)
+    setSessionFilterId(null)
+    setInspectorOpen(false)
+    setSelectedId(null)
+    persistCollaborationState({ lane: 'team', projectRootSessionId: null, sessionId: null, inspectorOpen: false }, true)
+  }, [persistCollaborationState])
+
+  const handleInvalidSessionFilter = useCallback(() => {
+    setSessionFilterId(null)
+    setInspectorOpen(false)
+    setSelectedId(projectRootSessionId)
+    persistCollaborationState({ lane: 'team', projectRootSessionId, sessionId: null, inspectorOpen: false }, true)
+  }, [persistCollaborationState, projectRootSessionId])
+
+  const handleOpenUnderlyingSession = useCallback((sessionId: string) => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('lane')
+    next.delete('project')
+    next.delete('session')
+    next.delete('inspector')
+    setSearchParams(next)
+    handleSelect(sessionId)
+  }, [handleSelect, searchParams, setSearchParams])
+
+  const handleProjectDeleted = useCallback((sessionIds: string[]) => {
+    for (const id of sessionIds) {
+      clearIntermediateMessages(id)
+      chatTabs.closeTabBySessionId(id)
+    }
+    setProjectRootSessionId(null)
+    setSessionFilterId(null)
+    setInspectorOpen(false)
+    setSelectedId(null)
+    persistCollaborationState({ lane: 'team', projectRootSessionId: null, sessionId: null, inspectorOpen: false }, true)
+  }, [chatTabs, persistCollaborationState])
 
   return (
     <>
@@ -598,6 +735,20 @@ function ChatPage() {
         showShortcutOverlay={showShortcutOverlay}
         onSelect={handleSelect}
         onSelectRoom={handleSelectRoom}
+        collaborationMode={collaborationMode}
+        collaborationLane={collaborationLane}
+        projectRootSessionId={projectRootSessionId}
+        sessionFilterId={sessionFilterId}
+        inspectorOpen={inspectorOpen}
+        onSelectProject={handleSelectProject}
+        onSelectProjectSession={handleSelectProjectSession}
+        onLaneChange={handleLaneChange}
+        onInspectSession={handleInspectSession}
+        onCloseInspector={handleCloseInspector}
+        onInvalidProject={handleInvalidProject}
+        onInvalidSessionFilter={handleInvalidSessionFilter}
+        onOpenUnderlyingSession={handleOpenUnderlyingSession}
+        onProjectDeleted={handleProjectDeleted}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
         onDuplicateFromSidebar={handleDuplicateFromSidebar}

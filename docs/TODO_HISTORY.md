@@ -10,6 +10,7 @@ and the cited source/test evidence.
 
 | ID | Status | Priority | Area | Closure Summary | Evidence | Closed |
 |---|---|---|---|---|---|---|
+| SB-CUT-001 | closed | P3 | frontend-ux | Project/session Team and global Management collaboration are implemented with persisted projection events, structured routing, delivery receipts, one-turn authority controls, durable URL state, project tabs, session inspection, guarded atomic tree deletion, legacy attribution/integrity warnings, and browser Talk retirement while backend compatibility remains. | shared collaboration contracts; `cuttlefish/src/collaboration/`; collaboration routes and registry tests; `web/src/components/chat/collaboration-*`; route/tab/component tests; Giles ledger 0022 | 2026-07-21 |
 | IOP-CF-002 | closed | critical | security | Discord attachment traversal surface removed by deleting the Discord connector. | `packages/cuttlefish/src/connectors/discord/` removed | 2026-06-28 |
 | STT-CF-001 | closed | critical | state-machine | Org change apply now rejects non-approvable states before dispatch. | `gateway/api/routes/org.ts`, `gateway/hr-steward.ts` | 2026-06-28 |
 | STT-CF-002 | closed | critical | state-machine | `markExternalOutboxDelivered()` now only transitions rows still in `sending`. | `sessions/registry/external-outbox.ts` | 2026-06-28 |

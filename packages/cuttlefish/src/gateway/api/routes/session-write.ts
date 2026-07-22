@@ -29,16 +29,9 @@ import { clearTalkAttachments } from "../../../talk/attachments.js";
 import { maybeEmitTalkGraph } from "../../../talk/graph.js";
 import { clearTalkMuted } from "../../../talk/mute-state.js";
 import { createPtyAccessToken } from "../../auth.js";
-import { fileIdsToMedia, handleSessionAttachment, rehomeAttachmentsToSession } from "../../files.js";
+import { fileIdsToMedia, handleSessionAttachment } from "../../files.js";
 import { readJsonBody } from "../../http-helpers.js";
-import {
-  buildResolvedRunAttachments,
-  listRunAttachments,
-  mergeRunAttachments,
-  resolveIncomingRunAttachments,
-  screenRunAttachmentsForSession,
-  setRunAttachmentsOnTransportMeta,
-} from "../../run-attachments.js";
+import { attachResourcesToSession, describeSessionResources } from "../../session-resources.js";
 import { exportRunBundle } from "../../run-bundles.js";
 import { supersedeRunningTurn } from "../../session-turn-state.js";
 import { resolveUserHeader } from "../../connector-reply.js";
@@ -67,79 +60,10 @@ import {
   isHumanDelegationModelAllowed,
   parseOperatorDelegationScopes,
 } from "../../../sessions/operator-delegation.js";
+import { continueSession } from "../../continue-session.js";
 
 function configuredEngineModel(config: CuttlefishConfig, engine: string): string | undefined {
   return (config.engines as unknown as Record<string, { model?: string } | undefined>)[engine]?.model;
-}
-
-function combinedResourceSpecs(body: Record<string, unknown>): unknown[] {
-  const attachments = Array.isArray(body.attachments) ? body.attachments : [];
-  const resources = Array.isArray(body.resources) ? body.resources : [];
-  return [...attachments, ...resources];
-}
-
-async function attachResourcesToSession(
-  session: import("../../../shared/types.js").Session,
-  body: Record<string, unknown>,
-  context: ApiContext,
-): Promise<{
-  session: import("../../../shared/types.js").Session;
-  promptBlock: string | null;
-  engineAttachments: string[];
-  blocked: boolean;
-}> {
-  const existing = listRunAttachments(session);
-  const incomingSpecs = combinedResourceSpecs(body);
-  if (incomingSpecs.length === 0) {
-    const resolved = buildResolvedRunAttachments(existing);
-    return {
-      session,
-      promptBlock: resolved.promptBlock,
-      engineAttachments: resolved.engineAttachments,
-      blocked: resolved.blocked,
-    };
-  }
-
-  const legacyFileIds = Array.isArray(body.attachments)
-    ? body.attachments.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    : [];
-  if (legacyFileIds.length > 0) rehomeAttachmentsToSession(legacyFileIds, session.id);
-
-  const incoming = await resolveIncomingRunAttachments(incomingSpecs, context);
-  const merged = mergeRunAttachments(existing, incoming);
-  const screened = await screenRunAttachmentsForSession(
-    session,
-    merged,
-    context,
-    typeof body.prompt === "string"
-      ? body.prompt
-      : typeof body.message === "string"
-        ? body.message
-        : session.promptExcerpt ?? session.title ?? null,
-  );
-  const updated = updateSession(session.id, {
-    transportMeta: setRunAttachmentsOnTransportMeta(session.transportMeta, screened),
-  }) ?? session;
-  const resolved = buildResolvedRunAttachments(screened);
-  return {
-    session: updated,
-    promptBlock: resolved.promptBlock,
-    engineAttachments: resolved.engineAttachments,
-    blocked: resolved.blocked,
-  };
-}
-
-function describeSessionResources(session: import("../../../shared/types.js").Session): {
-  promptBlock: string | null;
-  engineAttachments: string[];
-  blocked: boolean;
-} {
-  const resolved = buildResolvedRunAttachments(listRunAttachments(session));
-  return {
-    promptBlock: resolved.promptBlock,
-    engineAttachments: resolved.engineAttachments,
-    blocked: resolved.blocked,
-  };
 }
 
 function singletonEmployeeSessionKey(employeeName: string | null | undefined): string | null {
@@ -767,191 +691,17 @@ export async function handleSessionWriteRoutes(
 
   params = matchRoute("/api/sessions/:id/message", pathname);
   if (method === "POST" && params) {
-    const existingSession = getSession(params.id);
-    if (!existingSession) {
-      notFound(res);
-      return true;
-    }
-    let session = maybeRevertEngineOverride(existingSession);
     const parsed = await readJsonBody(req, res);
     if (!parsed.ok) return true;
-    const body = parsed.body as any;
-    const prompt = (typeof body.message === "string" ? body.message : typeof body.prompt === "string" ? body.prompt : "").trim();
-    if (!prompt) {
-      badRequest(res, "message is required");
-      return true;
-    }
-
-    if (session.parentSessionId) {
-      const talkParent = getSession(session.parentSessionId);
-      if (talkParent?.source === "talk") {
-        context.emit("talk:focus", { cooId: session.id, label: session.title || "", parentId: talkParent.id });
-      }
-    }
-    maybeEmitTalkGraph(session.id, "status", { getSession, emit: context.emit });
-
-    const messageRole: string = body.role === "notification" ? "notification" : "user";
-    const isNotification = messageRole === "notification";
-    const displayMessage =
-      typeof body.displayMessage === "string" && body.displayMessage.trim()
-        ? body.displayMessage
-        : prompt;
-
-    const config = context.getConfig();
     const principal = (req as HttpRequest & { cuttlefishPrincipal?: GatewayPrincipal }).cuttlefishPrincipal;
-    const requestedDelegationScopes = isNotification ? null : parseOperatorDelegationScopes(prompt);
-    if (requestedDelegationScopes) {
-      if (principal?.kind === "session") {
-        json(res, { error: "Only a direct human operator message can delegate operator authority", code: "operator_delegation_human_only" }, 403);
-        return true;
-      }
-      if (!isHumanDelegateRole(session.employee, session.source)) {
-        json(res, { error: "Human-delegated authority is limited to Cuttlefish (COO) and Program Manager", code: "operator_delegation_role_forbidden" }, 403);
-        return true;
-      }
-      const delegationModel = session.model ?? configuredEngineModel(config, session.engine);
-      if (!isHumanDelegationModelAllowed(session.engine, delegationModel)) {
-        json(res, { error: "Human-delegated authority requires GPT-5.5, GPT-5.6-sol, Opus 4.8, or Fable", code: "operator_delegation_model_forbidden" }, 403);
-        return true;
-      }
-      if (!session.model && delegationModel) {
-        session = updateSession(session.id, { model: delegationModel }) ?? session;
-      }
-      session = patchSessionTransportMeta(session.id, {
-        operatorDelegation: buildOperatorDelegationGrant({
-          prompt,
-          scopes: requestedDelegationScopes,
-          grantedBy: resolveUserHeader(req.headers, config.gateway.userHeader),
-        }) as any,
-      }) ?? session;
-      context.emit("session:updated", { sessionId: session.id });
-    }
-    const ptyEngine = body.mode === "interactive" ? context.ptyViewEngines?.[session.engine] : undefined;
-    const engine = ptyEngine ?? context.sessionManager.getEngine(session.engine);
-    if (!engine) {
-      serverError(res, `Engine "${session.engine}" not available`);
-      return true;
-    }
-
-    const turnRunning = session.status === "running" && isInterruptibleEngine(engine)
-      && ("isTurnRunning" in engine ? (engine as any).isTurnRunning(session.id) : engine.isAlive(session.id));
-    const shouldInterruptRunningTurn =
-      !isNotification &&
-      (config.sessions?.interruptOnNewMessage ?? true) &&
-      turnRunning;
-    if (shouldInterruptRunningTurn) supersedeRunningTurn(session);
-
-    const userMedia = isNotification ? [] : fileIdsToMedia(body.attachments);
-    let attached;
-    if (isNotification) {
-      attached = { session, ...describeSessionResources(session) };
-    } else {
-      try {
-        attached = await attachResourcesToSession(session, body, context);
-      } catch (err) {
-        badRequest(res, err instanceof Error ? err.message : "invalid resources");
-        return true;
-      }
-    }
-    insertMessage(
-      session.id,
-      messageRole,
-      isNotification ? displayMessage : prompt,
-      userMedia.length > 0 ? userMedia : undefined,
-    );
-    if (isNotification) {
-      context.emit("session:notification", { sessionId: session.id, message: displayMessage });
-      // Two child callbacks can enter this route before either request finishes
-      // reading its JSON body. Re-read the parent immediately before claiming a
-      // final synthesis so the second callback observes the first one's durable
-      // marker instead of dispatching the parent again from a stale snapshot.
-      const currentSession = getSession(session.id) ?? session;
-      const synthesis = claimManagerDelegationSynthesis(
-        currentSession.id,
-        currentSession.transportMeta,
-        listChildSessions(currentSession.id),
-      );
-      if (!synthesis.shouldDispatch) {
-        json(res, {
-          status: "notification_recorded",
-          sessionId: session.id,
-          ...(synthesis.reason === "waiting_for_children" ? { pendingChildSessionIds: synthesis.pendingChildSessionIds } : {}),
-        });
-        return true;
-      }
-      if (synthesis.tracked) {
-        session = updateSession(currentSession.id, {
-          transportMeta: markManagerDelegationSynthesisDispatched(currentSession.transportMeta),
-        }) ?? currentSession;
-      }
-    } else if (acknowledgeLeaderAck(session.id, session, { acknowledgedBy: session.parentSessionId ?? null })) {
-      context.emit("session:updated", { sessionId: session.id });
-    }
-
-    if (!isNotification && session.status === "waiting") {
-      const expectedResetAt = getClaudeExpectedResetAt();
-      const resumeText = expectedResetAt
-        ? expectedResetAt.toLocaleString("en-GB", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
-        : null;
-      const queuedText =
-        `⏳ Still paused due to Claude usage limit${resumeText ? ` (resets ${resumeText})` : ""}. Your message is queued and will run automatically.`;
-      insertMessage(session.id, "notification", queuedText);
-      context.emit("session:notification", { sessionId: session.id, message: queuedText });
-    }
-
-    if (session.status === "running") {
-      if (shouldInterruptRunningTurn) {
-        logger.info(`Interrupting running session ${session.id} for new message`);
-        engine.kill(session.id, "Interrupted: new message received");
-        context.emit("session:interrupted", { sessionId: session.id, reason: "new message" });
-      } else if (!isNotification) {
-        context.emit("session:queued", { sessionId: session.id, message: prompt });
-      }
-    }
-
-    if (session.status === "interrupted") {
-      logger.info(`Resuming interrupted session ${session.id} (engineSessionId: ${session.engineSessionId})`);
-      updateSession(session.id, {
-        status: "running",
-        lastActivity: new Date().toISOString(),
-        lastError: null,
-      });
-      context.emit("session:resumed", { sessionId: session.id });
-    }
-
-    context.sessionManager.getQueue().clearCancelled(session.sessionKey || session.sourceRef || session.id);
-    const sessionKey = session.sessionKey || session.sourceRef || session.id;
-    let queueItemId: string | undefined;
-    if (!isNotification) {
-      queueItemId = enqueueQueueItem(session.id, sessionKey, prompt);
-      context.emit("queue:updated", { sessionId: session.id, sessionKey });
-    }
-    if (attached.blocked) {
-      json(res, { status: "checkpoint_required", sessionId: session.id });
-      return true;
-    }
-    if (queueItemId && hasPendingQueueItemBefore(sessionKey, queueItemId)) {
-      dispatchPendingWebQueueHeadForSessionKey(context, sessionKey);
-    } else {
-      // Mid_pair reviewer bypass fix: follow-up messages on an existing
-      // session previously called dispatchWebSessionRun directly, skipping
-      // the mid_pair orchestrator entirely — only the session's *first*
-      // dispatch (above, at session creation) went through it. Resolve the
-      // employee the same way the creation path does so a mid_pair-tier
-      // employee's follow-up turns get reviewed too.
-      let followUpEmployee: import("../../../shared/types.js").Employee | undefined;
-      if (session.employee && !session.parentSessionId) {
-        const { scanOrg: scanOrgForFollowUp } = await import("../../org.js");
-        followUpEmployee = scanOrgForFollowUp().get(session.employee);
-      }
-      dispatchEmployeeSessionRun(session, prompt, engine, config, context, followUpEmployee, {
-        queueItemId,
-        attachments: attached.engineAttachments.length > 0 ? attached.engineAttachments : undefined,
-        resourceContext: attached.promptBlock,
-      });
-    }
-
-    json(res, { status: "queued", sessionId: session.id });
+    const result = await continueSession({
+      sessionId: params.id,
+      body: parsed.body as Record<string, unknown>,
+      context,
+      principal,
+      userId: resolveUserHeader(req.headers, context.getConfig().gateway.userHeader),
+    });
+    json(res, result.body, result.statusCode);
     return true;
   }
 

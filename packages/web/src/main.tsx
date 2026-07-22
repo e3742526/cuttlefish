@@ -18,7 +18,6 @@ const OrgPage = lazyRoute(() => import('./routes/org/page'), 'org')
 const SettingsPage = lazyRoute(() => import('./routes/settings/page'), 'settings')
 const SkillsPage = lazyRoute(() => import('./routes/skills/page'), 'skills')
 const FilePage = lazyRoute(() => import('./routes/file/page'), 'file')
-const TalkPage = lazyRoute(() => import('./routes/talk/page'), 'talk')
 
 function RouteLoading() {
   return (
@@ -77,7 +76,7 @@ export function App() {
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/skills" element={<SkillsPage />} />
               <Route path="/file" element={<FilePage />} />
-              <Route path="/talk" element={<TalkPage />} />
+              <Route path="/talk" element={<Navigate to="/?lane=team" replace />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

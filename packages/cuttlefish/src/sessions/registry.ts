@@ -62,6 +62,7 @@ export {
   coercePortalEmployee,
   createSession,
   deleteSession,
+  deleteSessionTreeAtomically,
   deleteSessions,
   duplicateSession,
   getEmployeeSpendSince,
@@ -85,6 +86,7 @@ export {
   unlinkEmailReferencesForSessions,
   updateSession,
   type CreateSessionOpts,
+  type DeleteSessionTreeResult,
   type ListSessionsFilter,
   type UpdateSessionFields,
 } from './registry/sessions.js';
@@ -107,6 +109,13 @@ export {
   type MessageMedia,
   type SessionMessage,
 } from './registry/messages.js';
+export {
+  deleteCommunicationEventsForSessions,
+  insertCommunicationEvent,
+  listCommunicationEvents,
+  type CommunicationEventInput,
+  type StoredCommunicationEvent,
+} from './registry/communication-events.js';
 export {
   cancelAllPendingQueueItems,
   cancelQueueItem,

@@ -13,7 +13,7 @@ export interface GoToTarget {
 // docs/plans/2026-07-10-fleetview-ux-implementation-plan.md, Section 6.3.
 export const GO_TO_TARGETS: GoToTarget[] = [
   { key: "h", href: "/", label: "Chat" },
-  { key: "t", href: "/talk", label: "Talk" },
+  { key: "t", href: "/?lane=team", label: "Team" },
   { key: "o", href: "/org", label: "Organization" },
   { key: "k", href: "/kanban", label: "Kanban" },
   { key: "a", href: "/approvals", label: "Approvals" },

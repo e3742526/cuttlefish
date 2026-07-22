@@ -47,7 +47,8 @@ operator dashboards.
 | ID | Requirement | Status | Evidence |
 |---|---|---|---|
 | REQ-CLI-001 | Provide CLI commands for setup, start, stop, restart, status, pairing, single-instance inspection, skills, migration, and orchestration; lifecycle commands and `list` use the active Cuttlefish home. | verified | `packages/cuttlefish/bin/cuttlefish.ts`, `shared/instance-home.ts`, `cli/instances.ts` |
-| REQ-WEB-001 | Serve a Vite/React dashboard with chat, talk, kanban, cron, activity/logs, limits, org, settings, skills, file, and orchestration surfaces; chat model and effort selections apply to the next queued turn, and unknown client paths recover to the chat landing route. | verified | `packages/web/src/main.tsx`, `packages/web/src/main.test.tsx`, `gateway/__tests__/session-write-routes.test.ts`, `docs/feature_inventory.md` |
+| REQ-WEB-001 | Serve a Vite/React dashboard with project/session Team and Management collaboration, chat, kanban, cron, activity/logs, limits, org, settings, skills, file, and orchestration surfaces; chat model and effort selections apply to the next queued turn, stale `/talk` links redirect to Team, and unknown client paths recover to the chat landing route. | verified | `packages/web/src/main.tsx`, `packages/web/src/main.test.tsx`, `gateway/__tests__/session-write-routes.test.ts`, `docs/feature_inventory.md` |
+| REQ-COLLAB-001 | Project collaboration must project recursive root-session trees and unified activity without replacing session transport; structured Team and Management recipients, delivery receipts, one-turn eligible authority, stable URL/filter state, and guarded atomic tree deletion must preserve existing session authorization and communication boundaries. | verified | `packages/contracts/src/collaboration.ts`, `packages/cuttlefish/src/collaboration/`, `packages/cuttlefish/src/gateway/__tests__/collaboration-routes.test.ts`, `packages/cuttlefish/src/sessions/__tests__/registry-collaboration.test.ts`, `packages/web/src/components/chat/collaboration-pane.tsx` |
 | REQ-ENGINE-001 | Dispatch work through installed engine CLIs rather than internal model providers. | verified | `README.md`, `packages/cuttlefish/src/engines/*` |
 | REQ-CLAUDE-001 | Run Claude Code through the official CLI/PTTY path for subscription-friendly turns. | verified | `README.md`, Claude engine tests |
 | REQ-FILES-001 | Preserve managed upload/read/download/delete behavior through stable `/api/files` routes. | verified | `packages/cuttlefish/src/gateway/__tests__/files-facade-seam.test.ts` |
@@ -75,7 +76,7 @@ operator dashboards.
 - Runtime user state lives in the active Cuttlefish home: `~/.cuttlefish` by
   default or the path selected through `CUTTLEFISH_HOME`. Each active home has
   one canonical Cuttlefish instance name.
-- Sessions, messages, queue items, files/artifacts, archives, approvals,
+- Sessions, messages, append-only collaboration projection events, queue items, files/artifacts, archives, approvals,
   optional external-knowledge outbox rows, and orchestration state use
   SQLite-backed registries and related managed file paths.
 - Optional external knowledge export can also append generic JSONL envelopes to
@@ -95,6 +96,7 @@ operator dashboards.
 - Checkpoint API: `packages/cuttlefish/src/gateway/api/routes/checkpoints.ts`, `packages/cuttlefish/src/gateway/checkpoints.ts`.
 - Run bundle export API: `packages/cuttlefish/src/gateway/api/routes/session-write.ts`, `packages/cuttlefish/src/gateway/run-bundles.ts`.
 - External knowledge API: `packages/cuttlefish/src/gateway/api/routes/knowledge.ts`.
+- Project/Management collaboration API: `packages/cuttlefish/src/gateway/api/routes/collaboration.ts`.
 
 ## Validation Requirements
 
@@ -123,6 +125,7 @@ operator dashboards.
 - 2026-06-26: Added artifact registry requirement and API surface.
 - 2026-07-20: Reconciled active-home lifecycle behavior and unknown-route recovery
   with the live-playtest repair evidence.
+- 2026-07-21: Added project/session Team and Management collaboration requirements and retired the browser-only Talk route.
 - 2026-06-26: Added run-resource attachment requirement and session API surface.
 - 2026-06-26: Added generic human checkpoint requirement and API surface.
 - 2026-06-26: Added exportable run-bundle requirement and session API surface.

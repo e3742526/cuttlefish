@@ -226,10 +226,10 @@ Every department also has a **board**. Assign tickets to employees, watch work m
 - **⏰ Cron scheduling** - hot-reloadable background jobs with run history and optional failure alerts.
 - **📦 Skills** - reusable markdown playbooks auto-synced into the underlying CLIs; install community skills with one command.
 - **💬 Connectors** - Slack (threads + ✅ reaction approvals), WhatsApp, Twilio SMS, and inbound IMAP inbox polling/inspection.
-- **🌐 Web dashboard** - chat, interactive org map, kanban boards, cron visualizer, usage & limits, activity logs, skills catalog, settings.
+- **🌐 Web dashboard** - project/session Team feeds, a global Management feed, chat, interactive org map, kanban boards, cron visualizer, usage & limits, activity logs, skills catalog, and settings.
 - **🖥️ Chat or raw terminal** - toggle any session between rendered chat and a live `xterm` view of the engine.
 - **📎 Attachments** - drag, drop, or paste files and images into chat; passed through to the engine and rendered inline.
-- **🎙️ Voice** - push-to-talk dictation (local Whisper) and a hands-free "Talk" mission-control mode with streaming TTS.
+- **🎙️ Voice** - push-to-talk dictation with local Whisper and chat read-aloud with streaming TTS.
 - **💰 Cost governance** - per-employee monthly budgets and per-session cost/time caps.
 - **🗂️ Orchestration Command Center** - a durable, provider-neutral run scheduler with queue pause/resume, dual-lane (cross-provider) competition runs, worktree-isolated execution, recovery/requeue, and a dedicated operations dashboard.
 - **🧾 Traceability & provenance** - a persistent run ledger and artifact-lineage store record what ran, on which engine, and what it produced, so outputs can be traced back to their originating session and inputs.

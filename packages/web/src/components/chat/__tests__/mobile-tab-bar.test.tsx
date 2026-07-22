@@ -16,7 +16,7 @@ describe('MobileTabBar', () => {
     renderAt('/')
     const tabs = screen.getAllByRole('link')
     expect(tabs).toHaveLength(5)
-    for (const label of ['Chat', 'Talk', 'Organization', 'Approvals', 'Settings']) {
+    for (const label of ['Chat', 'Command Center', 'Organization', 'Approvals', 'Settings']) {
       expect(screen.getByRole('link', { name: label })).toBeDefined()
     }
   })
@@ -26,7 +26,7 @@ describe('MobileTabBar', () => {
     expect(
       screen.getByRole('link', { name: 'Chat' }).getAttribute('aria-current')
     ).toBe('page')
-    for (const label of ['Talk', 'Organization', 'Approvals', 'Settings']) {
+    for (const label of ['Command Center', 'Organization', 'Approvals', 'Settings']) {
       expect(
         screen.getByRole('link', { name: label }).getAttribute('aria-current')
       ).toBeNull()

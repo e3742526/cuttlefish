@@ -106,8 +106,9 @@ the command reports the successful final state and retains the installer detail.
 
 Routes are defined in `packages/web/src/main.tsx`:
 
-- `/`: primary chat workspace
-- `/talk`: multi-agent talk sessions
+- `/?lane=team`: project/session Team workspace with unified feeds, structured recipients, session inspection, and guarded project deletion
+- `/?lane=management`: global Management feed with optional project context and lead-first routing
+- `/talk`: compatibility redirect to the Team workspace
 - `/command`: Orchestration Command Center overview dashboard
 - `/kanban`: department boards and ticket dispatch
 - `/approvals`: human approval/checkpoint queue

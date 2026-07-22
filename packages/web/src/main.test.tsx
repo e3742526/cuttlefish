@@ -30,4 +30,11 @@ describe('App routes', () => {
     expect(await screen.findByText('Chat page')).toBeTruthy()
     expect(window.location.pathname).toBe('/')
   })
+
+  it('redirects stale Talk links into the Team collaboration lane', async () => {
+    window.history.replaceState({}, '', '/talk')
+    render(<App />)
+    expect(await screen.findByText('Chat page')).toBeTruthy()
+    expect(`${window.location.pathname}${window.location.search}`).toBe('/?lane=team')
+  })
 })

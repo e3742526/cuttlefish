@@ -390,9 +390,8 @@ export function NavRibbon({
     }
   }
   const orderedNavItems = applyNavOrder(settings.navOrder)
-  const primaryNavItems = orderedNavItems.filter((item) => item.href !== "/talk")
+  const primaryNavItems = orderedNavItems
   const primaryHrefs = primaryNavItems.map((item) => item.href)
-  const talkNavItem = NAV_ITEMS.find((item) => item.href === "/talk")
   return (
     // The placeholder reserves the rail width (w-14 = 56px) in the flex row; the
     // real rail floats above it so the per-icon label pills can escape to the
@@ -479,16 +478,8 @@ export function NavRibbon({
           <div aria-hidden className="h-0.5 w-7 shrink-0 rounded-full bg-[var(--accent)]" />
         )}
 
-        {/* Footer utilities — Talk stays docked just above the theme control. */}
+        {/* Footer utility. */}
         <div className="mt-auto flex flex-col gap-0.5 pt-1">
-          {talkNavItem && (
-            <RibbonRow
-              Icon={talkNavItem.icon}
-              label={talkNavItem.label}
-              href={talkNavItem.href}
-              isActive={isNavItemActive(talkNavItem.href, pathname)}
-            />
-          )}
           <RibbonRow Icon={themeGlyph(theme)} label={`Theme: ${theme}`} onClick={cycleTheme} />
         </div>
       </nav>

@@ -39,7 +39,9 @@
 - Implemented routes are:
   - `/` for the primary chat workspace; `/chat` redirects to `/`.
   - `/command` for the command-center overview.
-  - `/talk` for multi-agent talk sessions.
+  - `/talk` redirects to the Team collaboration lane for stale links; the
+    browser-only Talk surface is retired while backend Talk compatibility APIs
+    remain available.
   - `/kanban` for department ticket boards and dispatch controls.
   - `/approvals` for the unified pending-approvals and human-checkpoint queue.
   - `/archive` for archived session browsing.
@@ -54,16 +56,28 @@
 - A catch-all client route redirects unknown paths, including stale `/redesign`
   links, to `/` rather than leaving an empty dashboard shell.
 
-### Talk hook structure
+### Project/session collaboration
 
-- `packages/web/src/routes/talk/use-talk.ts` remains the public Talk state hook
-  used by `talk-provider.tsx`; its public type exports remain available from that
-  path.
-- `use-talk-session-lifecycle.ts` owns the gated orchestrator bootstrap,
-  rehydration/reconnect, and engine/model selection effects, while
-  `talk-side-state.ts` restores persisted dock labels and dismiss tombstones.
-- This is an internal ownership split only; the `/talk` route's provider, API,
-  WebSocket, and operator behavior are unchanged.
+- `GET /api/projects`, `GET /api/projects/:root/tree`, and
+  `GET /api/projects/:root/feed` expose root-session projects, their recursive
+  session trees, and stable-cursor unified activity feeds.
+- `POST /api/projects/:root/messages` and `POST /api/management/messages` accept
+  structured recipient identifiers. Team `@all` resolves only to the confirmed
+  active non-manager project roster; Management defaults through project lead,
+  Program Manager, then COO and requires an exact roster confirmation for
+  `@all`.
+- `GET /api/management/feed` is global with optional project context.
+  `GET /api/management/recipients` exposes the resolved management roster and
+  default target for composer preview.
+- `DELETE /api/projects/:root` requires the exact displayed project title and
+  session count, rejects active trees, and deletes the durable tree and owned
+  projection state in one transaction.
+- Operator authority scopes are structured, limited to one turn, and available
+  only for an explicitly selected eligible Program Manager or COO target.
+- The append-only `communication_events` table records collaboration sends and
+  delivery receipts without replacing session transport. Legacy messages and
+  lifecycle notifications are conservatively projected and labeled `inferred`
+  when their original author cannot be proven.
 
 ### Kanban ticket live session inspector
 - `packages/web/src/components/kanban/ticket-detail-panel.tsx`
@@ -648,21 +662,21 @@
   finished lifecycle text; opening the chat acknowledges the latest message.
   Live `session:notification` events refresh the session list so this does not
   depend on a later completion event or page reload.
-- The chat sidebar now defaults to a **Team** lane organized by project/session
+- The chat sidebar defaults to a **Team** lane organized by project/session
   trees. A project is derived from one durable root session plus every loaded
   recursive descendant. Expanding a project reveals the concrete sessions with
   their tree depth; opening a project selects its root session. This is a
-  presentation-only grouping and does not merge transcripts, parent links, or
-  session-scoped authorization.
+  projection. Selecting a project opens its unified feed; selecting a nested
+  session filters that feed and opens the session inspector. Existing transport,
+  transcript ownership, parent links, and session authorization remain intact.
 - Missing-parent and cyclic graphs remain visible in Team with integrity-warning
   affordances. Project rows aggregate descendant activity, participants,
   running work, and needs-attention state, and sort by the newest activity in
   the whole tree.
-- The sidebar's **Management** lane presents existing manager, executive, and
-  direct Cuttlefish conversations using their underlying sessions. A unified
-  management feed, structured multi-recipient routing, authority-scope controls,
-  project feed APIs, and atomic project-tree deletion remain unimplemented
-  SB-CUT-001 follow-up work.
+- The sidebar's **Management** lane opens a unified operator feed for manager,
+  executive, and direct Cuttlefish conversations. It supports structured
+  recipients, explicit multi-recipient delivery receipts, optional project
+  context, lead-first default routing, and eligible one-turn authority scopes.
 - Lifecycle text is color-coded consistently everywhere it renders: an expanded
   agent row's nested chats use the same "Needs your attention"
   (orange) / "Job failed" (red) / "Job finished" (green) / "New agent message"
@@ -680,8 +694,7 @@
   agent group is expanded. Clicking it opens the first such session.
 - The prior department Rooms projection remains in source for compatibility but
   is no longer offered by the sidebar lane control. Ordinary visible `@text`
-  remains non-authoritative; structured project and management recipient routing
-  is not claimed by this navigation slice.
+  remains non-authoritative; only selected structured recipient IDs drive routing.
 - Informational agent-to-human communication does not require a Kanban ticket.
   Approvals/checkpoints remain the durable surface when the agent is blocked on
   a human action or decision; Kanban remains optional work tracking rather than

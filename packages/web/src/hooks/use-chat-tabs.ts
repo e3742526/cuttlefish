@@ -13,6 +13,15 @@ export interface SessionTab extends BaseTab {
   employeeName?: string // Employee name for avatar generation
   status: 'idle' | 'running' | 'error'
   unread: boolean
+  /** Internal one-load marker for converting pre-collaboration persisted tabs. */
+  migrateToProject?: boolean
+}
+
+export interface ProjectTab extends BaseTab {
+  kind: 'project'
+  rootSessionId: string
+  status: 'idle' | 'running' | 'error'
+  unread: boolean
 }
 
 export interface FileTab extends BaseTab {
@@ -20,11 +29,12 @@ export interface FileTab extends BaseTab {
   path: string
 }
 
-export type ChatTab = SessionTab | FileTab
+export type ChatTab = SessionTab | ProjectTab | FileTab
 
 /** Stable identity for keying/dedupe across both kinds. */
 export function tabKey(t: ChatTab): string {
-  return t.kind === 'file' ? `file:${t.path}` : t.sessionId
+  if (t.kind === 'file') return `file:${t.path}`
+  return t.kind === 'project' ? `project:${t.rootSessionId}` : t.sessionId
 }
 
 const STORAGE_KEY = 'cuttlefish-chat-tabs'
@@ -53,9 +63,9 @@ function loadTabs(): TabState {
       const migrated = parsed.tabs.map((t) => {
         const tab = t as Partial<ChatTab> & { sessionId?: string }
         if (!tab.kind && tab.sessionId) {
-          return { ...tab, kind: 'session' } as ChatTab
+          return { ...tab, kind: 'session', migrateToProject: true } as ChatTab
         }
-        return tab as ChatTab
+        return tab.kind === 'session' ? { ...tab, migrateToProject: true } as ChatTab : tab as ChatTab
       })
       return { tabs: migrated, activeIndex: parsed.activeIndex }
     }
@@ -121,6 +131,23 @@ export function useChatTabs() {
         tabs: [...current.tabs, tab],
         activeIndex: current.tabs.length,
       }
+    })
+  }, [])
+
+  const openProjectTab = useCallback((incoming: Omit<ProjectTab, 'kind'>) => {
+    const tab: ProjectTab = { ...incoming, kind: 'project' }
+    setState((current) => {
+      const existing = current.tabs.findIndex((item) => item.kind === 'project' && item.rootSessionId === tab.rootSessionId)
+      if (existing >= 0) return { tabs: current.tabs, activeIndex: existing }
+      if (!tab.pinned) {
+        const preview = current.tabs.findIndex((item) => !item.pinned)
+        if (preview >= 0) {
+          const next = [...current.tabs]
+          next[preview] = { ...tab, pinned: false }
+          return { tabs: next, activeIndex: preview }
+        }
+      }
+      return { tabs: [...current.tabs, tab], activeIndex: current.tabs.length }
     })
   }, [])
 
@@ -235,7 +262,10 @@ export function useChatTabs() {
   /** Close the tab for a given sessionId (no-op if not open). */
   const closeTabBySessionId = useCallback((sessionId: string) => {
     setState((current) => {
-      const idx = current.tabs.findIndex((t) => t.kind === 'session' && t.sessionId === sessionId)
+      const idx = current.tabs.findIndex((t) =>
+        (t.kind === 'session' && t.sessionId === sessionId)
+        || (t.kind === 'project' && t.rootSessionId === sessionId),
+      )
       if (idx < 0) return current
       const nextTabs = current.tabs.filter((_, i) => i !== idx)
       if (nextTabs.length === 0) return { tabs: [], activeIndex: -1 }
@@ -257,9 +287,18 @@ export function useChatTabs() {
    */
   const reconcileTabs = useCallback(
     (
-      sessions: Array<{ id: string; title?: string; status?: string; employee?: string }>
+      sessions: Array<{ id: string; parentSessionId?: string | null; title?: string; status?: string; employee?: string }>
     ) => {
       const byId = new Map(sessions.map((s) => [s.id, s]))
+      const rootOf = (id: string) => {
+        const seen = new Set<string>()
+        let current = byId.get(id)
+        while (current?.parentSessionId && byId.has(current.parentSessionId) && !seen.has(current.parentSessionId)) {
+          seen.add(current.id)
+          current = byId.get(current.parentSessionId)
+        }
+        return current?.id ?? id
+      }
       setState((current) => {
         if (current.tabs.length === 0) return current
         const nextTabs: ChatTab[] = []
@@ -269,34 +308,43 @@ export function useChatTabs() {
             nextTabs.push(tab)
             continue
           }
+          if (tab.kind === 'project') {
+            const root = byId.get(tab.rootSessionId)
+            if (root) nextTabs.push({ ...tab, label: root.title || tab.label })
+            continue
+          }
           const session = byId.get(tab.sessionId)
           if (!session) continue // orphan — drop
-          let updated: SessionTab = tab
-          // Normalize stale 'running' if server says otherwise
-          if (
-            tab.status === 'running' &&
-            (session.status === 'idle' || session.status === 'error')
-          ) {
-            updated = {
-              ...updated,
-              status: session.status === 'error' ? 'error' : 'idle',
-            }
+          if (!tab.migrateToProject) {
+            const status = tab.status === 'running' && (session.status === 'idle' || session.status === 'error')
+              ? session.status : tab.status
+            nextTabs.push({
+              ...tab,
+              status,
+              label: session.title || tab.label,
+              employeeName: session.employee || tab.employeeName,
+            })
+            continue
           }
-          // Sync label if the server has a non-empty title that differs
-          if (session.title && session.title !== tab.label) {
-            updated = { ...updated, label: session.title }
+          const rootId = rootOf(session.id)
+          const root = byId.get(rootId) ?? session
+          if (!nextTabs.some((item) => item.kind === 'project' && item.rootSessionId === rootId)) {
+            nextTabs.push({
+              kind: 'project', rootSessionId: rootId, label: root.title || tab.label,
+              status: tab.status, unread: tab.unread, pinned: tab.pinned,
+            })
           }
-          if (session.employee && session.employee !== tab.employeeName) {
-            updated = { ...updated, employeeName: session.employee }
-          }
-          nextTabs.push(updated)
         }
         if (nextTabs.length === current.tabs.length) {
           // No structural change — only commit if any field actually changed
           const unchanged = nextTabs.every((t, i) => {
             const o = current.tabs[i]
+            if (t.kind !== o.kind) return false
             if (t.kind === 'session' && o.kind === 'session') {
               return t.label === o.label && t.status === o.status && t.employeeName === o.employeeName
+            }
+            if (t.kind === 'project' && o.kind === 'project') {
+              return t.label === o.label && t.status === o.status
             }
             return t.label === o.label
           })
@@ -317,12 +365,12 @@ export function useChatTabs() {
 
   return useMemo(() => ({
     tabs, activeTab, activeIndex,
-    openTab, openFileTab, closeTab, switchTab, nextTab, prevTab,
+    openTab, openProjectTab, openFileTab, closeTab, switchTab, nextTab, prevTab,
     pinTab, moveTab,
     clearActiveTab, updateTabStatus,
     closeTabBySessionId, reconcileTabs,
   }), [tabs, activeTab, activeIndex,
-    openTab, openFileTab, closeTab, switchTab, nextTab, prevTab,
+    openTab, openProjectTab, openFileTab, closeTab, switchTab, nextTab, prevTab,
     pinTab, moveTab,
     clearActiveTab, updateTabStatus,
     closeTabBySessionId, reconcileTabs])

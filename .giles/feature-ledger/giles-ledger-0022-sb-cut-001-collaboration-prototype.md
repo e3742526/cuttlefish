@@ -118,3 +118,84 @@ or change agent transport, callbacks, transcript ownership, or authority.
 Direct operator report that project/session consolidation did not surface;
 source, Git history, PR #50, local Codex session evidence, and live session
 registry inspection confirmed that only Gate 0 documentation had landed.
+
+## 2026-07-21 feature completion
+
+### Action summary
+Completed the accepted P0/P1 Project/Session Collaboration Prototype. Added
+durable collaboration contracts and projection storage, recursive project
+graph/feed services, structured Team and Management dispatch, constrained
+one-turn authority, scoped-principal boundaries, atomic inactive-tree deletion,
+durable URL and inspector state, project-tab migration, and built-browser E2E
+coverage. Retired only the Talk frontend while preserving backend Talk and
+shared read-aloud compatibility. A live smoke exposed and repaired an initial
+Team-without-project websocket refetch that requested `/api/projects/null/*`.
+
+### Touched files
+- Shared contracts: `packages/contracts/src/collaboration.ts` and
+  `packages/contracts/src/index.ts`.
+- Collaboration domain and tests: `packages/cuttlefish/src/collaboration/**`,
+  `packages/cuttlefish/src/gateway/api/routes/collaboration.ts`,
+  `packages/cuttlefish/src/gateway/__tests__/collaboration-routes.test.ts`, and
+  the collaboration route registration in `packages/cuttlefish/src/gateway/api.ts`.
+- Session continuation/persistence: `packages/cuttlefish/src/gateway/continue-session.ts`,
+  `packages/cuttlefish/src/gateway/session-resources.ts`,
+  `packages/cuttlefish/src/gateway/api/routes/session-write.ts`,
+  `packages/cuttlefish/src/sessions/registry.ts`,
+  `packages/cuttlefish/src/sessions/registry/{schema,sessions,communication-events}.ts`,
+  and `packages/cuttlefish/src/sessions/__tests__/registry-collaboration.test.ts`.
+- Collaboration UI/API/tests: `packages/web/src/components/chat/collaboration-*.tsx`,
+  `packages/web/src/components/chat/{project-delete-dialog,session-inspector}.tsx`,
+  `packages/web/src/lib/api-collaboration.ts`,
+  `packages/web/src/routes/chat/collaboration-route-state.ts`, and their tests.
+- Navigation/tab integration: `packages/web/src/routes/chat/{page,chat-page-shell}.tsx`,
+  `packages/web/src/components/chat/{chat-sidebar,sidebar-list-surface,sidebar-project-row}.tsx`,
+  `packages/web/src/hooks/use-chat-tabs.ts`, and associated tests.
+- Talk frontend retirement: web navigation/provider/vocabulary/search files,
+  `packages/web/src/main.tsx`, and the obsolete frontend files under
+  `packages/web/src/routes/talk/**`; `audio-player.ts` remains for shared chat
+  read-aloud and all backend `packages/cuttlefish/src/talk/**` behavior remains.
+- E2E/docs: `e2e/collaboration.spec.ts`, `scripts/start-e2e-server.mjs`,
+  `README.md`, `docs/{SPECIFICATION,USER_MANUAL,feature_inventory,TODO_LEDGER,TODO_HISTORY,TEST_LEDGER,INDEX}.md`,
+  the final audit/session records, and this ledger.
+
+### Validation run
+- Focused collaboration validation passed: 47 backend tests and 27 web tests.
+- `pnpm typecheck`: passed, 4/4 tasks.
+- `pnpm lint`: passed, 3/3 tasks with zero warnings.
+- `pnpm test`: passed; contracts 6/6, web 765/765 across 109 files, backend
+  2,490 passed with 1 skipped across 305 files.
+- `pnpm test:e2e --reporter=line`: passed, 9/9 scenarios.
+- `pnpm build`: passed and copied the production web bundle into the daemon.
+- `git diff --check`: passed.
+- The largest touched source files are below the 800-line gate:
+  `routes/chat/page.tsx` 785, `chat-sidebar.tsx` 785, and
+  `session-write.ts` 774 lines.
+- Remote synchronization was checked after `git fetch --prune`; local HEAD and
+  its upstream are 0 ahead / 0 behind, so no merge was required.
+- The rebuilt gateway relaunched as PID 90588 with 0 active sessions and a
+  healthy `/api/healthz` response.
+- Read-only live UI smoke against project `#66` confirmed the consolidated Team
+  feed, session inspectors, global Management feed, HR default, one-turn
+  authority controls, `/talk` redirect, and zero failed requests/console errors.
+- Live approval-auth proof bootstrapped a revocable local session, received 404
+  for Reject against a deliberately nonexistent approval (therefore passed the
+  auth gate instead of returning 401), and logged out. No real approval changed.
+
+### Remaining open items
+- P2 remains intentionally deferred: explicit project records/rosters,
+  workspace identity, durable cross-turn authority, inline tool streams, and
+  Talk backend API removal.
+- No live engine message or destructive real-project deletion was performed;
+  those paths are covered by hostile route/domain tests and isolated browser
+  fixtures.
+- The in-app browser service and Python Playwright were unavailable. The final
+  read-only live smoke used the repository's installed Node Playwright driver.
+- No commit or push was performed because this run was not separately
+  authorized to publish changes.
+
+### Provenance
+Direct operator request and accepted SB-CUT-001 plan; current source, repository
+tests, live local registry/UI/API evidence, and upstream Git comparison from
+2026-07-21. This is an agent-maintained Giles sidecar entry, not a canonical
+compliance declaration.

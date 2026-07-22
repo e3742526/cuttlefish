@@ -47,12 +47,11 @@ function saveRecent(item: RecentItem) {
 // Sourced from the vocabulary module so a page is never searchable under a
 // different name than its nav entry or page title (see lib/vocabulary.ts).
 // Covers every route in NAV_ITEMS so the palette can reach all of them —
-// previously several (Approvals, Archive, Talk, Limits, Orchestration) were
+// previously several (Approvals, Archive, Limits, Orchestration) were
 // missing here even though they had nav entries, and "Command Center" was
 // wired to the cmdk <Command> wrapper component instead of an icon.
 const STATIC_PAGES = [
   { id: "page-chat", label: VOCABULARY.chat.label, icon: VOCABULARY.chat.icon, href: "/" },
-  { id: "page-talk", label: VOCABULARY.talk.label, icon: VOCABULARY.talk.icon, href: "/talk" },
   { id: "page-command", label: VOCABULARY.commandCenter.label, icon: VOCABULARY.commandCenter.icon, href: "/command" },
   { id: "page-org", label: VOCABULARY.organization.label, icon: VOCABULARY.organization.icon, href: "/org" },
   { id: "page-kanban", label: VOCABULARY.kanban.label, icon: VOCABULARY.kanban.icon, href: "/kanban" },

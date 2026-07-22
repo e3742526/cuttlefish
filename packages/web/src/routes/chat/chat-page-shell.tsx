@@ -17,6 +17,7 @@ import type { Message } from '@/lib/conversations'
 import type { ViewMode } from '@/lib/view-mode'
 import type { ChatTab } from '@/hooks/use-chat-tabs'
 import { cn } from '@/lib/utils'
+import { CollaborationPane } from '@/components/chat/collaboration-pane'
 
 interface ChatPageShellProps {
   openFile: (path: string) => void
@@ -58,6 +59,20 @@ interface ChatPageShellProps {
   onCloseShortcuts: () => void
   onBackToList: () => void
   onSelectRoom: (roomId: string) => void
+  collaborationMode: boolean
+  collaborationLane: 'team' | 'management'
+  projectRootSessionId: string | null
+  sessionFilterId: string | null
+  inspectorOpen: boolean
+  onSelectProject: (rootSessionId: string) => void
+  onSelectProjectSession: (rootSessionId: string, sessionId: string) => void
+  onLaneChange: (lane: 'team' | 'management') => void
+  onInspectSession: (sessionId: string) => void
+  onCloseInspector: () => void
+  onInvalidProject: () => void
+  onInvalidSessionFilter: () => void
+  onOpenUnderlyingSession: (sessionId: string) => void
+  onProjectDeleted: (sessionIds: string[]) => void
 }
 
 export function ChatPageShell(props: ChatPageShellProps) {
@@ -79,6 +94,10 @@ export function ChatPageShell(props: ChatPageShellProps) {
                 onEmployeeSessionsAvailable={props.onEmployeeSessionsAvailable}
                 onOrderComputed={props.onOrderComputed}
                 onContactEmployee={props.onContactEmployee}
+                lane={props.collaborationLane}
+                onLaneChange={props.onLaneChange}
+                onSelectProject={props.onSelectProject}
+                onSelectProjectSession={props.onSelectProjectSession}
               />
             </div>
           </div>
@@ -119,6 +138,10 @@ export function ChatPageShell(props: ChatPageShellProps) {
                 onEmployeeSessionsAvailable={props.onEmployeeSessionsAvailable}
                 onOrderComputed={props.onOrderComputed}
                 onContactEmployee={props.onContactEmployee}
+                lane={props.collaborationLane}
+                onLaneChange={props.onLaneChange}
+                onSelectProject={props.onSelectProject}
+                onSelectProjectSession={props.onSelectProjectSession}
               />
             </div>
 
@@ -128,6 +151,20 @@ export function ChatPageShell(props: ChatPageShellProps) {
             )}>
               {props.activeTab?.kind === 'file' ? (
                 <FileView path={props.activeTab.path} embedded onBack={props.onFileBack} />
+              ) : props.collaborationMode ? (
+                <CollaborationPane
+                  lane={props.collaborationLane}
+                  projectRootSessionId={props.projectRootSessionId}
+                  sessionFilterId={props.sessionFilterId}
+                  inspectorOpen={props.inspectorOpen}
+                  connectionSeq={props.connectionSeq}
+                  onInspectSession={props.onInspectSession}
+                  onCloseInspector={props.onCloseInspector}
+                  onInvalidProject={props.onInvalidProject}
+                  onInvalidSessionFilter={props.onInvalidSessionFilter}
+                  onOpenUnderlyingSession={props.onOpenUnderlyingSession}
+                  onProjectDeleted={props.onProjectDeleted}
+                />
               ) : props.selectedRoomId ? (
                 props.selectedRoom ? (
                   <RoomTimeline

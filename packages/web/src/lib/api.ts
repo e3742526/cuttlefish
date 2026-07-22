@@ -1,4 +1,3 @@
-import type { TalkGraphNodeWire } from '@/routes/talk/protocol'
 import type {
   BackgroundActivity,
   PublicSession,
@@ -9,6 +8,7 @@ import { archiveApi } from "./api-archives"
 import { approvalApi } from "./api-approvals"
 import { authFetch, del, extractErrorMessage, get, post, put } from "./api-core"
 import { orgApi } from "./api-org"
+import { collaborationApi } from "./api-collaboration"
 
 export type {
   Approval,
@@ -157,44 +157,6 @@ export interface EngineLimitsResponse {
   engines: Record<string, EngineLimitEngineSnapshot>;
 }
 
-// --- Talk: session search + delegate (Mission Control) ---
-export interface TalkSearchHit {
-  snippet: string
-  role: string
-  ts: number
-}
-export interface TalkSearchResult {
-  sessionId: string
-  title: string | null
-  employee: string | null
-  source: string
-  lastActivity: string
-  status: string
-  isTalkChild: boolean
-  hits: TalkSearchHit[]
-}
-export interface TalkSearchResponse {
-  ok: true
-  results: TalkSearchResult[]
-}
-/** POST /api/talk/delegate body — see talkDelegate() / the server delegate.ts. */
-export interface TalkDelegateBody {
-  /** The caller's own talk session id (orchestratorId). Required. */
-  sessionId: string
-  /** "new" to spawn, or a session id to continue / attach / detach. */
-  thread: string
-  attach?: boolean
-  detach?: boolean
-  mode?: "observe" | "engage"
-  brief?: string
-  label?: string
-  utterance?: string
-}
-export type TalkDelegateResult =
-  | { ok: true; threadId: string; created: boolean }
-  | { ok: true; threadId: string; attached: true; mode: "observe" | "engage" }
-  | { ok: true; threadId: string; detached: true }
-
 export type WorkState =
   | 'queued' | 'running' | 'waiting_on_human' | 'blocked' | 'completed' | 'failed'
 
@@ -336,6 +298,7 @@ export interface TicketSessionResponse {
 }
 
 export const api = {
+  ...collaborationApi,
   ...approvalApi,
   ...archiveApi,
   ...orgApi,
@@ -445,90 +408,6 @@ export const api = {
   },
   sttUpdateConfig: (languages: string[]) =>
     put<{ status: string; languages: string[] }>("/api/stt/config", { languages }),
-  /**
-   * Talk (Path 1): bootstrap (or reuse) the voice orchestrator —
-   * a real gateway session with source:"talk". Voice turns then go through the
-   * normal sendMessage(); the spoken reply streams back as talk:audio over WS.
-   */
-  talkCreateSession: (fresh = false) =>
-    post<{ sessionId: string; reused: boolean }>("/api/talk/session", { fresh }),
-  /** Talk: full delegation-tree snapshot under the orchestrator (Mission Control).
-   *  Nodes are the wire type (incl. briefExcerpt/attached/mode), not a stripped copy. */
-  getTalkGraph: (rootId: string) =>
-    get<{ rootId: string; nodes: TalkGraphNodeWire[] }>(
-      `/api/talk/graph?root=${encodeURIComponent(rootId)}`,
-    ),
-  /** Talk: TTS/loop readiness + the active orchestrator engine/model. */
-  talkStatus: () =>
-    get<{
-      ttsAvailable: boolean
-      ttsDownloading: boolean
-      progress: number
-      voice?: string | null
-      ready?: boolean
-      /** Active orchestrator engine (null when none is installed). */
-      engine: string | null
-      model: string | null
-      /** True when the configured/default engine was unavailable and we fell back. */
-      engineFallback: boolean
-      /** Installed engines the orchestrator could use, in priority order. */
-      enginesAvailable: string[]
-    }>("/api/talk/status"),
-  /** Talk: kick off the local TTS model download (progress streams via talk:tts:download:* WS events). */
-  talkTtsDownload: () =>
-    post<{ status: string; model: string }>("/api/talk/tts/download", {}),
-  /** Talk: the currently-active orchestrator engine/model + the available set. */
-  talkEngineGet: () =>
-    get<{
-      engine: string | null
-      model: string | null
-      fallback: boolean
-      reason: string | null
-      available: string[]
-      configured: string | null
-      liveSessionEngine: string | null
-    }>("/api/talk/engine"),
-  /**
-   * Talk: switch the orchestrator engine and/or model.
-   * - model: applies to the live session on its next turn (no re-bootstrap).
-   * - engine: new-chat-only — the caller MUST re-bootstrap the talk session
-   *   (talkCreateSession) so the new engine is adopted.
-   */
-  talkEngineSet: (body: { engine?: string; model?: string }) =>
-    post<{
-      ok: boolean
-      engine: string | null
-      model: string | null
-      fallback: boolean
-      reason: string | null
-      available: string[]
-    }>("/api/talk/engine", body),
-  /**
-   * Talk: tell the gateway this talk session is muted (silent/read mode) so the
-   * run loop skips server-side Kokoro synthesis it would otherwise discard.
-   * Best-effort — the UI mutes regardless; this just saves the wasted synthesis.
-   */
-  talkSetMuted: (body: { sessionId: string; muted: boolean }) =>
-    post<{ ok: boolean; muted: boolean }>("/api/talk/mute", body),
-  /**
-   * Talk: search sessions by title/metadata + message content (FTS). Returns
-   * merged, de-duped results (≤20, ≤3 hits each); snippets carry «» highlight
-   * markers. Throws on 4xx with the backend `error` message.
-   */
-  talkSearch: (q: string, limit?: number) =>
-    get<TalkSearchResponse>(
-      `/api/talk/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ""}`,
-    ),
-  /**
-   * Talk: server-owned delegate surface — spawn (thread:"new"), continue an
-   * owned COO thread (thread:"<id>"), or attach/detach a soft link
-   * (attach:true / detach:true, optional mode:"observe"|"engage" + brief).
-   * NOTE: a follow-up to an ALREADY-attached engage session does NOT go here
-   * (both delegate paths 400 — see the thread drawer's composer, which uses
-   * sendMessage instead). Throws on 4xx with the backend `error` message.
-   */
-  talkDelegate: (body: TalkDelegateBody) =>
-    post<TalkDelegateResult>("/api/talk/delegate", body),
   getSessionQueue: (id: string) =>
     get<QueueItem[]>(`/api/sessions/${id}/queue`),
   cancelQueueItem: (sessionId: string, itemId: string) =>

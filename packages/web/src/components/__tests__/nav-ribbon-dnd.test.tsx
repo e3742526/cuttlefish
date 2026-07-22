@@ -65,7 +65,6 @@ describe("NavRibbon drag-to-reorder", () => {
     const saved = JSON.parse(localStorage.getItem("cuttlefish-settings")!)
     expect(Array.isArray(saved.navOrder)).toBe(true)
     expect(saved.navOrder.indexOf("/settings")).toBeLessThan(saved.navOrder.indexOf("/org"))
-    // Talk is never part of the reorderable set.
     expect(saved.navOrder).not.toContain("/talk")
   })
 
@@ -81,15 +80,13 @@ describe("NavRibbon drag-to-reorder", () => {
     })
   })
 
-  it("keeps Talk docked below the main icons even after a reorder", () => {
+  it("does not render the retired Talk surface after a reorder", () => {
     renderRibbon()
     const dt = makeDataTransfer()
     fireEvent.dragStart(screen.getByLabelText("Settings"), { dataTransfer: dt })
     fireEvent.dragOver(screen.getByLabelText("Organization"), { dataTransfer: dt, clientY: 0 })
     fireEvent.drop(screen.getByLabelText("Organization"), { dataTransfer: dt })
 
-    const labels = railLabels()
-    // Talk stays in the footer cluster — after every primary item, incl. Settings.
-    expect(labels.indexOf("Talk")).toBeGreaterThan(labels.indexOf("Settings"))
+    expect(railLabels()).not.toContain("Talk")
   })
 })

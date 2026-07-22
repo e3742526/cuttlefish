@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { renderHook, act, waitFor } from '@testing-library/react'
 import { useChatTabs, tabKey } from '../use-chat-tabs'
 
 describe('useChatTabs', () => {
@@ -91,6 +91,34 @@ describe('useChatTabs', () => {
     act(() => result.current.openTab({ sessionId: 's3', label: 'C', status: 'idle', unread: false, pinned: true }))
     act(() => result.current.moveTab(0, 2))
     expect(result.current.tabs.map(t => tabKey(t))).toEqual(['s2', 's3', 's1'])
+  })
+
+  it('migrates persisted child session tabs to one deduplicated project tab', async () => {
+    localStorage.setItem('cuttlefish-chat-tabs', JSON.stringify({
+      tabs: [
+        { kind: 'session', sessionId: 'child-a', label: 'A', status: 'idle', unread: false, pinned: true },
+        { kind: 'session', sessionId: 'child-b', label: 'B', status: 'idle', unread: false, pinned: true },
+      ],
+      activeIndex: 0,
+    }))
+    const { result } = renderHook(() => useChatTabs())
+    await waitFor(() => expect(result.current.tabs).toHaveLength(2))
+    act(() => result.current.reconcileTabs([
+      { id: 'root', title: 'Project Alpha' },
+      { id: 'child-a', parentSessionId: 'root' },
+      { id: 'child-b', parentSessionId: 'root' },
+    ]))
+    expect(result.current.tabs).toEqual([expect.objectContaining({
+      kind: 'project', rootSessionId: 'root', label: 'Project Alpha',
+    })])
+  })
+
+  it('deduplicates explicitly opened project tabs by root identity', () => {
+    const { result } = renderHook(() => useChatTabs())
+    act(() => result.current.openProjectTab({ rootSessionId: 'root', label: 'Project', status: 'idle', unread: false }))
+    act(() => result.current.openProjectTab({ rootSessionId: 'root', label: 'Project', status: 'idle', unread: false }))
+    expect(result.current.tabs).toHaveLength(1)
+    expect(tabKey(result.current.tabs[0])).toBe('project:root')
   })
 })
 

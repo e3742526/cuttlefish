@@ -29,7 +29,6 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   // Work
   { href: "/", label: VOCABULARY.chat.label, icon: VOCABULARY.chat.icon, group: "work" },
-  { href: "/talk", label: VOCABULARY.talk.label, icon: VOCABULARY.talk.icon, group: "work" },
   { href: "/kanban", label: VOCABULARY.kanban.label, icon: VOCABULARY.kanban.icon, group: "work" },
   { href: "/approvals", label: VOCABULARY.approval.plural, icon: VOCABULARY.approval.icon, group: "work" },
   { href: "/archive", label: VOCABULARY.archive.label, icon: VOCABULARY.archive.icon, group: "work" },
@@ -49,7 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
 // Cron: attention beats configuration on a small screen. Long-tail nav
 // stays reachable via the popover/settings screen.
 // Derived from NAV_ITEMS by href so icons/labels stay in sync with the source.
-const MOBILE_TAB_HREFS = ["/", "/talk", "/org", "/approvals", "/settings"] as const
+const MOBILE_TAB_HREFS = ["/", "/command", "/org", "/approvals", "/settings"] as const
 export const MOBILE_TAB_ITEMS: NavItem[] = MOBILE_TAB_HREFS.map(
   (href) => NAV_ITEMS.find((item) => item.href === href)!,
 )

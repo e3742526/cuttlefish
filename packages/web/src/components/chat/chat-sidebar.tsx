@@ -41,7 +41,7 @@ import {
   saveExpandedState,
   savePinnedSessions,
 } from "./sidebar-storage"
-import type { FlatItem, Session, SidebarOrder } from "./sidebar-types"
+import type { FlatItem, Session, SidebarOrder, ViewMode } from "./sidebar-types"
 import {
   buildContactableEmployees,
   buildManagerEmployees,
@@ -79,6 +79,10 @@ interface ChatSidebarProps {
   onOrderComputed?: (order: SidebarOrder) => void
   onContactEmployee?: (name: string) => void
   onSelectRoom?: (roomId: string) => void
+  onSelectProject?: (rootSessionId: string) => void
+  onSelectProjectSession?: (rootSessionId: string, sessionId: string) => void
+  onLaneChange?: (lane: "team" | "management") => void
+  lane?: "team" | "management"
 }
 
 export function ChatSidebar({
@@ -92,6 +96,10 @@ export function ChatSidebar({
   onOrderComputed,
   onContactEmployee,
   onSelectRoom,
+  onSelectProject,
+  onSelectProjectSession,
+  onLaneChange,
+  lane,
 }: ChatSidebarProps) {
   const { pushToast } = useToast()
   const { settings } = useSettings()
@@ -152,6 +160,12 @@ export function ChatSidebar({
   const deleteButtonRef = useRef<HTMLButtonElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [listScrolled, setListScrolled] = useState(false)
+
+  useEffect(() => {
+    if (!lane) return
+    const expected = lane === "team" ? "projects" : "management"
+    if (viewMode !== expected) selectViewMode(expected)
+  }, [lane, selectViewMode, viewMode])
 
   const employeeData = useMemo(() => {
     const map = new Map<string, Employee>()
@@ -418,6 +432,10 @@ export function ChatSidebar({
   }, [allFlatIds, onOrderComputed])
 
   const handleEmployeeClick = useCallback((item: FlatItem) => {
+    if (lane === "management") {
+      onLaneChange?.("management")
+      return
+    }
     const employeeName = item.employeeName!
     const employeeSessions = item.sessions!
     if (employeeSessions.length > 1) {
@@ -431,12 +449,25 @@ export function ChatSidebar({
       onSelect(employeeSessions[0].id)
       onEmployeeSessionsAvailable?.(employeeSessions)
     }
-  }, [expanded, onEmployeeSessionsAvailable, onSelect, toggleEmployeeExpanded])
+  }, [expanded, lane, onEmployeeSessionsAvailable, onLaneChange, onSelect, toggleEmployeeExpanded])
 
   const handleProjectClick = useCallback((project: SessionProject) => {
-    onSelect(project.rootSessionId)
+    if (onSelectProject) onSelectProject(project.rootSessionId)
+    else onSelect(project.rootSessionId)
     onEmployeeSessionsAvailable?.(project.sessions)
-  }, [onEmployeeSessionsAvailable, onSelect])
+  }, [onEmployeeSessionsAvailable, onSelect, onSelectProject])
+
+  const handleProjectSessionClick = useCallback((project: SessionProject, sessionId: string) => {
+    if (onSelectProjectSession) onSelectProjectSession(project.rootSessionId, sessionId)
+    else onSelect(sessionId)
+    onEmployeeSessionsAvailable?.(project.sessions)
+  }, [onEmployeeSessionsAvailable, onSelect, onSelectProjectSession])
+
+  const handleViewModeSelect = useCallback((mode: ViewMode) => {
+    selectViewMode(mode)
+    if (mode === "projects") onLaneChange?.("team")
+    if (mode === "management") onLaneChange?.("management")
+  }, [onLaneChange, selectViewMode])
 
   const fixTitle = useCallback((title: string | undefined, employee: string | undefined) => {
     if (!title) return employee || portalName
@@ -633,7 +664,7 @@ export function ChatSidebar({
       <SidebarHeader
         listScrolled={listScrolled}
         viewMode={viewMode}
-        selectViewMode={selectViewMode}
+        selectViewMode={handleViewModeSelect}
         needsAttentionCount={needsAttentionSessions.length}
         onOpenAttention={() => onSelect(needsAttentionSessions[0].id)}
         searchOpen={searchOpen}
@@ -649,7 +680,7 @@ export function ChatSidebar({
         search={search}
         viewMode={viewMode}
         hiddenAutomated={hiddenAutomated}
-        selectViewMode={selectViewMode}
+        selectViewMode={handleViewModeSelect}
         virtualItems={virtualItems}
         sharedRowProps={sharedRowProps}
         selectedId={selectedId}
@@ -659,6 +690,7 @@ export function ChatSidebar({
         expandedProjects={expandedProjects}
         toggleProjectExpanded={toggleProjectExpanded}
         handleProjectClick={handleProjectClick}
+        handleProjectSessionClick={handleProjectSessionClick}
         expanded={expanded}
         handleEmployeeClick={handleEmployeeClick}
         handleMarkAllRead={handleMarkAllRead}

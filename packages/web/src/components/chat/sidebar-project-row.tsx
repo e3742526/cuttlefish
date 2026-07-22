@@ -100,11 +100,13 @@ export function ProjectSessionRow({
   session,
   depth,
   sharedRowProps,
+  onSelect,
 }: {
   project: SessionProject
   session: SessionProject["rootSession"]
   depth: number
   sharedRowProps: SidebarSharedRowProps
+  onSelect: () => void
 }) {
   return (
     <div role="treeitem" aria-level={depth + 2}>
@@ -113,6 +115,7 @@ export function ProjectSessionRow({
         depth={depth}
         parentSessions={project.sessions}
         {...sharedRowProps}
+        onSelect={onSelect}
       />
     </div>
   )

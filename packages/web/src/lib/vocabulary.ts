@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react"
 import {
   Archive,
   MessageSquare,
-  AudioLines,
   Users,
   Clock,
   LayoutGrid,
@@ -38,12 +37,6 @@ export const VOCABULARY = {
     plural: "Chats",
     definition: "A conversation thread with an employee, streamed live as work happens.",
     icon: MessageSquare,
-  },
-  talk: {
-    label: "Talk",
-    plural: "Talk",
-    definition: "Voice-first conversation mode with an employee.",
-    icon: AudioLines,
   },
   organization: {
     label: "Organization",

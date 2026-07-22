@@ -30,6 +30,31 @@ const scrollMessages = Array.from({ length: 30 }, (_, index) => ({
   content: `Scroll fixture message ${index + 1}: ${"deterministic content ".repeat(8)}`,
   timestamp: Date.parse("2026-07-16T00:00:00.000Z") + index * 1000,
 }))
+const projectSummary = {
+  rootSessionId: scrollSession.id,
+  title: "E2E collaboration project",
+  lastActivity: scrollSession.lastActivity,
+  jobState: "idle",
+  sessionCount: 1,
+  participantIds: ["builder"],
+  integrity: "valid",
+  runningCount: 0,
+  needsAttentionCount: 0,
+}
+const collaborationItems = [{
+  id: "e2e-collaboration-message",
+  lane: "team",
+  projectRootSessionId: scrollSession.id,
+  sessionId: scrollSession.id,
+  kind: "message",
+  author: { kind: "agent", id: "builder", displayName: "Builder" },
+  recipients: ["operator"],
+  content: "Collaboration feed is ready",
+  timestamp: Date.parse("2026-07-16T01:00:00.000Z"),
+  attribution: "recorded",
+  projectTitle: projectSummary.title,
+}]
+const managementItems = []
 
 const emptyTelemetryBucket = {
   count: 0,
@@ -82,7 +107,7 @@ const jsonFixtures = new Map([
   }],
   ["/api/org", {
     departments: [],
-    employees: [],
+    employees: [{ name: "builder", displayName: "Builder", rank: "individual", lifecycle: "active", engine: "claude" }],
     hierarchy: { root: null, sorted: [], warnings: [] },
   }],
   ["/api/workspace-profiles", { profiles: [] }],
@@ -184,6 +209,17 @@ function sendJson(res, body, status = 200) {
   res.end(JSON.stringify(body))
 }
 
+function readJson(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on("data", (chunk) => chunks.push(chunk))
+    req.on("end", () => {
+      try { resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {}) }
+      catch (error) { reject(error) }
+    })
+  })
+}
+
 function resolveStaticFile(pathname) {
   const requested = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "")
   const candidate = path.resolve(webRoot, requested)
@@ -196,13 +232,44 @@ function resolveStaticFile(pathname) {
   return path.join(webRoot, "index.html")
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`)
   if (url.pathname === "/api/readyz") return sendJson(res, { status: "ready" })
   if (url.pathname === `/api/sessions/${scrollSession.id}`) {
     return sendJson(res, { ...scrollSession, messages: scrollMessages })
   }
   if (url.pathname === `/api/sessions/${scrollSession.id}/queue`) return sendJson(res, [])
+  if (url.pathname === "/api/projects") return sendJson(res, { projects: [projectSummary], nextCursor: null })
+  if (url.pathname === `/api/projects/${scrollSession.id}/tree`) {
+    return sendJson(res, { project: projectSummary, tree: [{ session: { ...scrollSession, employee: "builder", jobState: "idle", lastAgentMessageAt: null }, depth: 0, children: [] }] })
+  }
+  if (url.pathname === `/api/projects/${scrollSession.id}/feed`) return sendJson(res, { items: collaborationItems, nextCursor: null })
+  if (req.method === "POST" && url.pathname === `/api/projects/${scrollSession.id}/messages`) {
+    const body = await readJson(req)
+    collaborationItems.push({
+      id: `e2e-team-${collaborationItems.length}`, lane: "team", projectRootSessionId: scrollSession.id,
+      sessionId: scrollSession.id, kind: "message", author: { kind: "operator", displayName: "You" },
+      recipients: body.recipientIds ?? ["builder"], content: body.message, timestamp: Date.now(), attribution: "recorded",
+      projectTitle: projectSummary.title, deliveryReceipts: [{ recipientId: "builder", sessionId: scrollSession.id, state: "queued" }],
+    })
+    return sendJson(res, { status: "queued", receipts: [{ recipientId: "builder", sessionId: scrollSession.id, state: "queued" }] }, 202)
+  }
+  if (url.pathname === "/api/management/recipients") return sendJson(res, {
+    recipients: [{ id: "program-manager", displayName: "Program Manager", rank: "manager", active: true }, { id: "cuttlefish", displayName: "Cuttlefish", rank: "executive", active: true }],
+    defaultRecipientId: "program-manager", defaultReason: "program_manager",
+  })
+  if (url.pathname === "/api/management/feed") return sendJson(res, { items: managementItems, nextCursor: null })
+  if (req.method === "POST" && url.pathname === "/api/management/messages") {
+    const body = await readJson(req)
+    const recipients = body.recipientIds ?? ["program-manager"]
+    const receipts = recipients.map((recipientId) => ({ recipientId, sessionId: `e2e-${recipientId}`, state: "queued" }))
+    managementItems.push({
+      id: `e2e-management-${managementItems.length}`, lane: "management", kind: "message",
+      author: { kind: "operator", displayName: "You" }, recipients, content: body.message,
+      timestamp: Date.now(), attribution: "recorded", deliveryReceipts: receipts,
+    })
+    return sendJson(res, { status: "queued", receipts, ...(body.operatorDelegationScopes ? { authorityGrant: { recipientId: recipients[0], scopes: body.operatorDelegationScopes, oneTurn: true, modelEligible: true } } : {}) }, 202)
+  }
   if (jsonFixtures.has(url.pathname)) return sendJson(res, jsonFixtures.get(url.pathname))
   if (url.pathname.startsWith("/api/")) {
     return sendJson(res, { error: `No E2E fixture for ${url.pathname}` }, 501)

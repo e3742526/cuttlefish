@@ -62,13 +62,13 @@ describe("NavRibbon", () => {
     expect(screen.queryByLabelText("Command")).toBeNull()
   })
 
-  it("keeps Talk in the bottom utility cluster above Theme instead of in the main nav list", () => {
+  it("does not render the retired Talk surface", () => {
     const { container } = renderRibbon({ listOpen: true })
     const nav = container.querySelector('nav[aria-label="Primary"]')
     expect(nav).toBeTruthy()
     const links = within(nav as HTMLElement).getAllByRole("link")
     const labels = links.map((node) => node.getAttribute("aria-label"))
-    expect(labels.indexOf("Talk")).toBeGreaterThan(labels.indexOf("Settings"))
+    expect(labels).not.toContain("Talk")
   })
 
   it("marks the active route with aria-current and a non-accent fill", () => {

@@ -35,6 +35,7 @@ interface SidebarListSurfaceProps {
   expandedProjects: Set<string>
   toggleProjectExpanded: (rootSessionId: string) => void
   handleProjectClick: (project: SessionProject) => void
+  handleProjectSessionClick: (project: SessionProject, sessionId: string) => void
   expanded: Record<string, boolean>
   handleEmployeeClick: SidebarEmployeeRowProps["handleEmployeeClick"]
   handleMarkAllRead: SidebarEmployeeRowProps["handleMarkAllRead"]
@@ -73,6 +74,7 @@ export function SidebarListSurface({
   expandedProjects,
   toggleProjectExpanded,
   handleProjectClick,
+  handleProjectSessionClick,
   expanded,
   handleEmployeeClick,
   handleMarkAllRead,
@@ -180,6 +182,7 @@ export function SidebarListSurface({
             session={item.node.session}
             depth={item.node.depth}
             sharedRowProps={sharedRowProps}
+            onSelect={() => handleProjectSessionClick(item.project, item.node.session.id)}
           />
         )
       case "cron-header":

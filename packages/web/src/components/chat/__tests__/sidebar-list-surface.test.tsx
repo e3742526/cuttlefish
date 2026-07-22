@@ -55,6 +55,7 @@ function renderSurface(props?: Partial<React.ComponentProps<typeof SidebarListSu
       expandedProjects={new Set()}
       toggleProjectExpanded={vi.fn()}
       handleProjectClick={vi.fn()}
+      handleProjectSessionClick={vi.fn()}
       expanded={{}}
       handleEmployeeClick={vi.fn()}
       handleMarkAllRead={vi.fn()}

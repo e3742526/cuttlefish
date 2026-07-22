@@ -69,6 +69,12 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-21-sb-cut-001-collaboration-complete.md` and
+  `docs/logs/session/072026/2026-07-21-sb-cut-001-collaboration-complete.md`:
+  completed Project/Session Collaboration Prototype with unified Team and
+  Management feeds, structured routing and authority, durable URL/inspector
+  state, atomic project-tree deletion, Talk frontend retirement, full release
+  validation, rebuilt live-daemon proof, and approval-auth reconfirmation.
 - `docs/audits/072026/2026-07-20-leader-ack-root-cause-repair.md`: root-cause analysis and closure evidence for premature background callbacks, stale manager-synthesis suppression, and stale acknowledgement re-arming; also records the two-contact supervisor policy and cheap executive triage.
 - `docs/audits/072026/2026-07-20-test-scenario-library-rigor-audit.md` and
   `docs/logs/session/072026/2026-07-20-test-scenario-library-rigor-expansion.md`:
