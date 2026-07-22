@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type {
   ContentScreeningAction,
   ContentScreeningResult,
@@ -8,6 +9,7 @@ import type {
   RunAttachment,
   UntrustedContentSource,
 } from "../shared/types.js";
+import { isInterruptibleEngine } from "../shared/types.js";
 import type { ApiContext } from "./api/context.js";
 import { scanOrg } from "./org.js";
 import { SECURITY_REVIEWER_EMPLOYEE_NAME } from "./security-review.js";
@@ -17,6 +19,7 @@ import { SKILLS_DIR, CLAUDE_SKILLS_DIR, AGENTS_SKILLS_DIR } from "../shared/path
 const MAX_SCREENED_TEXT_BYTES = 128 * 1024;
 const MAX_SCREENED_TEXT_CHARS = 16_000;
 const MAX_PROMPT_TEXT_CHARS = 8_000;
+const SECURITY_REVIEW_TIMEOUT_MS = 10_000;
 const TEXT_EXTENSIONS = new Set([
   ".txt",
   ".md",
@@ -346,16 +349,37 @@ async function classifyWithSecurityOfficer(
   if (!reviewer) return null;
   const engine = context.sessionManager.getEngine(reviewer.engine || context.getConfig().engines.default);
   if (!engine) return null;
+  const reviewerSessionId = `content-screen-${randomUUID()}`;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
-    const result = await engine.run({
+    const run = engine.run({
       prompt: buildScreeningPrompt(input),
       systemPrompt: reviewerSystemPrompt(reviewer),
       cwd: process.cwd(),
       model: reviewer.model,
       effortLevel: reviewer.effortLevel,
-      sessionId: `content-screen-${Date.now()}`,
+      sessionId: reviewerSessionId,
       source: "web",
     });
+    // A timed-out engine may reject after the HTTP request has already fallen
+    // back to deterministic policy. Attach the handler before racing so that
+    // late process settlement can never become an unhandled rejection.
+    run.catch((err) => {
+      if (timedOut) {
+        logger.warn(
+          `content screening reviewer settled after timeout: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    });
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        timedOut = true;
+        reject(new Error("content screening reviewer timed out"));
+      }, SECURITY_REVIEW_TIMEOUT_MS);
+      timeout.unref?.();
+    });
+    const result = await Promise.race([run, deadline]);
     const parsed = parseReviewerJson(result.result);
     const verdict = normalizeReviewerVerdict(parsed?.verdict);
     if (!parsed || !verdict) return null;
@@ -379,8 +403,28 @@ async function classifyWithSecurityOfficer(
       occurredAt: new Date().toISOString(),
     };
   } catch (err) {
+    if (timedOut) {
+      if (isInterruptibleEngine(engine)) {
+        try {
+          engine.kill(reviewerSessionId, "Content screening reviewer timed out");
+        } catch (killErr) {
+          logger.warn(
+            `content screening reviewer cleanup failed: ${killErr instanceof Error ? killErr.message : String(killErr)}`,
+          );
+        }
+      }
+      const fallback = heuristicClassification(input.text, input.source);
+      logger.warn(`content screening reviewer timed out after ${SECURITY_REVIEW_TIMEOUT_MS}ms; using deterministic policy`);
+      return {
+        ...fallback,
+        screener: "policy",
+        summary: `Security reviewer timed out; deterministic policy screening applied. ${fallback.summary}`,
+      };
+    }
     logger.warn(`content screening reviewer failed: ${err instanceof Error ? err.message : String(err)}`);
     return null;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 
