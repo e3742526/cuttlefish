@@ -134,8 +134,12 @@
 
 ### Usage limits empty state
 - `packages/web/src/routes/limits/page.tsx`
+- `packages/cuttlefish/src/cli/limits.ts`
 - The `/limits` page now renders an explicit "No engine data yet" empty state when the
   daemon has not yet collected any usage snapshots, instead of showing a blank page.
+- `cuttlefish limits --json` suppresses model-discovery diagnostics for that
+  invocation so successful stdout is exactly one parseable JSON document; ordinary
+  discovery calls keep their existing logs.
 
 ### Matrix orchestration operations dashboard
 - `packages/web/src/routes/orchestration/page.tsx`
@@ -439,6 +443,10 @@
 - `GET /api/sessions/:id/resources` lists the session's normalized run resources.
 - `POST /api/sessions/:id/resources` attaches resources to an existing run
   without sending a prompt.
+- Security-officer content review is bounded to 10 seconds. A timed-out
+  interruptible reviewer is stopped, and attachment handling continues through a
+  visible deterministic-policy result while retaining the destructive-content
+  quarantine floor.
 - Engine dispatch still receives exact local file paths when available, while
   the prompt also includes a structured "Attached resources" block for folders,
   URLs, access mode, intended use, artifact linkage, and producing-run context.
@@ -469,6 +477,9 @@
   session with a stored or supplied prompt. Repeating the same terminal
   decision is explicitly idempotent; a conflicting terminal decision returns
   a machine-readable conflict and leaves the original decision unchanged.
+- Every decision response reads the session after its checkpoint metadata is
+  persisted, so its top-level checkpoint and embedded `humanCheckpoint` state
+  describe the same committed decision on the first response.
 - Claude interactive Bash `PreToolUse` hooks now reuse this checkpoint flow for
   risky commands. Commands that are review-gated are denied at hook time,
   recorded as durable checkpoints with the blocked command and trigger
@@ -637,8 +648,13 @@
   - This source tree does not contain a scheduler/provider map architecture for routing Kiro to AWS. No Kiro-to-AWS provider mapping was added.
 
 ### Context manager MVP
+- `packages/cuttlefish/src/engines/ollama.ts`
 - Internal prompt/context assembly can run in `context.managerMode: off | shadow | on`, with `CUTTLEFISH_CONTEXT_MANAGER` as an environment override.
 - `off` is the default and preserves existing behavior. `shadow` logs structured context metadata without changing engine input. `on` applies managed Cuttlefish-history selection only for synthetic-history engines: Ollama, Kilo, and Aider.
+- Ollama invocations request hidden thinking and no terminal word wrapping. A
+  chunk-aware sanitizer removes CSI, OSC, carriage-return, and other terminal
+  controls before assistant deltas are streamed or retained, while preserving
+  ordinary text, Unicode, newlines, and tabs.
 - Native-resume engines such as Claude, Codex, and Grok remain unmodified in `on` mode; they still rely on their CLI-owned session/thread state.
 - V1 metadata includes estimated before/after tokens, model context limit, reserved response/safety budget, slot usage, dropped/summarized records, and an empty retrieved-memory placeholder. No persistent memory, vector retrieval, or MCP memory dependency is added.
 

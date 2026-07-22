@@ -69,6 +69,13 @@ artifacts unless explicitly published.
 
 ## Session and Audit Log Summaries
 
+- `docs/audits/072026/2026-07-21-full-scenario-library-playtest.md` and
+  `docs/logs/session/072026/2026-07-21-full-scenario-library-playtest.md`, plus
+  `docs/logs/session/072026/2026-07-21-playtest-defect-repair-campaign.md`:
+  225-card review and 61-card partial live execution using disposable homes;
+  records and subsequently closes four P2 checkpoint, resource-screening,
+  Ollama-output, and CLI-JSON defects while preserving browser and
+  specialized-fixture capability gates.
 - `docs/audits/072026/2026-07-21-sb-cut-001-collaboration-complete.md` and
   `docs/logs/session/072026/2026-07-21-sb-cut-001-collaboration-complete.md`:
   completed Project/Session Collaboration Prototype with unified Team and
