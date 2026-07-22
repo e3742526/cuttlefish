@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { withStaticTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
 import type { ServerResponse } from "node:http";
 import os from "node:os";
@@ -10,14 +10,17 @@ const { home: tmp } = withStaticTempCuttlefishHome("cuttlefish-work-");
 type Api = typeof import("../api.js");
 type Approvals = typeof import("../approvals.js");
 type Reg = typeof import("../../sessions/registry.js");
+type StatusRoutes = typeof import("../api/routes/status.js");
 let api: Api;
 let store: Approvals;
 let reg: Reg;
+let statusRoutes: StatusRoutes;
 
 beforeAll(async () => {
   api = await import("../api.js");
   store = await import("../approvals.js");
   reg = await import("../../sessions/registry.js");
+  statusRoutes = await import("../api/routes/status.js");
   reg.initDb();
   store.__setApprovalsStoreForTest(path.join(tmp, "approvals.json"));
 });
@@ -196,5 +199,55 @@ describe("GET /api/work", () => {
         expect.objectContaining({ employee: "worker", usage: expect.objectContaining({ day: expect.objectContaining({ totalTokens: 80 }) }) }),
       ]),
     );
+  });
+
+  it("reuses cached board ticket counts when command-center boards are unchanged", async () => {
+    statusRoutes.resetBoardTicketCountCacheForTests();
+    fs.mkdirSync(path.join(tmp, "org", "platform"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmp, "org", "platform", "lead.yaml"),
+      [
+        "name: platform-lead",
+        "displayName: Platform Lead",
+        "department: platform",
+        "rank: manager",
+        "engine: claude",
+        "model: sonnet",
+        "persona: Platform lead",
+      ].join("\n"),
+    );
+    const boardPath = path.join(tmp, "org", "platform", "board.json");
+    fs.writeFileSync(
+      boardPath,
+      JSON.stringify([
+        { id: "plat-1", title: "Todo", description: "", status: "todo", priority: "medium", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      ]),
+    );
+
+    const ctx = {
+      getConfig: () => ({ gateway: {}, engines: {}, portal: { portalName: "Cuttlefish" } }),
+      emit: () => {},
+      connectors: new Map(),
+      sessionManager: {
+        getEngine: () => ({ isTurnRunning: () => false }),
+        getQueue: () => ({ getTransportState: (_k: string, s: string) => s, getPendingCount: () => 0 }),
+      },
+    } as unknown as import("../api.js").ApiContext;
+
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    const first = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/command-center"), first.res, ctx);
+    const readsAfterFirst = readSpy.mock.calls
+      .filter(([file]: [unknown, ...unknown[]]) => file === boardPath).length;
+
+    const second = makeRes();
+    await api.handleApiRequest(makeReq("GET", "/api/command-center"), second.res, ctx);
+    const readsAfterSecond = readSpy.mock.calls
+      .filter(([file]: [unknown, ...unknown[]]) => file === boardPath).length;
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(readsAfterFirst).toBe(1);
+    expect(readsAfterSecond).toBe(1);
   });
 });

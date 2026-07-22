@@ -60,6 +60,58 @@ export type {
  */
 export const RESERVED_ORG_DIRS = new Set(["_changes", "_drafts", "_retired"]);
 
+interface OrgScanCacheEntry {
+  fingerprint: string;
+  registry: Map<string, Employee>;
+  warnings: OrgWarning[];
+}
+
+let orgScanCache: OrgScanCacheEntry | null = null;
+
+function cloneOrgRegistry(registry: Map<string, Employee>): Map<string, Employee> {
+  return new Map(
+    Array.from(registry.entries(), ([name, employee]) => [name, structuredClone(employee)]),
+  );
+}
+
+function cloneOrgWarnings(warnings: OrgWarning[]): OrgWarning[] {
+  return warnings.map((warning) => structuredClone(warning));
+}
+
+function buildOrgFingerprint(dir: string): string {
+  if (!fs.existsSync(dir)) return "missing";
+  const parts: string[] = [];
+  const walk = (currentDir: string): void => {
+    const entries = fs.readdirSync(currentDir, { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        if (RESERVED_ORG_DIRS.has(entry.name)) continue;
+        walk(fullPath);
+        continue;
+      }
+      if (
+        (entry.name.endsWith(".yaml") || entry.name.endsWith(".yml"))
+        && entry.name !== "department.yaml"
+      ) {
+        const stat = fs.statSync(fullPath);
+        parts.push(`${path.relative(dir, fullPath)}:${stat.size}:${stat.mtimeMs}`);
+      }
+    }
+  };
+  walk(dir);
+  return parts.join("|");
+}
+
+export function resetOrgScanCacheForTests(): void {
+  orgScanCache = null;
+}
+
+function invalidateOrgScanCache(): void {
+  orgScanCache = null;
+}
+
 /**
  * Recursively walk `dir`, invoking `visit` for every employee YAML file
  * (.yaml/.yml, skipping department.yaml and the reserved HR dirs). Stops early
@@ -234,9 +286,19 @@ function parseEmployeeData(data: any, fullPath: string): Employee | undefined {
  *   zero-arg call site keeps its exact prior behavior.
  */
 export function scanOrg(warningsOut?: OrgWarning[]): Map<string, Employee> {
-  const registry = new Map<string, Employee>();
+  const fingerprint = buildOrgFingerprint(ORG_DIR);
+  if (orgScanCache?.fingerprint === fingerprint) {
+    warningsOut?.push(...cloneOrgWarnings(orgScanCache.warnings));
+    return cloneOrgRegistry(orgScanCache.registry);
+  }
 
-  if (!fs.existsSync(ORG_DIR)) return registry;
+  const registry = new Map<string, Employee>();
+  const warnings: OrgWarning[] = [];
+
+  if (!fs.existsSync(ORG_DIR)) {
+    orgScanCache = { fingerprint, registry, warnings };
+    return registry;
+  }
 
   walkEmployeeYamls(ORG_DIR, (fullPath) => {
     try {
@@ -245,7 +307,7 @@ export function scanOrg(warningsOut?: OrgWarning[]): Map<string, Employee> {
       if (employee) registry.set(employee.name, employee);
     } catch (err) {
       logger.warn(`Failed to parse employee file ${fullPath}: ${err}`);
-      warningsOut?.push({
+      warnings.push({
         employee: path.basename(fullPath),
         type: "parse_error",
         message: `Failed to parse employee file ${path.relative(ORG_DIR, fullPath)}: ${err}`,
@@ -254,6 +316,12 @@ export function scanOrg(warningsOut?: OrgWarning[]): Map<string, Employee> {
     return undefined; // keep walking — scanOrg visits every file
   });
 
+  orgScanCache = {
+    fingerprint,
+    registry: cloneOrgRegistry(registry),
+    warnings: cloneOrgWarnings(warnings),
+  };
+  warningsOut?.push(...cloneOrgWarnings(warnings));
   return registry;
 }
 
@@ -328,6 +396,7 @@ export function updateEmployeeYaml(
 
     const merged = mergeEmployeeUpdateData(data, updates);
     safeWriteYaml(filePath, merged, { dumpOptions: { lineWidth: -1 }, audit: { actor: "gateway", op: "org.employee.save" } });
+    invalidateOrgScanCache();
     return true;
   } catch (err) {
     logger.warn(`Failed to update employee YAML for ${name}: ${err}`);
@@ -500,6 +569,7 @@ export function createEmployeeYaml(employee: EmployeeCreate): boolean {
     fs.mkdirSync(departmentDir, { recursive: true });
     const data = buildEmployeeCreateData(employee);
     safeWriteYaml(filePath, data, { dumpOptions: { lineWidth: -1 }, audit: { actor: "gateway", op: "org.employee.create" } });
+    invalidateOrgScanCache();
     return true;
   } catch (err) {
     logger.warn(`Failed to create employee YAML for ${employee.name}: ${err}`);
@@ -525,6 +595,7 @@ export function deleteEmployeeYaml(name: string): boolean {
   }
   try {
     fs.unlinkSync(filePath);
+    invalidateOrgScanCache();
     return true;
   } catch (err) {
     logger.warn(`Failed to delete employee YAML for ${name}: ${err}`);
@@ -549,6 +620,7 @@ export function retireEmployeeYaml(name: string): boolean {
     const retiredPath = path.join(ORG_RETIRED_DIR, `${name}.yaml`);
     safeWriteYaml(retiredPath, data, { dumpOptions: { lineWidth: -1 }, audit: { actor: "gateway", op: "org.employee.retire" } });
     fs.unlinkSync(filePath);
+    invalidateOrgScanCache();
     return true;
   } catch (err) {
     logger.warn(`Failed to retire employee YAML for ${name}: ${err}`);

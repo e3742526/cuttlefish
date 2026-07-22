@@ -22,6 +22,7 @@ vi.mock("../../shared/logger.js", () => ({
 }));
 
 import {
+  resetOrgScanCacheForTests,
   scanOrg,
   validateEmployeeCreate as validateEmployeeCreateFromFacade,
   validateEmployeeUpdate as validateEmployeeUpdateFromFacade,
@@ -47,10 +48,12 @@ describe("org facade validation compatibility", () => {
 describe("scanOrg — alwaysNotify field", () => {
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "org-test-"));
+    resetOrgScanCacheForTests();
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+    resetOrgScanCacheForTests();
   });
 
   it("defaults alwaysNotify to true when not specified in YAML", () => {
@@ -98,5 +101,19 @@ alwaysNotify: "yes"
     const emp = registry.get("bad");
     expect(emp).toBeDefined();
     expect(emp!.alwaysNotify).toBe(true);
+  });
+
+  it("reuses the parsed registry when org files are unchanged", () => {
+    writeYaml("platform", "cached.yaml", `
+name: cached
+persona: Cached employee
+`);
+    const readSpy = vi.spyOn(fs, "readFileSync");
+
+    expect(scanOrg().get("cached")?.name).toBe("cached");
+    const readsAfterFirstScan = readSpy.mock.calls.length;
+
+    expect(scanOrg().get("cached")?.name).toBe("cached");
+    expect(readSpy.mock.calls.length).toBe(readsAfterFirstScan);
   });
 });

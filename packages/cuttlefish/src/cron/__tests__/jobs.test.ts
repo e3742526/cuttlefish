@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { CronJob } from "../../shared/types.js";
 import { withTempCuttlefishHome } from "../../test-utils/cuttlefish-home.js";
-import { appendRunLog, loadJobs, saveJobs } from "../jobs.js";
+import { appendRunLog, loadJobs, resetLoadJobsCacheForTests, saveJobs } from "../jobs.js";
 
 // Stub logger so tests don't touch the real log files
 vi.mock("../../shared/logger.js", () => ({
@@ -20,10 +20,12 @@ const testHome = withTempCuttlefishHome("cuttlefish-cron-jobs-");
 
 beforeEach(() => {
   tmpHome = testHome.home();
+  resetLoadJobsCacheForTests();
 });
 
 afterEach(() => {
   vi.clearAllMocks();
+  resetLoadJobsCacheForTests();
 });
 
 function makeJob(overrides: Partial<CronJob> = {}): CronJob {
@@ -104,6 +106,19 @@ describe("loadJobs", () => {
     expect(jobs).toHaveLength(1);
     expect(jobs[0].id).toBe("bad-schedule");
     expect(jobs[0].schedule).toBe("99 99 99 99 99");
+  });
+
+  it("reuses parsed jobs while jobs.json is unchanged", () => {
+    const jobs = [makeJob()];
+
+    saveJobs(jobs);
+    const readSpy = vi.spyOn(fs, "readFileSync");
+
+    expect(loadJobs()).toEqual(jobs);
+    const readsAfterFirstLoad = readSpy.mock.calls.length;
+
+    expect(loadJobs()).toEqual(jobs);
+    expect(readSpy.mock.calls.length).toBe(readsAfterFirstLoad);
   });
 });
 

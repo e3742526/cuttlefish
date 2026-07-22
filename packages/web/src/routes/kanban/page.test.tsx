@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAssigneeChangeUpdate, buildDepartmentBoardSaveRequests, getBoardLoadDepartments } from './page'
+import { buildAssigneeChangeUpdate, buildDepartmentBoardSaveRequests, getBoardLoadDepartments, loadDepartmentBoards } from './page'
 import type { Employee } from '@/lib/api'
 import type { KanbanStore } from '@/lib/kanban/store'
 
@@ -165,5 +165,60 @@ describe('getBoardLoadDepartments', () => {
       employees: [],
       hierarchy: { root: null, sorted: [], warnings: [] },
     })).toEqual(['general'])
+  })
+})
+
+describe('loadDepartmentBoards', () => {
+  it('starts department fetches in parallel and merges the results once they settle', async () => {
+    let resolveEngineering!: (value: any) => void
+    let resolveMarketing!: (value: any) => void
+    const calls: string[] = []
+
+    const promise = loadDepartmentBoards(['engineering', 'marketing'], (department) => {
+      calls.push(department)
+      return new Promise((resolve) => {
+        if (department === 'engineering') resolveEngineering = resolve
+        else resolveMarketing = resolve
+      })
+    })
+
+    expect(calls).toEqual(['engineering', 'marketing'])
+
+    resolveMarketing({
+      tickets: [{
+        id: 'marketing-1',
+        title: 'Marketing board',
+        description: '',
+        status: 'todo',
+        priority: 'medium',
+        createdAt: '2026-06-25T12:00:00.000Z',
+        updatedAt: '2026-06-25T12:00:00.000Z',
+      }],
+      deletedTickets: [],
+      retentionDays: 4,
+    })
+    resolveEngineering({
+      tickets: [{
+        id: 'engineering-1',
+        title: 'Engineering board',
+        description: '',
+        status: 'blocked',
+        priority: 'high',
+        createdAt: '2026-06-25T13:00:00.000Z',
+        updatedAt: '2026-06-25T13:00:00.000Z',
+      }],
+      deletedTickets: [],
+      retentionDays: 2,
+    })
+
+    await expect(promise).resolves.toMatchObject({
+      retentionDays: 4,
+      departmentRetentionDays: { engineering: 2, marketing: 4 },
+      warnings: [],
+      boardTickets: {
+        'marketing-1': expect.objectContaining({ departmentId: 'marketing' }),
+        'engineering-1': expect.objectContaining({ departmentId: 'engineering' }),
+      },
+    })
   })
 })

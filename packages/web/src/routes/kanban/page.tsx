@@ -42,6 +42,14 @@ export function getBoardLoadDepartments(data: OrgData): string[] {
   return Array.isArray(data.boardDepartments) ? data.boardDepartments : data.departments
 }
 
+export interface LoadedDepartmentBoards {
+  boardTickets: KanbanStore
+  deletedTickets: DeletedKanbanTicket[]
+  retentionDays: number
+  departmentRetentionDays: Record<string, number>
+  warnings: string[]
+}
+
 function clampRecycleBinRetentionDays(value: unknown): number {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return DEFAULT_RECYCLE_BIN_RETENTION_DAYS
@@ -108,6 +116,54 @@ function mapDeletedBoardTicket(item: DepartmentBoardTicket, department: string):
   return {
     ...mapBoardTicket(item, department),
     deletedAt: item.deletedAt ? new Date(item.deletedAt).getTime() : Date.now(),
+  }
+}
+
+export async function loadDepartmentBoards(
+  boardDepartments: string[],
+  getDepartmentBoard: (department: string) => Promise<DepartmentBoardResponse> = (department) => api.getDepartmentBoard(department),
+): Promise<LoadedDepartmentBoards> {
+  const results = await Promise.all(
+    boardDepartments.map(async (department) => {
+      try {
+        const board = await getDepartmentBoard(department)
+        return { department, board } as const
+      } catch (err) {
+        return { department, error: err } as const
+      }
+    }),
+  )
+
+  const boardTickets: KanbanStore = {}
+  const deletedTickets: DeletedKanbanTicket[] = []
+  let retentionDays: number | null = null
+  const departmentRetentionDays: Record<string, number> = {}
+  const warnings: string[] = []
+
+  for (const result of results) {
+    if ('error' in result) {
+      const message = result.error instanceof Error ? result.error.message : 'Failed to load board.'
+      if (/404|not found/i.test(message)) continue
+      warnings.push(`${result.department}: ${message}`)
+      continue
+    }
+    const nextRetentionDays = clampRecycleBinRetentionDays(result.board.retentionDays)
+    departmentRetentionDays[result.department] = nextRetentionDays
+    retentionDays = retentionDays == null ? nextRetentionDays : Math.max(retentionDays, nextRetentionDays)
+    for (const item of result.board.tickets) {
+      boardTickets[item.id] = mapBoardTicket(item, result.department)
+    }
+    for (const item of result.board.deletedTickets) {
+      deletedTickets.push(mapDeletedBoardTicket(item, result.department))
+    }
+  }
+
+  return {
+    boardTickets,
+    deletedTickets: deletedTickets.sort((a, b) => b.deletedAt - a.deletedAt),
+    retentionDays: retentionDays ?? DEFAULT_RECYCLE_BIN_RETENTION_DAYS,
+    departmentRetentionDays,
+    warnings,
   }
 }
 
@@ -282,40 +338,16 @@ export default function KanbanPage() {
         const boardDepartments = getBoardLoadDepartments(data)
         setEmployees(data.employees)
         setDepartments(boardDepartments)
-
-        // Load board tickets from all departments
-        const boardTickets: KanbanStore = {}
-        const nextDeletedTickets: DeletedKanbanTicket[] = []
-        let nextRetentionDays: number | null = null
-        const nextDepartmentRetentionDays: Record<string, number> = {}
-        const warnings: string[] = []
-        for (const dept of boardDepartments) {
-          try {
-            const board: DepartmentBoardResponse = await api.getDepartmentBoard(dept)
-            const retentionDays = clampRecycleBinRetentionDays(board.retentionDays)
-            nextDepartmentRetentionDays[dept] = retentionDays
-            nextRetentionDays = nextRetentionDays == null ? retentionDays : Math.max(nextRetentionDays, retentionDays)
-            for (const item of board.tickets) {
-              boardTickets[item.id] = mapBoardTicket(item, dept)
-            }
-            for (const item of board.deletedTickets) {
-              nextDeletedTickets.push(mapDeletedBoardTicket(item, dept))
-            }
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Failed to load board.'
-            if (/404|not found/i.test(message)) continue
-            warnings.push(`${dept}: ${message}`)
-          }
-        }
+        const loadedBoards = await loadDepartmentBoards(boardDepartments)
 
         // API is the sole source of truth on load. Do not merge localStorage —
         // agent-made changes (moves, deletes) are only reflected in the API,
         // and stale localStorage entries would cause ghost / wrong-state tickets.
-        setTickets(boardTickets)
-        setDeletedTickets(nextDeletedTickets.sort((a, b) => b.deletedAt - a.deletedAt))
-        setDepartmentRetentionDays(nextDepartmentRetentionDays)
-        setBoardLoadWarnings(warnings)
-        setRecycleBinRetentionDays(nextRetentionDays ?? DEFAULT_RECYCLE_BIN_RETENTION_DAYS)
+        setTickets(loadedBoards.boardTickets)
+        setDeletedTickets(loadedBoards.deletedTickets)
+        setDepartmentRetentionDays(loadedBoards.departmentRetentionDays)
+        setBoardLoadWarnings(loadedBoards.warnings)
+        setRecycleBinRetentionDays(loadedBoards.retentionDays)
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))

@@ -6,6 +6,31 @@ import { safeWriteFile } from "../shared/safe-write.js";
 import { logger } from "../shared/logger.js";
 import { parseStoredCronJob, sanitizeCronLogId } from "./validation.js";
 
+interface CronJobsCacheEntry {
+  fingerprint: string;
+  jobs: CronJob[];
+}
+
+let cronJobsCache: CronJobsCacheEntry | null = null;
+
+function cloneJobs(jobs: CronJob[]): CronJob[] {
+  return jobs.map((job) => structuredClone(job));
+}
+
+function jobsFingerprint(): string {
+  try {
+    const stat = fs.statSync(CRON_JOBS);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw err;
+  }
+}
+
+export function resetLoadJobsCacheForTests(): void {
+  cronJobsCache = null;
+}
+
 /** Backs up the current jobs.json contents next to the original, best-effort. */
 function backupJobsFile(suffix: string): string {
   const backupPath = `${CRON_JOBS}.${suffix}-${Date.now()}`;
@@ -18,6 +43,9 @@ function backupJobsFile(suffix: string): string {
 }
 
 export function loadJobs(): CronJob[] {
+  const fingerprint = jobsFingerprint();
+  if (cronJobsCache?.fingerprint === fingerprint) return cloneJobs(cronJobsCache.jobs);
+
   let raw: string;
   try {
     raw = fs.readFileSync(CRON_JOBS, "utf-8");
@@ -28,6 +56,7 @@ export function loadJobs(): CronJob[] {
         `Failed to read cron jobs file ${CRON_JOBS}: ${err instanceof Error ? err.message : err}`,
       );
     }
+    cronJobsCache = { fingerprint, jobs: [] };
     return [];
   }
   let parsed: unknown;
@@ -40,6 +69,7 @@ export function loadJobs(): CronJob[] {
       `Failed to parse cron jobs file ${CRON_JOBS}: ${err instanceof Error ? err.message : err}. ` +
       `Corrupt copy saved to ${backupPath}; running with zero cron jobs.`,
     );
+    cronJobsCache = { fingerprint, jobs: [] };
     return [];
   }
   if (!Array.isArray(parsed)) {
@@ -48,6 +78,7 @@ export function loadJobs(): CronJob[] {
       `Cron jobs file ${CRON_JOBS} did not contain a JSON array. ` +
       `Corrupt copy saved to ${backupPath}; running with zero cron jobs.`,
     );
+    cronJobsCache = { fingerprint, jobs: [] };
     return [];
   }
 
@@ -78,6 +109,7 @@ export function loadJobs(): CronJob[] {
       `Original copy saved to ${backupPath}; running with ${validJobs.length} valid job(s).`,
     );
   }
+  cronJobsCache = { fingerprint, jobs: cloneJobs(validJobs) };
   return validJobs;
 }
 
@@ -86,6 +118,7 @@ export function saveJobs(jobs: CronJob[]): void {
   safeWriteFile(CRON_JOBS, JSON.stringify(jobs, null, 2) + "\n", {
     audit: { actor: "gateway", op: "cron.save" },
   });
+  cronJobsCache = null;
 }
 
 export const DEFAULT_MAX_RUN_LOG_ENTRIES = 1000;

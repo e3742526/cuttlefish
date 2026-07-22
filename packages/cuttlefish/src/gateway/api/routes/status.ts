@@ -53,14 +53,21 @@ interface CommandCenterManagerSummary {
   running: boolean;
 }
 
+interface BoardTicketCountCacheEntry {
+  fingerprint: string;
+  counts: Record<string, number>;
+}
+
 const COMMAND_CENTER_RANGES: Array<{ key: CommandCenterRangeKey; ms: number }> = [
   { key: "day", ms: 24 * 60 * 60 * 1000 },
   { key: "week", ms: 7 * 24 * 60 * 60 * 1000 },
   { key: "month", ms: 30 * 24 * 60 * 60 * 1000 },
 ];
 
-function readDepartmentTicketCounts(orgDir: string, departments: string[]): Record<string, number> {
-  const counts: Record<string, number> = {
+const boardTicketCountCache = new Map<string, BoardTicketCountCacheEntry>();
+
+function emptyBoardTicketCounts(): Record<string, number> {
+  return {
     backlog: 0,
     todo: 0,
     in_progress: 0,
@@ -68,25 +75,64 @@ function readDepartmentTicketCounts(orgDir: string, departments: string[]): Reco
     done: 0,
     blocked: 0,
   };
+}
+
+function cloneBoardTicketCounts(counts: Record<string, number>): Record<string, number> {
+  return { ...counts };
+}
+
+function boardFingerprint(boardPath: string): string {
+  try {
+    const stat = fs.statSync(boardPath);
+    return `${stat.size}:${stat.mtimeMs}`;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw err;
+  }
+}
+
+function readBoardTicketCounts(boardPath: string): Record<string, number> {
+  const fingerprint = boardFingerprint(boardPath);
+  const cached = boardTicketCountCache.get(boardPath);
+  if (cached?.fingerprint === fingerprint) return cloneBoardTicketCounts(cached.counts);
+  if (fingerprint === "missing") {
+    boardTicketCountCache.delete(boardPath);
+    return emptyBoardTicketCounts();
+  }
+
+  const counts = emptyBoardTicketCounts();
+  try {
+    const raw = JSON.parse(fs.readFileSync(boardPath, "utf-8")) as unknown;
+    const tickets = Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === "object" && Array.isArray((raw as { tickets?: unknown[] }).tickets)
+        ? (raw as { tickets: unknown[] }).tickets
+        : [];
+    for (const ticket of tickets) {
+      const status = typeof (ticket as { status?: unknown })?.status === "string"
+        ? (ticket as { status: string }).status
+        : null;
+      if (status && status in counts) counts[status] += 1;
+    }
+  } catch {
+    // Board corruption already surfaces on the board route; the command center
+    // stays best-effort and simply omits unreadable departments.
+  }
+  boardTicketCountCache.set(boardPath, { fingerprint, counts: cloneBoardTicketCounts(counts) });
+  return counts;
+}
+
+export function resetBoardTicketCountCacheForTests(): void {
+  boardTicketCountCache.clear();
+}
+
+function readDepartmentTicketCounts(orgDir: string, departments: string[]): Record<string, number> {
+  const counts = emptyBoardTicketCounts();
   for (const department of departments) {
     const boardPath = path.join(orgDir, department, "board.json");
-    if (!fs.existsSync(boardPath)) continue;
-    try {
-      const raw = JSON.parse(fs.readFileSync(boardPath, "utf-8")) as unknown;
-      const tickets = Array.isArray(raw)
-        ? raw
-        : raw && typeof raw === "object" && Array.isArray((raw as { tickets?: unknown[] }).tickets)
-          ? (raw as { tickets: unknown[] }).tickets
-          : [];
-      for (const ticket of tickets) {
-        const status = typeof (ticket as { status?: unknown })?.status === "string"
-          ? (ticket as { status: string }).status
-          : null;
-        if (status && status in counts) counts[status] += 1;
-      }
-    } catch {
-      // Board corruption already surfaces on the board route; the command center
-      // stays best-effort and simply omits unreadable departments.
+    const departmentCounts = readBoardTicketCounts(boardPath);
+    for (const key of Object.keys(counts)) {
+      counts[key] += departmentCounts[key] ?? 0;
     }
   }
   return counts;
